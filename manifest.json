@@ -1,0 +1,18 @@
+{
+  "name": "莉莉娅的魔法写作岛",
+  "short_name": "莉莉娅魔法岛",
+  "description": "EK莉莉娅 的多书 AI 写作工作台 · 分书 / 分卷 / 灵感 / 跨设备同步一体",
+  "lang": "zh-CN",
+  "start_url": "./?v=4",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#17161c",
+  "theme_color": "#17161c",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}
