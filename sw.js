@@ -1,5 +1,5 @@
 /* 莉莉娅的写作岛 · 离线 Service Worker（让网页变成可离线打开的 APP，且自动同步新版本） */
-const CACHE = 'jkd-app-v56';
+const CACHE = 'jkd-app-v57';
 const STATIC = [
   './',
   './index.html',
@@ -43,27 +43,19 @@ self.addEventListener('fetch', (e) => {
   }
   if (!sameOrigin) return;
 
-  // 页面导航（主文档）：网络优先，但带 4 秒超时 + HTTP 状态校验。
-  // 服务端故障、返回错误页、弱网卡死、彻底离线 —— 任何一种情况都回落到本地缓存副本，
-  // 保证 APP 永远能打开。成功时顺带把最新页面写回缓存，让离线副本保持最新。
+  // 页面导航（主文档）：缓存优先 —— 立刻返回已缓存的 index.html（秒开），同时后台静默拉取最新版写回缓存。
+  // 首次访问无缓存时回退网络；网络/服务端故障时永远有本地副本兜底，APP 不会白屏。
+  // 这样「下拉刷新 / 重载」都即时，不再每次走网络重新下载 1.1MB。
   if (req.mode === 'navigate') {
     e.respondWith(
-      new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('nav-timeout')), NAV_TIMEOUT);
-        fetch(req, { cache: 'no-cache' }).then((resp) => {
-          clearTimeout(timer);
-          if (!resp || !resp.ok) {
-            reject(new Error('nav-bad-status'));
-            return;
+      caches.match('./index.html').then(function (cached) {
+        fetch(req, { cache: 'no-cache' }).then(function (resp) {
+          if (resp && resp.ok) {
+            caches.open(CACHE).then(function (c) { c.put('./index.html', resp.clone()); }).catch(function () {});
           }
-          const cp = resp.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', cp)).catch(() => {});
-          resolve(resp);
-        }).catch((err) => {
-          clearTimeout(timer);
-          reject(err);
-        });
-      }).catch(() => shellFromCache())
+        }).catch(function () {});
+        return cached || fetch(req);
+      })
     );
     return;
   }

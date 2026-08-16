@@ -7242,8 +7242,15 @@ if('serviceWorker' in navigator){
   window.addEventListener('online', _checkAppUpdate);
   window.checkAppUpdate=_checkAppUpdate;
 }
-/* 手动同步刷新（桌面顶栏按钮 + 下拉手势共用）：先查版本更新，再整体刷新（localStorage 不丢） */
-function syncRefresh(){ if(window.checkAppUpdate)window.checkAppUpdate(); setTimeout(function(){ location.reload(); }, 300); }
+/* 手动同步刷新（桌面顶栏按钮 + 下拉手势共用）：
+   书稿全在 localStorage，下拉的诉求只是「看最新保存的内容」——直接用本地数据秒级重渲染即可，
+   不联网、不整页重载、不丢稿；新版本检测交给 Service Worker 后台静默完成（见 controllerchange 自动重载）。
+   这样彻底消除「下拉刷新很慢」：原先每次下拉都 location.reload() 走网络重新下载 1.1MB。 */
+function syncRefresh(){
+  try{ allRender(); }catch(e){ console.warn('syncRefresh 渲染失败:', e); }
+  if(window.checkAppUpdate) window.checkAppUpdate();
+  if(typeof toast==='function') toast('已刷新');
+}
 /* 移动端下拉自动同步刷新：在页面顶部下拉超过阈值即触发刷新 */
 (function(){
   let startY=0, pulling=false, ptr=null;
