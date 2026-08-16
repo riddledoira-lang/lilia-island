@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b2160"/>
+      <stop offset="1" stop-color="#1c1030"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0c987"/>
+      <stop offset="1" stop-color="#d9a45b"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g fill="#ffffff" opacity=".85">
+    <circle cx="96" cy="120" r="4"/><circle cx="180" cy="70" r="3"/><circle cx="420" cy="150" r="4"/>
+    <circle cx="450" cy="330" r="3"/><circle cx="70" cy="380" r="3.5"/><circle cx="150" cy="440" r="3"/>
+    <circle cx="380" cy="440" r="3.5"/><circle cx="330" cy="80" r="2.5"/><circle cx="60" cy="230" r="2.5"/>
+  </g>
+  <g fill="#e3b778">
+    <path d="M118 296l7 17 17 7-17 7-7 17-7-17-17-7 17-7z"/>
+    <path d="M398 210l5.5 13.5 13.5 5.5-13.5 5.5-5.5 13.5-5.5-13.5-13.5-5.5 13.5-5.5z"/>
+    <path d="M310 396l4.5 11 11 4.5-11 4.5-4.5 11-4.5-11-11-4.5 11-4.5z"/>
+  </g>
+  <path d="M330 118c-64 10-112 66-112 133 0 74 60 134 134 134 22 0 44-5.5 62-15.5-16 5-33 7.5-50 6.5-68-4-120-61-116-129 3-51 37-95 82-129z" fill="url(#gold)"/>
+  <path d="M236 300c10-52 40-88 84-108-30 34-44 70-46 108l-38 40z" fill="#f4e3c2" opacity=".95"/>
+  <path d="M236 300l38-40c6 8 6 18-2 26l-28 26c-8 4-12-4-8-12z" fill="#e3b778"/>
+  <path d="M222 330l22-22 6 6-22 22c-6 10-14 18-24 24 4-12 10-22 18-30z" fill="#d9a45b"/>
+</svg>
