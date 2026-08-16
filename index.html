@@ -120,6 +120,18 @@
     padding:14px;margin-bottom:14px;box-shadow:var(--shadow);}
   .card h2{font-size:16px;margin:0 0 10px;display:flex;align-items:center;gap:8px;}
   .card h2 .ic{width:22px;height:22px;color:var(--brand);flex:none;}
+  /* 可折叠卡片（写作优先：辅助面板默认收起，不挤占写作区） */
+  .card.collapsible > h2{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+  .card.collapsible > h2 .caret{margin-left:auto;flex:none;color:var(--sub);font-size:12px;transition:transform .15s;transform:rotate(0);}
+  .card.collapsible.collapsed > h2 .caret{transform:rotate(-90deg);}
+  .card.collapsible.collapsed > *:not(h2){display:none !important;}
+  /* 手机端悬浮「专注写作」按钮 */
+  .fab-write{display:none;}
+  @media (max-width:768px){
+    .fab-write{display:inline-flex;position:fixed;right:16px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:72;width:54px;height:54px;border-radius:50%;border:none;background:var(--brand);color:#fff;align-items:center;justify-content:center;font-size:23px;box-shadow:0 6px 16px rgba(0,0,0,.32);}
+    .fab-write:active{transform:scale(.94);}
+    body.focus .fab-write{display:none;}
+  }
   .today .item{position:relative;display:flex;align-items:flex-start;gap:10px;padding:12px 12px 12px 14px;border-radius:12px;
     background:var(--soft);margin-bottom:10px;border:1px solid var(--line);transition:.15s;}
   .today .item:hover{border-color:var(--brand);}
@@ -929,8 +941,8 @@
   <div id="backupTip"></div>
 
   <!-- 今天要处理 -->
-  <div class="card today">
-    <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>今天要处理</h2>
+  <div class="card today collapsible collapsed">
+    <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>今天要处理<span class="caret">▼</span></h2>
     <div id="todayList"></div>
   </div>
 
@@ -948,8 +960,8 @@
   <div class="panel on" id="p1">
     <!-- AI 生成设置已移至「⚙ 全局设置」弹窗（子标题分组，id=gsAiGroup），章节页顶部不再显示，避免挤占写作区 -->
 
-    <div class="card">
-      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>📚 前文理解档案（AI 持续消化）</h2>
+    <div class="card collapsible collapsed">
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>📚 前文理解档案（AI 持续消化）<span class="caret">▼</span></h2>
       <div id="digestPanel" class="dg-panel"></div>
     </div>
 
@@ -1005,8 +1017,8 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>写作数据</h2>
+    <div class="card collapsible collapsed">
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>写作数据<span class="caret">▼</span></h2>
       <div class="stats">
         <div class="stat"><div class="num" id="stToday">0</div><div class="lbl">今日字数</div></div>
         <div class="stat"><div class="num" id="stTotal">0</div><div class="lbl">累计字数</div></div>
@@ -1015,14 +1027,14 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"/><path d="M12 3l8 4v6c0 4-3 7-8 8-5-1-8-4-8-8V7z"/></svg>✅ 已完稿章节 <span class="pill" id="doneCount">0</span></h2>
+    <div class="card collapsible collapsed">
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"/><path d="M12 3l8 4v6c0 4-3 7-8 8-5-1-8-4-8-8V7z"/></svg>✅ 已完稿章节 <span class="pill" id="doneCount">0</span><span class="caret">▼</span></h2>
       <div class="meta" style="margin-bottom:8px;">这里汇集所有「已完稿」的章节——也就是你已经写好、导入或定稿的内容。想让某章进这里，把状态设为「已完稿」即可。</div>
       <div class="done-grid" id="doneBoard"></div>
     </div>
 
-    <div class="card">
-      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节列表 <span class="pill" id="chTotal"></span>
+    <div class="card collapsible collapsed">
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节列表 <span class="pill" id="chTotal"></span><span class="caret">▼</span>
         <button class="primary" style="margin-left:auto;min-height:32px;padding:0 10px;font-size:12px;" onclick="openVolMgr()">管理分卷</button>
       </h2>
       <div class="vols" id="volChips"></div>
@@ -3901,6 +3913,8 @@ function toggleFocus(){
   setTimeout(function(){const ta=document.getElementById("chBody"); if(ta){ta.focus(); typewriterScroll();}},40);
 }
 function exitFocus(){ document.body.classList.remove("focus"); }
+/* 折叠/展开辅助卡片（写作优先：点击卡片标题切换，正文区不被前文内容挤占） */
+function toggleCard(h2){ var c=h2.closest(".card"); if(c) c.classList.toggle("collapsed"); }
 
 function pushHistory(c){
   let ch=load("chapters",[]);
@@ -7803,5 +7817,7 @@ window.addEventListener('load',function(){
     </div>
   </div>
 </div>
+<!-- 手机端悬浮「专注写作」按钮 -->
+<button class="fab-write" onclick="toggleFocus()" title="专注写作（全屏纯写作）">✍️</button>
 </body>
 </html>
