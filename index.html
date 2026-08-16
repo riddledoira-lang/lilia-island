@@ -156,7 +156,8 @@
     width:100%;font-family:inherit;font-size:16px;padding:10px;border-radius:10px;
     border:1px solid var(--input-bd);background:var(--input-bg);color:var(--ink);}
   textarea{min-height:120px;resize:vertical;line-height:1.6;}
-  #chBody{font-size:var(--reader-fs);}
+  #chBody{font-size:var(--reader-fs);line-height:var(--reader-lh,1.7);}
+  body.eye #chBody{background:#f7f1e3;color:#3a342a;border-color:#e3d9c4;}
   .note-card .nt{font-size:calc(var(--reader-fs) - 1px);}
   .item-list .li .info .m{font-size:calc(var(--reader-fs) - 2px);}
   .row{display:flex;gap:10px;flex-wrap:wrap;}
@@ -253,6 +254,17 @@
   body.focus #p1 .card:not(#chCard){display:none !important;}
   body.focus #chCard{margin:0;border:none;border-radius:0;box-shadow:none;background:#000;padding:0;}
   body.focus #chCard > *:not(#chBody){display:none !important;}
+  body.focus #chBody{margin-top:100px;min-height:calc(100vh - 118px);width:100%;box-sizing:border-box;padding:16px 16px 48px;line-height:var(--reader-lh,1.7);}
+  body.focus.eye{background:#efe7d6;}
+  body.focus.eye #chBody{background:#f7f1e3;color:#3a342a;}
+  /* 专注模式·顶部快速设标题/状态/分卷 + 排版 */
+  .focusmeta{display:none;}
+  body.focus .focusmeta{display:flex;position:fixed;top:52px;left:0;right:0;z-index:80;background:rgba(24,20,16,.97);border-bottom:1px solid #2a2a2a;gap:6px;padding:6px 10px;align-items:center;}
+  body.focus .focusmeta input,body.focus .focusmeta select{background:#1a1a1a;color:#eee;border:1px solid #3a3a3a;border-radius:8px;font-size:13px;min-height:34px;padding:0 8px;box-sizing:border-box;}
+  body.focus .focusmeta input{flex:1;min-width:90px;}
+  body.focus .focusmeta select{flex:none;}
+  body.focus .focusmeta button{background:var(--brand);color:#fff;border:none;border-radius:8px;min-height:34px;padding:0 12px;font-size:13px;}
+  @media(max-width:767px){ body.focus .focusmeta{flex-wrap:nowrap;overflow-x:auto;} }
   /* 设定 wiki + 时间线 */
   .wk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
   .wk-chips button{padding:5px 12px;border-radius:20px;border:1px solid var(--line);background:#fff;font-size:13px;min-height:32px;cursor:pointer;color:var(--sub);}
@@ -531,6 +543,12 @@
     .tabs button svg{width:20px;height:20px;}
     .row > *{min-width:100%;}
     .li .ops{margin-left:auto;}
+    /* 手机端：编辑器真正置顶（写作框永远在第一屏最上方，折叠标题排到下面） */
+    .wrap{display:flex;flex-direction:column;}
+    #p1.on{display:contents;}
+    #p1.on > #chCard{order:-2;}
+    #p1.on > .card:not(#chCard){order:0;}
+    .today{order:1;margin-bottom:calc(86px + env(safe-area-inset-bottom));}
   }
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .stat{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px 8px;text-align:center;}
@@ -949,6 +967,7 @@
 
   <!-- Tabs -->
   <div class="tabs" id="tabs">
+    <button data-p="write" onclick="gotoWrite()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>写作</button>
     <button class="on" data-p="p1" onclick="switchTab('p1',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节</button>
     <button data-p="p2" onclick="switchTab('p2',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>人物</button>
     <button data-p="p6" onclick="switchTab('p6',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>大纲</button>
@@ -1298,6 +1317,16 @@
   <span class="fc" id="focusCount"></span>
   <button class="primary" onclick="saveChapter()">保存</button>
 </div>
+<!-- 专注模式·顶部快速设标题/状态/分卷 + 排版 -->
+<div class="focusmeta" id="focusMeta">
+  <input id="fTitle" placeholder="章节标题" oninput="document.getElementById('chTitle').value=this.value;updateFocusBar();">
+  <select id="fStatus" onchange="document.getElementById('chStatus').value=this.value;">
+    <option value="draft">草稿</option><option value="revise">待修改</option><option value="done">已完稿</option>
+  </select>
+  <select id="fVol" onchange="(function(){var vs=document.getElementById('chVol');if(vs)vs.value=document.getElementById('fVol').value;})(this)"></select>
+  <button onclick="focusMetaApply()">应用</button>
+  <button onclick="openDisplay()">排版</button>
+</div>
 
 <!-- 关系类型分层管理 -->
 <div class="modal-mask" id="relTierMask" onclick="if(event.target===this)closeRelTierMgr()">
@@ -1359,6 +1388,7 @@
       <div class="more-actions">
         <button class="more-action" onclick="closeMore();openGlobalSettings();setTimeout(function(){var el=document.getElementById('gsAiGroup');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},90)"><span class="mi">⚙</span> AI 生成设置</button>
         <button class="more-action" onclick="closeMore();openGlobalSettings()"><span class="mi">⚙</span> 全局设置</button>
+        <button class="more-action" onclick="closeMore();openDisplay()"><span class="mi">📐</span> 写作排版（字号/行距/护眼）</button>
       </div>
     </div>
     <div class="mbtn" style="margin-top:14px;"><button onclick="closeMore()">关闭</button></div>
@@ -1670,6 +1700,12 @@
     <label style="margin-top:14px;">正文字号：<b id="dispFsVal">16</b> px</label>
     <input type="range" id="dispFs" min="14" max="24" step="1" value="16" oninput="setFs(this.value)" style="width:100%;">
     <div id="dispPreview" style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--input-bg);white-space:pre-wrap;line-height:1.6;">薇拉·奎克知道，有些心动像苔藓，在没人看见的角落悄悄蔓延。</div>
+    <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;">
+      <span>护眼纸感模式（暖色写作区，手机长写更舒服）</span>
+      <input type="checkbox" id="dispEye" onchange="toggleEye(this.checked)">
+    </label>
+    <label style="margin-top:14px;">正文行距：<b id="dispLhVal">1.7</b></label>
+    <input type="range" id="dispLh" min="1.4" max="2.2" step="0.1" value="1.7" oninput="setLh(this.value)" style="width:100%;">
     <div class="mbtn" style="margin-top:14px;">
       <button onclick="closeDisplay()">完成</button>
     </div>
@@ -2522,8 +2558,8 @@ function frReplaceAll(){
 }
 
 /* ============== 显示与阅读（深色 + 字号，全局偏好） ============== */
-let DISPLAY=rawLoad("display",{theme:"dark",fs:16,follow:false});
-if(!DISPLAY||typeof DISPLAY!=="object") DISPLAY={theme:"light",fs:16,follow:false};
+let DISPLAY=rawLoad("display",{theme:"dark",fs:16,follow:false,lh:1.7,eye:false});
+if(!DISPLAY||typeof DISPLAY!=="object") DISPLAY={theme:"light",fs:16,follow:false,lh:1.7,eye:false};
 function saveDisplay(){ rawSave("display",DISPLAY); }
 function applyDisplay(){
   const root=document.documentElement;
@@ -2531,6 +2567,8 @@ function applyDisplay(){
   const dark=DISPLAY.follow?sysDark:(DISPLAY.theme==="dark");
   root.setAttribute("data-theme",dark?"dark":"light");
   root.style.setProperty("--reader-fs",(DISPLAY.fs||16)+"px");
+  root.style.setProperty("--reader-lh",(DISPLAY.lh||1.7));
+  document.body.classList.toggle("eye",!!DISPLAY.eye);
   const tb=document.getElementById("themeBtn");
   if(tb){ tb.style.background=dark?"rgba(213,154,90,.25)":""; }
   const dp=document.getElementById("dispPreview");
@@ -2541,6 +2579,9 @@ function openDisplay(){
   document.getElementById("dispFollow").checked=!!DISPLAY.follow;
   document.getElementById("dispFs").value=DISPLAY.fs||16;
   document.getElementById("dispFsVal").textContent=DISPLAY.fs||16;
+  document.getElementById("dispEye").checked=!!DISPLAY.eye;
+  document.getElementById("dispLh").value=DISPLAY.lh||1.7;
+  document.getElementById("dispLhVal").textContent=(DISPLAY.lh||1.7);
   document.getElementById("dispMask").classList.add("on");
 }
 function closeDisplay(){ document.getElementById("dispMask").classList.remove("on"); }
@@ -3909,12 +3950,40 @@ function toggleFocus(){
   if(document.body.classList.contains("focus")){ exitFocus(); return; }
   const tp=document.querySelector('.tabs button[data-p="p1"]'); if(tp) switchTab('p1',tp);
   document.body.classList.add("focus");
+  populateFocusMeta();
   updateFocusBar();
   setTimeout(function(){const ta=document.getElementById("chBody"); if(ta){ta.focus(); typewriterScroll();}},40);
 }
 function exitFocus(){ document.body.classList.remove("focus"); }
 /* 折叠/展开辅助卡片（写作优先：点击卡片标题切换，正文区不被前文内容挤占） */
 function toggleCard(h2){ var c=h2.closest(".card"); if(c) c.classList.toggle("collapsed"); }
+/* 底部「写作」直达：进入章节页并把写作框顶到第一屏最上方（手机端自动聚焦） */
+function gotoWrite(){
+  const tp=document.querySelector('.tabs button[data-p="p1"]');
+  if(tp) switchTab('p1',tp);
+  try{ window.scrollTo(0,0); const w=document.querySelector('.wrap'); if(w) w.scrollTop=0; }catch(e){}
+  if(window.innerWidth<=767){ setTimeout(function(){ const ta=document.getElementById('chBody'); if(ta){ try{ ta.focus(); typewriterScroll(); }catch(e){} } },90); }
+}
+/* 专注模式·顶部快速设标题/状态/分卷（无需退出全屏） */
+function populateFocusMeta(){
+  const ft=document.getElementById('fTitle'),fs=document.getElementById('fStatus'),fv=document.getElementById('fVol');
+  if(ft) ft.value=(document.getElementById('chTitle').value)||"";
+  if(fs) fs.value=(document.getElementById('chStatus').value)||"draft";
+  if(fv){ const vs=document.getElementById('chVol'); if(vs){ fv.innerHTML=vs.innerHTML; fv.value=vs.value; } }
+}
+function focusMetaApply(){
+  const ft=document.getElementById('fTitle'),fs=document.getElementById('fStatus'),fv=document.getElementById('fVol');
+  const t=ft?ft.value:"", s=fs?fs.value:"draft", v=fv?fv.value:"";
+  document.getElementById('chTitle').value=t;
+  const cs=document.getElementById('chStatus'); if(cs) cs.value=s;
+  const cv=document.getElementById('chVol'); if(cv) cv.value=v;
+  updateFocusBar();
+  try{ autoSaveChapter(); }catch(e){}
+  toast('已更新标题 / 状态 / 分卷');
+}
+/* 显示与阅读：行距 + 护眼 */
+function setLh(v){ DISPLAY.lh=parseFloat(v)||1.7; const l=document.getElementById("dispLhVal"); if(l) l.textContent=(DISPLAY.lh); saveDisplay(); applyDisplay(); }
+function toggleEye(on){ DISPLAY.eye=!!on; saveDisplay(); applyDisplay(); }
 
 function pushHistory(c){
   let ch=load("chapters",[]);
