@@ -775,6 +775,8 @@
   .btn-quick{background:linear-gradient(180deg,#fff,#f4f1fb);border:1px solid var(--brand);color:var(--brand);border-radius:9px;padding:9px 14px;font-size:14px;cursor:pointer;font-weight:600;}
   .btn-quick:hover{background:var(--brand);color:#fff;}
   .btn-deep{background:linear-gradient(180deg,#8e7cc3,#6f5aa6);border:1px solid #6f5aa6;color:#fff;box-shadow:0 2px 10px rgba(111,90,166,.32);}
+  .deep-pro-toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:1;color:#8e44ad;border:1px dashed #b9a6e0;background:rgba(142,124,195,.08);border-radius:20px;padding:6px 11px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .deep-pro-toggle input{width:14px;height:14px;accent-color:#8e44ad;cursor:pointer;margin:0;}
   .btn-deep:hover{filter:brightness(1.07);}
   .scan-ctl{display:inline-flex;align-items:center;gap:6px;margin-top:10px;margin-left:8px;font-size:13px;color:var(--sub);}
   .scan-ctl select{font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);}
@@ -1045,6 +1047,7 @@
           <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 深度续写</button>
           <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）">✨ 整章精修</button>
           <button onclick="openAiEdit()">🖋 润色</button>
+          <label class="deep-pro-toggle" title="开启后：深度续写的『分析阶段』改用 V4-Pro 并解除省算力限制（上下文与输出翻倍），人物心理/伏笔/续写方向更透彻；正文生成仍走最快的 Flash。仅在卡剧情或要标杆级分析时开启——更慢更贵。"><input type="checkbox" id="deepProMode"> 🔥超深度·Pro</label>
         </div>
         <button class="gen-toggle" onclick="toggleGenMore(this)">⋯ 更多操作（消化 / 查找替换 / 专注 / 清空 / 深度选项）▾</button>
         <div class="gen-more" id="genMore">
@@ -4144,6 +4147,7 @@ function renderCharEditor(){
     '</div>';
   html+='<div class="ce-psyche-ops">'+
     '<button type="button" class="ghost" onclick="analyzeCharPsyche(\''+cid+'\',this)">🤖 AI 分析人设（含外貌·基于已完稿章节）</button>'+
+    '<button type="button" class="ghost" onclick="analyzeCharAppearance(\''+cid+'\',this)">📷 只提外貌</button>'+
     (c.psycheSrc?'<span class="ce-src">'+esc(c.psycheSrc)+'</span>':'')+
     '</div>';
   html+='<div class="ce-lang">'+
@@ -4194,7 +4198,7 @@ async function analyzeCharPsyche(cid, btn){
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="分析中…";
   try{
     const sys="你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
-    const user="下面是小说人物【"+name+"】在已完稿章节中的出场正文。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：从正文直接描写提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文无直接外貌描写，则依据行为与语境合理推断，并在开头标注『[推断]』）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const user="下面是小说人物【"+name+"】在已完稿章节中的出场正文。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
     const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:1200});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
@@ -4207,9 +4211,40 @@ async function analyzeCharPsyche(cid, btn){
       cs[i].psycheSrc="基于 "+pool.length+" 章已完稿分析 · "+ds;
       cs[i].demo=false; save("chars",cs);
       renderCharEditor();
-      toast("已分析并更新「"+name+"」的核心特质 / 欲望 / 外貌");
+      const _hasApp=!!cs[i].appearance;
+      toast("已分析并更新「"+name+"」的核心特质 / 欲望"+( _hasApp?" / 外貌":"（正文无外貌描写，外貌留空待手填）"));
     } else { toast("AI 未返回有效人设，可重试"); }
   }catch(e){ aiFail("AI 分析人设",e); }
+  finally{ if(btn){btn.disabled=false; btn.textContent=_ot;} }
+}
+async function analyzeCharAppearance(cid, btn){
+  const ai=load("ai",{});
+  if(!ai.base){ toast("未配置 AI：在「AI 生成设置」填好 API 后，点此可基于已完稿章节提取人物外貌特征。"); return; }
+  const cs=load("chars",[]); const i=cs.findIndex(x=>x.id===cid);
+  if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
+  if(!name){ toast("请先填写人物名"); return; }
+  const chs=load("chapters",[])||[];
+  const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
+  if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取外貌（先让 ta 在多章里出现吧）"); return; }
+  const done=hits.filter(function(ch){return (ch.status||"")==="done";});
+  const pool=(done.length?done:hits).slice().sort(function(a,b){(b.body||"").length-(a.body||"").length}).slice(0,4);
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,7000);}).join("\n\n----\n\n");
+  const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="提取外貌…";
+  try{
+    const sys="你是小说人物外貌分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
+    const user="下面是小说人物【"+name+"】在已完稿章节中的出场正文。请只提炼其【外貌特征】：严格只从正文中直接的外貌描写提取——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、严禁任何推断或猜测）。只输出 JSON：{\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const out=await callAI({sys:sys, user:user, temperature:0.3, max_tokens:600});
+    const m=(out||"").match(/\{[\s\S]*\}/);
+    let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
+    const app=String(obj.appearance||"").trim();
+    cs[i].appearance=app;
+    const d=new Date(); const ds=d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
+    cs[i].appearanceSrc="基于 "+pool.length+" 章已完稿提取 · "+ds;
+    cs[i].demo=false; save("chars",cs);
+    renderCharEditor();
+    if(app) toast("已提取「"+name+"」的外貌特征");
+    else toast("正文无直接外貌描写，「"+name+"」的外貌未填充（请手动填写）");
+  }catch(e){ aiFail("AI 提取外貌",e); }
   finally{ if(btn){btn.disabled=false; btn.textContent=_ot;} }
 }
 async function analyzeCharLang(cid, btn){
@@ -6365,6 +6400,7 @@ function runRagSearch(){
 /* AI 深度续写：先分析前文(全部已写章节)再生成新章。支持两种模式：续写当前分卷 / 续写全书完整剧情 */
 async function aiDeepGen(){
   const ai=load("ai",{});
+  const deepPro=!!(document.getElementById("deepProMode")&&document.getElementById("deepProMode").checked);
   if(!ai.base){toast("未配置 AI（可选）：在「AI 生成设置」填写 API 信息即可启用；当前仅本地写作。");return;}
   try{recordManualCorrections();}catch(e){} /* 纠偏意见先录入，本次生成即生效 */
   let num=parseInt(document.getElementById("chNum").value)||0;
@@ -6382,7 +6418,7 @@ async function aiDeepGen(){
   const writeModeEl=document.querySelector('input[name="deepWriteMode"]:checked');
   const writeMode=writeModeEl?writeModeEl.value:"vol";
   const curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
-  const prior=collectPrior(num, (ai.eco!==false)?12000:24000, {all: writeMode==="book"});
+  const prior=collectPrior(num, (deepPro||ai.eco===false)?24000:12000, {all: writeMode==="book"});
   if(!prior.count){ alert("你还没有任何「已写章节」（序号小于 "+num+" 的章）可供分析。请先导入 / 添加前面的章节，再到这里生成新章。"); return; }
   /* ① 校验消化状态：统计三类状态（未消化/失败/降级），弹窗风险提示 */
   const chs=digestChaptersOrdered();
@@ -6478,11 +6514,11 @@ async function aiDeepGen(){
     const _daCache=dFresh.deepAnalysis;
     const _daFresh=_daCache&&_daCache.text&&_daCache.vol===(curVol||"none")&&(_daCache.at||0)>=(dFresh.digest_update_at||0);
     let analysis="";
-    if(_daFresh&&!forceRe){
+    if(_daFresh&&!forceRe&&!deepPro){
       analysis=_daCache.text;
       toast("复用已缓存的深度分析（含人物关系/情感线），跳过重新分析 ⚡");
     } else {
-      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:Math.min(4000, Number(ai.maxTokens)||4000), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride: (ai.eco===false?ai.model:(ai.genModel||ai.model||"deepseek-v4-flash"))});
+      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride: ((deepPro||ai.eco===false)?ai.model:(ai.genModel||ai.model||"deepseek-v4-flash"))});
       if(!analysis.trim()) throw new Error("分析返回为空");
       /* 写入缓存，供下次生成直接调用 */
       const dCache=getDigest();
@@ -6547,8 +6583,7 @@ async function aiDeepGen(){
     afterAiWrite(ta);
     showAiResult(out, "AI 深度续写结果（第"+num+"章）");
     toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章（保存本章时会自动并入"+(writeMode==="vol"?"本卷":"全书")+"档案）");
-    /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下 */
-    try{
+    /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(out, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){
         const resText=document.getElementById("aiResText");
@@ -6559,8 +6594,8 @@ async function aiDeepGen(){
         } else {
           if(resCount) resCount.textContent="本段生成字数："+out.length+"  |  ✅ 后置校验通过";
         }
-      });
-    }).catch(function(e){ console.warn("后置校验失败(非致命):",e.message); });
+      }
+      }).catch(function(e){ console.warn("后置校验失败(非致命):",e.message); });
   }catch(e){ aiGenFail("AI 深度续写",e, (document.getElementById("chBody")||{}).value); }
   finally{ btn.disabled=false; btn.textContent=old; }
 }
