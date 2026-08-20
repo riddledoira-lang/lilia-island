@@ -241,6 +241,14 @@
   body.focus .focusbar{display:flex;}
   .focusbar .ft{flex:1;min-width:0;font-size:14px;color:#bbb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .focusbar .fc{font-size:12px;color:#888;white-space:nowrap;}
+  /* 字数目标进度环：写作专注时一目了然 */
+  .fring{position:relative;width:38px;height:38px;flex:none;display:inline-flex;align-items:center;justify-content:center;}
+  .fring svg{transform:rotate(-90deg);display:block;}
+  .fring-track{fill:none;stroke:rgba(255,255,255,.16);stroke-width:4;}
+  .fring-fill{fill:none;stroke:var(--brand);stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset .35s ease,stroke .3s ease;}
+  .fring.done .fring-fill{stroke:#4caf50;}
+  .fring-txt{position:absolute;font-size:9.5px;font-weight:700;color:#eee;line-height:1;}
+  @media(max-width:767px){ .fring{width:34px;height:34px;} }
   .focusbar button{background:transparent;color:#ddd;border:1px solid #3a3a3a;border-radius:8px;min-height:38px;padding:0 14px;font-size:14px;display:inline-flex;align-items:center;gap:6px;}
   .focusbar button.primary{background:var(--brand);color:#fff;border-color:var(--brand);}
   .focusbar button:hover{background:#1a1a1a;}
@@ -264,7 +272,7 @@
   body.focus .focusmeta input{flex:1;min-width:90px;}
   body.focus .focusmeta select{flex:none;}
   body.focus .focusmeta button{background:var(--brand);color:#fff;border:none;border-radius:8px;min-height:34px;padding:0 12px;font-size:13px;}
-  @media(max-width:767px){ body.focus .focusmeta{flex-wrap:nowrap;overflow-x:auto;} }
+  @media(max-width:767px){ body.focus .focusmeta{flex-wrap:nowrap;overflow-x:auto;} body.focus .focusbar .fc{display:none;} }
   /* 设定 wiki + 时间线 */
   .wk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
   .wk-chips button{padding:5px 12px;border-radius:20px;border:1px solid var(--line);background:#fff;font-size:13px;min-height:32px;cursor:pointer;color:var(--sub);}
@@ -1333,6 +1341,10 @@
 <div class="focusbar" id="focusBar">
   <button onclick="exitFocus()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>退出专注</button>
   <span class="ft" id="focusTitle">专注写作</span>
+  <span class="fring" id="focusRing" title="本章字数目标进度">
+    <svg width="38" height="38" viewBox="0 0 38 38"><circle class="fring-track" cx="19" cy="19" r="16"></circle><circle class="fring-fill" id="fringFill" cx="19" cy="19" r="16"></circle></svg>
+    <span class="fring-txt" id="fringTxt">0</span>
+  </span>
   <span class="fc" id="focusCount"></span>
   <button class="primary" onclick="saveChapter()">保存</button>
 </div>
@@ -1726,6 +1738,11 @@
     </label>
     <label style="margin-top:14px;">正文行距：<b id="dispLhVal">1.7</b></label>
     <input type="range" id="dispLh" min="1.4" max="2.2" step="0.1" value="1.7" oninput="setLh(this.value)" style="width:100%;">
+    <label style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <span>本章字数目标</span>
+      <input type="number" id="dispTarget" min="0" step="500" value="0" onchange="setTarget(this.value)" style="width:120px;text-align:right;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--input-bg);color:var(--ink);">
+    </label>
+    <div class="meta" style="margin-top:4px;">设为 0 表示关闭进度环；按章节定目标（如 2000 / 3000 / 5000），专注写作时顶栏环会实时显示完成度，达成变绿。</div>
     <div class="mbtn" style="margin-top:14px;">
       <button onclick="closeDisplay()">完成</button>
     </div>
@@ -2450,7 +2467,7 @@ async function autoGenBriefTemplate(textarea){
     textarea.value="（生成失败："+String(e.message||"").slice(0,60)+"，请手动输入或选择其他章节模板）";
   }
 }
-document.getElementById("chBody").addEventListener("input",function(){document.getElementById("chCount").textContent="字数："+this.value.length; updateFocusBar(); autoSaveChapter();});
+document.getElementById("chBody").addEventListener("input",function(){document.getElementById("chCount").textContent="字数："+this.value.length; updateFocusBar(); updateWordRing(); autoSaveChapter();});
 ["input","keyup","click","focus"].forEach(function(ev){ document.getElementById("chBody").addEventListener(ev, typewriterScroll); });
 document.addEventListener("selectionchange", function(){ if(document.activeElement===document.getElementById("chBody")) typewriterScroll(); });
 document.getElementById("chTitle").addEventListener("input",autoSaveChapter);
@@ -2578,8 +2595,8 @@ function frReplaceAll(){
 }
 
 /* ============== 显示与阅读（深色 + 字号，全局偏好） ============== */
-let DISPLAY=rawLoad("display",{theme:"dark",fs:16,follow:false,lh:1.7,eye:false});
-if(!DISPLAY||typeof DISPLAY!=="object") DISPLAY={theme:"light",fs:16,follow:false,lh:1.7,eye:false};
+let DISPLAY=rawLoad("display",{theme:"dark",fs:16,follow:false,lh:1.7,eye:false,target:0});
+if(!DISPLAY||typeof DISPLAY!=="object") DISPLAY={theme:"light",fs:16,follow:false,lh:1.7,eye:false,target:0};
 function saveDisplay(){ rawSave("display",DISPLAY); }
 function applyDisplay(){
   const root=document.documentElement;
@@ -2602,6 +2619,7 @@ function openDisplay(){
   document.getElementById("dispEye").checked=!!DISPLAY.eye;
   document.getElementById("dispLh").value=DISPLAY.lh||1.7;
   document.getElementById("dispLhVal").textContent=(DISPLAY.lh||1.7);
+  document.getElementById("dispTarget").value=DISPLAY.target||0;
   document.getElementById("dispMask").classList.add("on");
 }
 function closeDisplay(){ document.getElementById("dispMask").classList.remove("on"); }
@@ -3928,7 +3946,23 @@ function updateFocusBar(){
   const bar=document.getElementById("focusBar"); if(!bar)return;
   const t=document.getElementById("chTitle").value||"（未命名章节）";
   document.getElementById("focusTitle").textContent=t;
-  document.getElementById("focusCount").textContent="字数 "+((document.getElementById("chBody").value)||"").length;
+  updateWordRing();
+}
+/* 字数目标进度环：实时按当前正文长度 / 目标更新 SVG 圆环与中心文字 */
+function updateWordRing(){
+  const fill=document.getElementById("fringFill"); if(!fill) return;
+  const n=((document.getElementById("chBody").value)||"").length;
+  const tgt=DISPLAY.target||0;
+  const C=2*Math.PI*16;
+  fill.style.strokeDasharray=C;
+  const pct=tgt>0?Math.min(1,n/tgt):0;
+  fill.style.strokeDashoffset=C*(1-pct);
+  const wrap=document.getElementById("focusRing");
+  const txt=document.getElementById("fringTxt");
+  if(txt) txt.textContent = tgt>0 ? Math.round(pct*100)+"%" : (n>=1000?(n/1000).toFixed(1)+"k":String(n));
+  const fc=document.getElementById("focusCount");
+  if(fc) fc.textContent = tgt>0 ? ("字数 "+n+" / "+tgt) : ("字数 "+n);
+  if(wrap) wrap.classList.toggle("done", tgt>0 && n>=tgt);
 }
 /* 打字机滚动：让光标所在行始终保持在可视区垂直居中 */
 function getCaretCoordinates(txt, pos){
@@ -3977,12 +4011,16 @@ function toggleFocus(){
 function exitFocus(){ document.body.classList.remove("focus"); }
 /* 折叠/展开辅助卡片（写作优先：点击卡片标题切换，正文区不被前文内容挤占） */
 function toggleCard(h2){ var c=h2.closest(".card"); if(c) c.classList.toggle("collapsed"); }
-/* 底部「写作」直达：进入章节页并把写作框顶到第一屏最上方（手机端自动聚焦） */
+/* 底部「写作」直达：默认直接进入专注全屏写作（手机端自动聚焦正文） */
 function gotoWrite(){
   const tp=document.querySelector('.tabs button[data-p="p1"]');
   if(tp) switchTab('p1',tp);
-  try{ window.scrollTo(0,0); const w=document.querySelector('.wrap'); if(w) w.scrollTop=0; }catch(e){}
-  if(window.innerWidth<=767){ setTimeout(function(){ const ta=document.getElementById('chBody'); if(ta){ try{ ta.focus(); typewriterScroll(); }catch(e){} } },90); }
+  if(!document.body.classList.contains("focus")){
+    toggleFocus();
+  } else {
+    populateFocusMeta(); updateFocusBar();
+    setTimeout(function(){const ta=document.getElementById("chBody"); if(ta){ta.focus(); typewriterScroll();}},40);
+  }
 }
 /* 专注模式·顶部快速设标题/状态/分卷（无需退出全屏） */
 function populateFocusMeta(){
@@ -4004,6 +4042,7 @@ function focusMetaApply(){
 /* 显示与阅读：行距 + 护眼 */
 function setLh(v){ DISPLAY.lh=parseFloat(v)||1.7; const l=document.getElementById("dispLhVal"); if(l) l.textContent=(DISPLAY.lh); saveDisplay(); applyDisplay(); }
 function toggleEye(on){ DISPLAY.eye=!!on; saveDisplay(); applyDisplay(); }
+function setTarget(v){ DISPLAY.target=Math.max(0,parseInt(v)||0); saveDisplay(); updateWordRing(); }
 
 function pushHistory(c){
   let ch=load("chapters",[]);
@@ -6100,7 +6139,7 @@ function afterAiWrite(ta){
   document.getElementById("checkInput").value=ta.value;
   /* 修复 B6：仅在「写作禁忌自检」面板可见时才即时扫描，避免每次 AI 写入都做无用全量扫描 */
   try{ if(getComputedStyle(document.getElementById("p4")).display!=="none"){ if(_checkTimer)clearTimeout(_checkTimer); _checkTimer=setTimeout(runCheck,500); } }catch(e){}
-  try{ updateFocusBar(); }catch(e){}
+  try{ updateFocusBar(); updateWordRing(); }catch(e){}
   autoSaveChapter();            /* 程序赋值不触发 input 事件，必须手动调自动保存，否则切章/刷新会丢 */
   ta.scrollTop=ta.scrollHeight;
 }
