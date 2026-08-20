@@ -890,7 +890,7 @@
     <!-- 分组三：AI 生成设置（每本书独立） -->
     <div class="gs-group" id="gsAiGroup">
       <h4 class="gs-gtitle">AI 生成设置（每本书独立）</h4>
-      <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「AI 续写 / 深度续写 / 分析」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
+      <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「接着写 / 深度续写 / 整章精修 / 润色」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
       <div class="ai-help">
         <div class="ai-help-h" onclick="toggleAIHelp()">
           <span>📌 没有 Key？3 步获取（推荐 DeepSeek，充 ¥10 够写很久）</span>
@@ -1014,19 +1014,19 @@
       <label class="corr-label">人物行为纠偏（你对 AI 人物行为偏差的意见，一行一条；点「AI 续写 / 深度续写 / 保存章节」时自动录入，之后每次生成都会规避，直到沉淀进人设）</label>
       <textarea id="chCorrect" class="corr-box" style="min-height:60px;" placeholder="例：詹姆斯不会主动低声下气道歉，他只会用行动弥补&#10;例：薇拉在公共场合不会大哭，她只会躲起来"></textarea>
       <div class="gen-group">
-        <div class="gen-legend">✍️ 生成新章（两种模式）— <b>⚡ AI 续写</b>＝快速接写：基于最近前文＋全书档案，<b>1 次调用</b>直接续写当前章；<b>🧠 AI 深度续写</b>＝先调 AI 出「续写前必读分析」（人物心理/关系/伏笔＋3 方向），再据此生成，<b>2 次调用＋自动补消化＋自动生成情感线</b>。下方「AI 深入分析优化 / 润色」是改已有草稿，<b>不是写新章</b>。</div>
+        <div class="gen-legend">✍️ 写这一章有三个不重叠的入口：<b>⚡ 接着写</b>＝在文末<b>追加续写新内容</b>（1 次调用）；<b>🧠 深度续写</b>＝先出「续写前必读分析」再据此生成新章（2 次调用＋自动补消化＋情感线）；<b>✨ 整章精修</b>＝保留你的剧情与好句子，只优化<b>已有草稿</b>的文笔／节奏／逻辑（非破坏性，预览后手动替换）。<b>🖋 润色选中段落</b>＝只改你框选的那一段。</div>
         <div class="row" style="margin-top:0;align-items:center;">
           <button class="primary" onclick="saveChapter()">保存章节</button>
-          <button id="aiBtn" class="btn-quick" title="快速接写：基于最近前文 + 全书档案，1 次调用直接续写当前章" onclick="aiGen()">⚡ AI 续写</button>
+          <button id="aiBtn" class="btn-quick" title="接着写：基于最近前文 + 全书档案，在文末追加续写当前章的新内容" onclick="aiGen()">⚡ 接着写</button>
           <div class="dg-mode-sel">
             <label><input type="radio" name="deepWriteMode" value="vol" checked>续写当前分卷</label>
             <label><input type="radio" name="deepWriteMode" value="all">续写全书完整剧情</label>
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
           </div>
-          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 AI 深度续写</button>
-          <button id="aiOptBtn" onclick="aiOptimize()" title="深度分析当前草稿的内容与逻辑结构，输出优化后的完整正文并覆盖原草稿（原稿自动存入历史版本）——这是优化已有草稿，不是写新章">AI 深入分析优化</button>
-          <button onclick="openAiEdit()">AI 润色选中段落</button>
+          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 深度续写</button>
+          <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）">✨ 整章精修</button>
+          <button onclick="openAiEdit()">🖋 润色选中段落</button>
           <button id="digestOneBtn" onclick="digestOneChapter(null,this)">消化本章</button>
           <button onclick="openFindReplace()">查找/替换</button>
           <button onclick="toggleFocus()">专注写作</button>
@@ -6502,9 +6502,10 @@ async function aiDeepGen(){
   }catch(e){ aiGenFail("AI 深度续写",e, (document.getElementById("chBody")||{}).value); }
   finally{ btn.disabled=false; btn.textContent=old; }
 }
-/* AI 深入分析优化：对正文框内的草稿做内容质量 + 逻辑结构深度分析，
-   输出优化后的完整正文并【直接覆盖原草稿】（原稿由自动保存机制存入历史版本，可回滚）。
-   与「AI 深度续写」的区别：深度续写是往后写新内容；本功能是优化已有草稿。 */
+/* AI 整章精修（原「深入分析优化」）：对正文框内的草稿做轻量优化——
+   保留剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写；
+   输出【非破坏性预览】，用户点「替换」才覆盖原草稿（原稿自动入历史版本，可回滚）。
+   与「AI 深度续写」的区别：深度续写是往后写新内容；本功能是精修已有草稿。 */
 async function aiOptimize(){
   const ai=load("ai",{});
   if(!ai.base){toast("未配置 AI（可选）：在「AI 生成设置」填写 API 信息即可启用。");return;}
@@ -6532,18 +6533,18 @@ async function aiOptimize(){
   if(volText) userMsg+="【当前分卷档案（人物/伏笔/事件依据）】\n"+volText.slice(0,8000)+"\n\n";
   if(globalText) userMsg+="【全书总档案（跨卷人设/长线伏笔）】\n"+globalText.slice(0,6000)+"\n\n";
   userMsg+="【草稿原文】\n"+body;
-  const btn=document.getElementById("aiOptBtn"); btn.disabled=true; const old=btn.textContent; btn.textContent="分析优化中…";
+  const btn=document.getElementById("aiOptBtn"); btn.disabled=true; const old=btn.textContent; btn.textContent="精修中…";
   try{
-    const out=await callAI({sys:bookMemSys(), user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000});
-    if(!out.trim()) throw new Error("优化返回为空");
-    const ta=document.getElementById("chBody");
-    ta.value=out.trim();
-    afterAiWrite(ta);   /* 覆盖草稿 + 自动保存（原稿自动入历史版本） */
-    showAiResult(out.trim(), "AI 深入分析优化结果（已覆盖原草稿）");
-    toast("草稿已优化并覆盖 ✅ 原稿可在「历史」版本中找回");
-    /* 自动生成人物情感线（从优化结果提取） */
+    /* 整章精修 = 轻量优化：保留剧情与好句子，只优化文笔/节奏/逻辑；
+       跑「续写模型」(快，遵守成本铁律，绝不占用分析模型/Pro)；按草稿长度提额防截断 */
+    const optMax=Math.min(24000, Math.max(Number(ai.maxTokens)||8000, Math.ceil(body.length*1.6)));
+    const out=await callAI({sys:bookMemSys(), user:userMsg, temperature:0.7, max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+    if(!out.trim()) throw new Error("精修返回为空");
+    /* 非破坏性：先预览，用户点「替换」才覆盖原稿（原稿自动入历史版本，可回滚） */
     try{ autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
-  }catch(e){ aiGenFail("AI 深入分析优化",e, ""); }
+    showAiResult(out.trim(), "AI 整章精修结果（点「替换」才覆盖原稿，原稿可在「历史」版本中找回）");
+    toast("精修完成 ✅ 请在预览面板点「替换」覆盖原稿");
+  }catch(e){ aiGenFail("AI 整章精修",e, ""); }
   finally{ btn.disabled=false; btn.textContent=old; }
 }
 
