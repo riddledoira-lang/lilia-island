@@ -86,7 +86,7 @@
   [data-theme="dark"] .stat{ background:var(--soft); }
   [data-theme="dark"] .check-res .vr{ background:#3a2a26; border-color:#5a3a34; }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0;overflow-x:clip;}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
     background:var(--bg); color:var(--ink); font-size:16px; line-height:1.55;
@@ -128,7 +128,7 @@
   /* 手机端悬浮「专注写作」按钮 */
   .fab-write{display:none;}
   @media (max-width:768px){
-    .fab-write{display:inline-flex;position:fixed;right:16px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:72;width:54px;height:54px;border-radius:50%;border:none;background:var(--brand);color:#fff;align-items:center;justify-content:center;font-size:23px;box-shadow:0 6px 16px rgba(0,0,0,.32);}
+    .fab-write{display:inline-flex;position:fixed;right:16px;bottom:calc(108px + env(safe-area-inset-bottom));z-index:72;width:54px;height:54px;border-radius:50%;border:none;background:var(--brand);color:#fff;align-items:center;justify-content:center;font-size:23px;box-shadow:0 6px 16px rgba(0,0,0,.32);}
     .fab-write:active{transform:scale(.94);}
     body.focus .fab-write{display:none;}
   }
@@ -455,12 +455,22 @@
   .appbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;
     padding:calc(8px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) calc(8px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-left));
     background:var(--card);border-bottom:1px solid var(--line);
-    box-shadow:0 2px 12px rgba(0,0,0,.28);}
+    box-shadow:0 1px 8px rgba(0,0,0,.14);backdrop-filter:saturate(1.2) blur(8px);-webkit-backdrop-filter:saturate(1.2) blur(8px);}
   .appbar .iconbtn{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;border-radius:11px;flex:none;}
   .appbar .iconbtn svg{width:22px;height:22px;}
   .appbar .appt{flex:1;min-width:0;position:relative;padding-left:14px;cursor:pointer;}
   .appbar .appt::before{content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:2px;background:var(--gold);box-shadow:0 0 0 2px rgba(201,162,75,.25);}
   .appbar .appt .bt{font-size:19px;font-weight:700;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);}
+  /* 顶部 ⋮ 溢出菜单：把次要功能收进去，顶栏只留 汉堡+书名+搜索+⋮ */
+  .appmenu-mask{position:fixed;inset:0;z-index:94;display:none;}
+  .appmenu-mask.on{display:block;}
+  .appmenu{position:fixed;top:calc(54px + env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:95;min-width:210px;
+    background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.32);
+    padding:6px;display:none;flex-direction:column;}
+  .appmenu.on{display:flex;}
+  .appmenu .am-item{display:flex;align-items:center;gap:10px;width:100%;min-height:46px;padding:0 12px;border:none;background:transparent;border-radius:11px;font-size:15px;color:var(--ink);justify-content:flex-start;}
+  .appmenu .am-item svg{width:18px;height:18px;color:var(--sub);flex:none;}
+  .appmenu .am-item:active{background:var(--soft);}
 
   /* Drawer (书架) */
   .drawer-mask{position:fixed;inset:0;background:rgba(20,14,8,.4);display:none;z-index:60;}
@@ -541,6 +551,12 @@
       box-shadow:0 -2px 10px rgba(0,0,0,.06);}
     .tabs button{flex:1;min-height:50px;flex-direction:column;gap:2px;font-size:11px;padding:4px 2px;}
     .tabs button svg{width:20px;height:20px;}
+    /* 手机端：底栏高度约 94~104px，非写作页内容需留足底部空间，避免被底栏遮住 */
+    body{padding-bottom:calc(100px + env(safe-area-inset-bottom));}
+    /* 编辑器主操作：2 列网格，触摸目标够大；次要操作收进「更多操作▾」 */
+    .gen-main > button, .gen-more > button{flex:1 1 42%;min-width:118px;justify-content:center;font-size:14px;min-height:42px;}
+    .gen-legend{font-size:12px;color:var(--sub);}
+    .gen-toggle{font-size:14px;min-height:42px;}
     .row > *{min-width:100%;}
     .li .ops{margin-left:auto;}
     /* 手机端：编辑器真正置顶（写作框永远在第一屏最上方，折叠标题排到下面） */
@@ -548,7 +564,7 @@
     #p1.on{display:contents;}
     #p1.on > #chCard{order:-2;}
     #p1.on > .card:not(#chCard){order:0;}
-    .today{order:1;margin-bottom:calc(86px + env(safe-area-inset-bottom));}
+    .today{order:1;margin-bottom:calc(104px + env(safe-area-inset-bottom));}
   }
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
   .stat{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px 8px;text-align:center;}
@@ -616,7 +632,7 @@
   .more-action{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--soft);font-size:15px;color:var(--ink);cursor:pointer;text-align:left;}
   .more-action .mi{width:20px;text-align:center;font-size:18px;flex:none;}
   .more-action:active{transform:scale(.99);}
-  .toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(8px);
+  .toast{position:fixed;left:50%;bottom:calc(112px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(8px);
     background:rgba(18,12,6,.94);color:#f3e7cf;padding:11px 18px;border-radius:12px;font-size:14px;
     z-index:99;box-shadow:0 6px 22px rgba(0,0,0,.45);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;max-width:86vw;text-align:center;
     border:1px solid rgba(201,162,75,.3);}
@@ -741,6 +757,12 @@
   .dg-mode-sel input[type=radio]{margin:0;}
   /* v44：生成按钮区分 / 扫描范围 / 人设分析 */
   .gen-group{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;background:var(--soft);}
+  /* 编辑器操作区：主行 + 可折叠「更多操作」，避免 9 个按钮平铺拥挤 */
+  .gen-main{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;}
+  .gen-toggle{width:100%;min-height:42px;margin-top:10px;justify-content:center;color:var(--brand);border-style:dashed;background:transparent;font-weight:600;}
+  .gen-more{display:none;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .gen-more.on{display:flex;}
+  .gen-more .dg-mode-sel{width:100%;}
   .gen-legend{font-size:12.5px;color:var(--sub);line-height:1.65;margin-bottom:10px;}
   .gen-legend b{color:var(--ink);}
   .btn-quick{background:linear-gradient(180deg,#fff,#f4f1fb);border:1px solid var(--brand);color:var(--brand);border-radius:9px;padding:9px 14px;font-size:14px;cursor:pointer;font-weight:600;}
@@ -772,25 +794,21 @@
   <div class="appt" onclick="openDrawer()">
     <div class="bt" id="appTitle">《即刻心动》</div>
   </div>
-  <button class="iconbtn" id="installBtn" onclick="installApp()" aria-label="安装APP" style="display:none;">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 21h14"/></svg>
-  </button>
-  <button class="iconbtn" onclick="openSidebar()" aria-label="章节目录">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M8 9h8M8 13h8M8 17h5"/></svg>
-  </button>
-  <button class="iconbtn" onclick="openDataPanel()" aria-label="数据与备份">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 110-8 5 5 0 019.6-1.5A4 4 0 1117 18H7z"/></svg>
-  </button>
   <button class="iconbtn" onclick="openSearch()" aria-label="搜索">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
   </button>
-  <button class="iconbtn" onclick="syncRefresh()" aria-label="同步刷新">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5"/></svg>
-  </button>
-  <button class="iconbtn" id="themeBtn" onclick="openDisplay()" aria-label="显示设置">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+  <button class="iconbtn" id="appMenuBtn" onclick="openAppMenu(event)" aria-label="更多功能">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
   </button>
 </header>
+<div class="appmenu-mask" id="appMenuMask" onclick="closeAppMenu()"></div>
+<div class="appmenu" id="appMenu" role="menu">
+  <button class="am-item" onclick="closeAppMenu();openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M8 9h8M8 13h8M8 17h5"/></svg>章节目录</button>
+  <button class="am-item" onclick="closeAppMenu();openDataPanel()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 110-8 5 5 0 019.6-1.5A4 4 0 1117 18H7z"/></svg>数据与备份</button>
+  <button class="am-item" onclick="closeAppMenu();syncRefresh()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5"/></svg>同步刷新</button>
+  <button class="am-item" onclick="closeAppMenu();openDisplay()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>显示 / 排版</button>
+  <button class="am-item" id="appMenuInstall" onclick="closeAppMenu();installApp()" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 21h14"/></svg>安装到手机</button>
+</div>
 
 <div id="webviewTip" class="wv-tip" style="display:none;">
   <div class="wv-ic">⚠️</div>
@@ -971,7 +989,6 @@
     <button class="on" data-p="p1" onclick="switchTab('p1',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节</button>
     <button data-p="p2" onclick="switchTab('p2',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>人物</button>
     <button data-p="p6" onclick="switchTab('p6',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>大纲</button>
-    <button data-p="p8" onclick="switchTab('p8',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>时间线</button>
     <button class="more" onclick="openMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="1.7"/><circle cx="12" cy="6" r="1.7"/><circle cx="19" cy="6" r="1.7"/><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/><circle cx="5" cy="18" r="1.7"/><circle cx="12" cy="18" r="1.7"/><circle cx="19" cy="18" r="1.7"/></svg>更多</button>
   </div>
 
@@ -1014,25 +1031,28 @@
       <label class="corr-label">人物行为纠偏（你对 AI 人物行为偏差的意见，一行一条；点「AI 续写 / 深度续写 / 保存章节」时自动录入，之后每次生成都会规避，直到沉淀进人设）</label>
       <textarea id="chCorrect" class="corr-box" style="min-height:60px;" placeholder="例：詹姆斯不会主动低声下气道歉，他只会用行动弥补&#10;例：薇拉在公共场合不会大哭，她只会躲起来"></textarea>
       <div class="gen-group">
-        <div class="gen-legend">✍️ 写这一章有三个不重叠的入口：<b>⚡ 接着写</b>＝在文末<b>追加续写新内容</b>（1 次调用）；<b>🧠 深度续写</b>＝先出「续写前必读分析」再据此生成新章（2 次调用＋自动补消化＋情感线）；<b>✨ 整章精修</b>＝保留你的剧情与好句子，只优化<b>已有草稿</b>的文笔／节奏／逻辑（非破坏性，预览后手动替换）。<b>🖋 润色选中段落</b>＝只改你框选的那一段。</div>
-        <div class="row" style="margin-top:0;align-items:center;">
+        <div class="gen-legend">✍️ 写这一章有三个不重叠的入口：<b>⚡ 接着写</b>＝文末追加续写；<b>🧠 深度续写</b>＝先分析再写新章；<b>✨ 整章精修</b>＝优化已有草稿文笔（预览后替换）；<b>🖋 润色</b>＝改框选段落。深度选项与「消化 / 查找 / 专注」收进「更多操作」。</div>
+        <div class="gen-main">
           <button class="primary" onclick="saveChapter()">保存章节</button>
           <button id="aiBtn" class="btn-quick" title="接着写：基于最近前文 + 全书档案，在文末追加续写当前章的新内容" onclick="aiGen()">⚡ 接着写</button>
+          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 深度续写</button>
+          <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）">✨ 整章精修</button>
+          <button onclick="openAiEdit()">🖋 润色</button>
+        </div>
+        <button class="gen-toggle" onclick="toggleGenMore(this)">⋯ 更多操作（消化 / 查找替换 / 专注 / 清空 / 深度选项）▾</button>
+        <div class="gen-more" id="genMore">
           <div class="dg-mode-sel">
             <label><input type="radio" name="deepWriteMode" value="vol" checked>续写当前分卷</label>
             <label><input type="radio" name="deepWriteMode" value="all">续写全书完整剧情</label>
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
           </div>
-          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 深度续写</button>
-          <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）">✨ 整章精修</button>
-          <button onclick="openAiEdit()">🖋 润色选中段落</button>
           <button id="digestOneBtn" onclick="digestOneChapter(null,this)">消化本章</button>
           <button onclick="openFindReplace()">查找/替换</button>
           <button onclick="toggleFocus()">专注写作</button>
           <button onclick="resetChapterForm()">清空表单</button>
-          <span class="meta" id="chCount"></span>
         </div>
+        <span class="meta" id="chCount"></span>
       </div>
     </div>
 
@@ -1382,6 +1402,7 @@
       <button data-p="p4" onclick="switchTab('p4',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"/><path d="M12 3l8 4v6c0 4-3 7-8 8-5-1-8-4-8-8V7z"/></svg>禁忌</button>
       <button data-p="p5" onclick="switchTab('p5',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>灵感</button>
       <button data-p="p7" onclick="switchTab('p7',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>设定</button>
+      <button data-p="p8" onclick="switchTab('p8',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>时间线</button>
     </div>
     <div class="more-sec">
       <div class="more-sec-h">设置</div>
@@ -7032,6 +7053,11 @@ function openDataPanel(){document.getElementById("dataPanel").classList.add("on"
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}
+/* 顶部 ⋮ 溢出菜单：把次要功能收进去，顶栏保持清爽 */
+function openAppMenu(e){ if(e) e.stopPropagation(); document.getElementById("appMenu").classList.add("on"); document.getElementById("appMenuMask").classList.add("on"); }
+function closeAppMenu(){ document.getElementById("appMenu").classList.remove("on"); document.getElementById("appMenuMask").classList.remove("on"); }
+/* 编辑器「更多操作」折叠：默认收起，点一下展开深度选项与次要操作 */
+function toggleGenMore(btn){ var el=document.getElementById("genMore"); var on=el.classList.toggle("on"); btn.textContent = on ? "⋯ 更多操作（收起）▲" : "⋯ 更多操作（消化 / 查找替换 / 专注 / 清空 / 深度选项）▾"; }
 let _toastTimer=null;
 function toast(msg){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";document.body.appendChild(t);}t.textContent=msg;t.classList.add("on");if(_toastTimer)clearTimeout(_toastTimer);_toastTimer=setTimeout(()=>t.classList.remove("on"),2400);}
 
@@ -7346,7 +7372,7 @@ function syncRefresh(){
 
 /* PWA 安装：安卓一键安装 + 双端首次引导浮层 */
 let _deferredPrompt=null;
-const installBtn=document.getElementById('installBtn');
+const installBtn=document.getElementById('appMenuInstall');
 window.addEventListener('beforeinstallprompt',function(e){
   e.preventDefault(); _deferredPrompt=e;
   if(installBtn) installBtn.style.display='';
