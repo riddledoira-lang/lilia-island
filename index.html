@@ -6572,28 +6572,34 @@ async function aiDeepGen(){
     if(beatCard) userMsg=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`+userMsg;
     /* #4 RAG 检索：召回相关人设/伏笔/前文，全程锁定 */
     try{
-      const ragQ=(num+" "+title+" "+(analysis||"").slice(0,400)).replace(/\n/g," ");
+      /* 检索词用 标题+本章指令+分析头部（章号是检索噪声，已剔除），提高人设/伏笔召回准确度 */
+      const ragQ=((title||"")+" "+(brief||"")+" "+(analysis||"").slice(0,300)).replace(/\n/g," ");
       const rag=ragRetrieve(ragQ,6);
       if(rag.length){
         userMsg += "\n\n【📚 相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
           rag.map(function(it){return "· ["+it.type+"] "+it.title+"："+it.text.slice(0,300);}).join("\n");
       }
     }catch(e){ console.warn("RAG检索失败(非致命):",e.message); }
-    /* #3 双智能体·写作仅依据节拍卡：开启时剥离其它上下文，强制写作Agent只按节拍卡推进 */
-    if(document.getElementById("writeFromBeatOnly")&&document.getElementById("writeFromBeatOnly").checked){
+    /* #3 双智能体·写作仅依据节拍卡：开启时剥离其它上下文，强制写作Agent只按节拍卡推进
+       （修复：该模式原先把【续写前必读分析】注入两次——minimal 内一次、下方又追加一次，
+         浪费 token 且两份可能互相矛盾；现改为该模式只保留 minimal + 文风/精彩度指令） */
+    const _beatOnly=!!(document.getElementById("writeFromBeatOnly")&&document.getElementById("writeFromBeatOnly").checked);
+    if(_beatOnly){
       let minimal=(volSec?("【本分卷「"+volName(curVol)+"」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n"+volSec+"\n\n"):"");
       minimal+=(beatCard?("【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n"+beatCard.beats.join("\n")+"\n\n"):"");
       minimal+="【续写前必读分析】\n"+analysis+"\n\n";
       minimal+="【一致性要求】人物行为须符合其已有性格与前文依据；情感状态须连贯；可推进但不可凭空跳变；结尾留强钩子。\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与原著考据；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持主动观察式记录的第一人称视角；④ 悬念与伏笔用日常中的异常式细微信号铺垫。";
       userMsg=minimal;
     }
-    userMsg+=`\n\n【续写前必读分析】\n${analysis}`;
-    userMsg+=`\n\n【全书情节脉络】\n${prior.syn.join("\n")||"（无梗概）"}`;
-    userMsg+=`\n\n【前文详读（最近若干章完整正文，请严格据此保持人物性格、关系动态与情感线连贯，不要重置；可在本章让情感/关系产生新进展或转折，但须有前文依据）】\n${prior.full.join("\n\n")}`;
-    userMsg+=`\n\n【AI 前文理解档案（分卷分区架构）】\n${digestSection}`;
-    userMsg+=`\n\n【一致性要求】人物行为须符合其已有性格与前文依据；情感状态须连贯；可推进但不可凭空跳变；结尾留强钩子。`;
-    userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持"主动观察式记录"的第一人称视角，避免被动承受式句式；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
-    userMsg+=`\n\n【文风一致性·最高优先级】严格延续【前文详读】的文风——句式长短、比喻系统、幽默感、用词密度、视角须与最近章节无缝衔接；任何风格跳脱都视为不合格。`;
+    if(!_beatOnly){
+      userMsg+=`\n\n【续写前必读分析】\n${analysis}`;
+      userMsg+=`\n\n【全书情节脉络】\n${prior.syn.join("\n")||"（无梗概）"}`;
+      userMsg+=`\n\n【前文详读（最近若干章完整正文，请严格据此保持人物性格、关系动态与情感线连贯，不要重置；可在本章让情感/关系产生新进展或转折，但须有前文依据）】\n${prior.full.join("\n\n")}`;
+      userMsg+=`\n\n【AI 前文理解档案（分卷分区架构）】\n${digestSection}`;
+      userMsg+=`\n\n【一致性要求】人物行为须符合其已有性格与前文依据；情感状态须连贯；可推进但不可凭空跳变；结尾留强钩子。`;
+      userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持"主动观察式记录"的第一人称视角，避免被动承受式句式；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
+    }
+    userMsg+=`\n\n【文风一致性·最高优先级】严格延续前文既定文风——句式长短、比喻系统、幽默感、用词密度、视角须与最近章节无缝衔接；任何风格跳脱都视为不合格。`;
     userMsg+=`\n\n【情节精彩度要求】① 每段至少含一个具体感官细节（视觉/听觉/触觉/嗅觉/味觉之一），禁止空泛概括；② 本章须至少包含一个情绪或情节的小转折/钩子，维持读者张力；③ 用具体动作与对话推进剧情，避免叙述式总结；④ 杜绝陈词滥调与廉价比喻（如'心跳漏了一拍'式表达）。`;
     const _base=body.trim();
     const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.9, max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
@@ -6689,6 +6695,8 @@ async function aiAnalyze(){
   let corpus=ch.map(c=>"第"+(c.num||"?")+"章《"+(c.title||"")+"》\n"+(c.body||"")).join("\n\n---\n\n");
   if(corpus.length>100000) corpus=corpus.slice(0,100000)+"\n\n（以下章节因长度限制未纳入分析，但所有章节梗概见下，可在「章节」目录逐章查看）";
   const synAll=ch.filter(c=>c.synopsis&&c.synopsis.trim()).map(c=>"· 第"+(c.num||"?")+"章《"+(c.title||"")+"》： "+c.synopsis.trim()).join("\n");
+  /* 修复：allVolSettings 原先从未定义，模板字符串求值直接 ReferenceError，导致本功能整个不可用 */
+  const allVolSettings=allVolIds().map(function(vid){const s=getVolSetting(vid);return s?("=== "+volName(vid)+" ===\n"+s):"";}).filter(Boolean).join("\n\n");
   const sys=bookMemSys();
   const userMsg=`下面是某小说从开头到最新的已写章节（含全部章节梗概与尽可能多的完整正文）。请作为「人物与情感线分析师」深度阅读，输出一份结构化中文报告：\n\n① 主要人物性格特点（每人 3-5 条，并点出其在前文的关键行为与台词依据）\n② 人物之间的关系动态与最新进展（谁与谁是什么关系、当前处于什么阶段、有无未解张力）\n③ 当前情感线走向（谁对谁有何种情感、进展到哪一步、有无未兑现的伏笔/承诺/危机）\n④ 续写建议（基于以上，接下来情感 / 关系可在哪些方向推进，给出 2-3 个具体钩子）\n\n只输出报告本身，不要寒暄、不要改写正文。\n${allVolSettings?"\n=== 各分卷专属设定（分析时必须严格参照：不同分卷的人物年龄/文风/基调可能完全不同）===\n"+allVolSettings+"\n":""}=== 全书章节梗概（整体脉络）===\n${synAll||"（无梗概，请依据正文）"}\n\n=== 已写章节正文 ===\n${corpus}`;
   document.getElementById("aiAnaMask").classList.add("on");
@@ -6730,7 +6738,8 @@ async function aiEdit(mode){
   if(!src){alert("没有可处理的文本。");return;}
   const sys=bookMemSys();
   /* 获取当前编辑章节所属分卷的专属设定 */
-  const curChId=document.getElementById("chForm")?.dataset?.id;
+  /* 修复：原先读不存在的 #chForm（编辑器实际用 #chId），导致润色/扩写永远注入不了分卷专属设定 */
+  const curChId=(document.getElementById("chId")||{}).value||"";
   const allChs=load("chapters",[]);
   const curChObj=curChId?allChs.find(c=>c.id===curChId):null;
   const curVolForEdit=curChObj?(curChObj.vol||"none"):"none";
@@ -6743,7 +6752,8 @@ ${src}`;
   const statusEl=document.getElementById("aiEditStatus");
   acts.style.display="none"; statusEl.textContent="AI 处理中…";
   try{
-    const out=(await callAI({sys, user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000})).trim();
+    /* 润色/扩写/缩写属正文类：走续写模型 flash（成本铁律），不再误占分析模型/Pro */
+    const out=(await callAI({sys, user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")})).trim();
     if(!out)throw new Error("接口返回内容为空");
     document.getElementById("aiEditResult").value=out;
     document.getElementById("aiEditResultBox").style.display="";
