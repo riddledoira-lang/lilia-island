@@ -1698,6 +1698,7 @@
     </div>
     <div class="mbtn" style="margin-top:10px;">
       <button class="primary" onclick="closeAiResult()">✅ 确认收下（正文已自动保存）</button>
+      <button class="ghost" onclick="aiResDiscard()">🚫 不加入文章</button>
     </div>
   </div>
 </div>
@@ -2823,12 +2824,23 @@ async function oppToBeatCard(btn){
     if(!out||!out.trim()){ toast("AI 返回为空，可重试"); return; }
     const beats=out.split("\n").map(function(l){return l.trim();}).filter(function(l){return l && (/^\d+[\.、]/.test(l) || /^第.{1,8}章/.test(l));});
     if(!beats.length){ toast("未能从结果解析出节拍卡，可重试"); return; }
-    save("activeDeduction",{idx:"大纲·"+(vol==="all"?"全书":volName(vol)), tone:(vol==="all"?"全书":volName(vol)), beats:beats, raw:out, at:Date.now()});
-    try{renderDeductions();}catch(e){}
-    const hint=document.getElementById("oppHint"); if(hint)hint.textContent="🎯 已转写为「深度续写」节拍卡并挂载（共 "+beats.length+" 个节拍）。去写章点「🧠深度续写」将严格按此推进。";
-    toast("🎯 已挂载为续写节拍卡（"+beats.length+" 节拍）");
+    /* 预览确认：先展示将生成的节拍卡，用户确认才挂载 */
+    const volNameX=(vol==="all"?"全书":volName(vol));
+    const mask=document.createElement("div"); mask.className="modal-mask on"; mask.id="oppBeatMask";
+    mask.innerHTML='<div class="modal" style="max-width:660px;"><h3>📋 预览将生成的续写节拍卡（'+esc(volNameX)+'）</h3><p class="meta">以下 '+beats.length+' 个节拍将作为「🧠深度续写」的<b>强制前置约束</b>。确认挂载，或取消（不写入任何内容）。</p><div style="max-height:52vh;overflow:auto;border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;padding:10px;font-size:14px;line-height:1.9;margin-top:6px;">'+beats.map(function(b,i){return (i+1)+". "+esc(b);}).join("<br>")+'</div><div class="mbtn" style="margin-top:12px;"><button class="primary" onclick="window.__oppBeatOk()">✅ 确认挂载</button><button class="ghost" onclick="window.__oppBeatCancel()">取消</button></div></div>';
+    document.body.appendChild(mask);
+    window.__oppBeatOk=function(){ try{document.body.removeChild(mask);}catch(e){} delete window.__oppBeatOk; delete window.__oppBeatCancel; oppBeatCommit(beats, vol, out); };
+    window.__oppBeatCancel=function(){ try{document.body.removeChild(mask);}catch(e){} delete window.__oppBeatOk; delete window.__oppBeatCancel; toast("已取消，未挂载节拍卡"); };
+    return;
   }catch(e){ aiFail("大纲转节拍卡",e); }
   finally{ if(btn){btn.disabled=false;btn.textContent=_ot;} }
+}
+/* 预览确认后执行挂载：写入 activeDeduction 供深度续写读取，与原「🎲 一键灵感推演」挂接链一致 */
+function oppBeatCommit(beats, vol, raw){
+  save("activeDeduction",{idx:"大纲·"+(vol==="all"?"全书":volName(vol)), tone:(vol==="all"?"全书":volName(vol)), beats:beats, raw:raw, at:Date.now()});
+  try{renderDeductions();}catch(e){}
+  const hint=document.getElementById("oppHint"); if(hint)hint.textContent="🎯 已转写为「深度续写」节拍卡并挂载（共 "+beats.length+" 个节拍）。去写章点「🧠深度续写」将严格按此推进。";
+  toast("🎯 已挂载为续写节拍卡（"+beats.length+" 节拍）");
 }
 
 /* ============== 大纲视图 ============== */
@@ -6268,12 +6280,24 @@ function exportDigestVol(vid){
    修复「生成后看不到内容」：生成完成立即弹出完整结果，支持一键复制/插入/替换；
    同时写入正文框 + 触发自动保存（程序赋值不触发 input 事件，原本会导致丢失）。 */
 let _aiLastResult="";
-function showAiResult(text, label){
+let _aiBeforeResult="";   /* 自动写入正文前的 chBody 原值，供「不加入文章」回滚 */
+let _aiResAutoWritten=false;
+function showAiResult(text, label, autoWritten){
   _aiLastResult=text||"";
+  _aiResAutoWritten=!!autoWritten;
   document.getElementById("aiResTitle").textContent="✨ "+(label||"AI 生成结果");
   document.getElementById("aiResText").value=_aiLastResult;
   document.getElementById("aiResCount").textContent="本段生成字数："+_aiLastResult.length;
   document.getElementById("aiResMask").classList.add("on");
+}
+/* 「不加入文章」：若正文已被本次生成自动写入，则回滚到写入前；否则仅关闭预览（如整章精修） */
+function aiResDiscard(){
+  if(_aiResAutoWritten){
+    const ta=document.getElementById("chBody");
+    if(ta){ ta.value=(typeof _aiBeforeResult!=="undefined"&&_aiBeforeResult!=null)?_aiBeforeResult:""; afterAiWrite(ta); }
+  }
+  closeAiResult();
+  toast("已撤销，未加入正文 ✅");
 }
 function closeAiResult(){ document.getElementById("aiResMask").classList.remove("on"); }
 /* AI 生成/续写失败：用持久弹窗展示错误（不自动消失、不点遮罩关闭，需手动确认），
@@ -6373,11 +6397,12 @@ async function aiGen(){
   try{
     const _base=body.trim();
     const ta=document.getElementById("chBody");
+    _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
     const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.9, max_tokens:Number(ai.maxTokens)||8000, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim())throw new Error("接口返回内容为空");
     ta.value=_base?(_base+"\n\n"+out):out;
     afterAiWrite(ta);
-    showAiResult(out, "AI 续写结果");
+    showAiResult(out, "AI 续写结果", true);
     toast("已基于目录中前 "+prior.count+" 章生成"+(num!=="?"?("第"+num+"章"):"本章"));
   }catch(e){ aiGenFail("AI 生成",e, (document.getElementById("chBody")||{}).value); }
   finally{ btn.disabled=false; btn.textContent=old; }
@@ -6748,9 +6773,10 @@ async function aiDeepGen(){
     /* 自动生成人物情感线（从分析结果提取，写入人物栏） */
     try{ autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
     const ta=document.getElementById("chBody");
+    _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
     ta.value=body.trim()? (body.trim()+"\n\n"+out) : out;
     afterAiWrite(ta);
-    showAiResult(out, "AI 深度续写结果（第"+num+"章）");
+    showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
     toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章（保存本章时会自动并入"+(writeMode==="vol"?"本卷":"全书")+"档案）");
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(out, "第"+num+"章《"+title+"》").then(function(risks){
@@ -6810,7 +6836,7 @@ async function aiOptimize(){
     if(!out.trim()) throw new Error("精修返回为空");
     /* 非破坏性：先预览，用户点「替换」才覆盖原稿（原稿自动入历史版本，可回滚） */
     try{ autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
-    showAiResult(out.trim(), "AI 整章精修结果（点「替换」才覆盖原稿，原稿可在「历史」版本中找回）");
+    showAiResult(out.trim(), "AI 整章精修结果（点「替换」才覆盖原稿，原稿可在「历史」版本中找回）", false);
     toast("精修完成 ✅ 请在预览面板点「替换」覆盖原稿");
   }catch(e){ aiGenFail("AI 整章精修",e, ""); }
   finally{ btn.disabled=false; btn.textContent=old; }
