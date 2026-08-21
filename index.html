@@ -100,6 +100,7 @@
   }
   button:hover{background:var(--soft);}
   button.primary{background:var(--brand);color:#fff;border-color:var(--brand);}
+  button.accent{background:linear-gradient(180deg,#f59e0b,#d97706);color:#fff;border-color:#d97706;box-shadow:0 2px 10px rgba(217,119,6,.3);}
   button.primary:hover{background:#6d5aa8;}
   button.danger{background:#fff;color:var(--red);border-color:#ecc9c4;}
   button.danger:hover{background:#fbecea;}
@@ -1275,6 +1276,7 @@
       <textarea id="oppIdeas" style="min-height:78px;" placeholder="例如：想让薇拉这学期发现母亲的旧信；期末来一场决裂；多加一条关于……的暗线"></textarea>
       <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap;">
         <button class="primary" id="oppRevBtn" onclick="planOutlineVol('revise')">🔄 按我的想法深度修订</button>
+        <button class="accent" id="oppBeatBtn" onclick="oppToBeatCard(this)" title="把本分卷大纲结构化转写为章节级节拍卡，并挂接为「深度续写」的强制前置约束">🎯 转成续写节拍卡</button>
         <button onclick="planOutlineSave()">💾 保存大纲</button>
         <button onclick="planOutlineClear()">清空</button>
       </div>
@@ -2802,6 +2804,31 @@ function planOutlineLoad(){
 function planOutlineClear(){
   const outEl=document.getElementById("oppOutline"); const ideaEl=document.getElementById("oppIdeas");
   if(outEl)outEl.value=""; if(ideaEl)ideaEl.value=""; const hint=document.getElementById("oppHint"); if(hint)hint.textContent="";
+}
+async function oppToBeatCard(btn){
+  const ai=load("ai",{});
+  if(!ai.base){ toast("未配置 AI：先在「AI 生成设置」填好 API 再转写。"); return; }
+  const sel=document.getElementById("oppVol"); const vol=sel?sel.value:"all";
+  const outEl=document.getElementById("oppOutline");
+  const saved=(load("outlinePlan",{})[vol]||{}).text||"";
+  const src=(outEl&&outEl.value.trim())?outEl.value.trim():saved.trim();
+  if(!src){ toast("该分卷还没有大纲：先「生成大纲」或「保存大纲」。"); return; }
+  const volSec=(vol!=="all")?getVolSetting(vol):"";
+  const chars=load("chars",[]).slice(0,10).map(function(c){return "· "+c.name+(c.house?("("+c.house+")"):"")+"："+(c.core||c.traits||"").slice(0,40);}).join("\n")||"（暂无人物）";
+  const sys="你是资深小说剧情策划。请把一份已写好的分卷大纲，结构化转写为可直接用于 AI 深度续写的「章节级节拍卡」数组。每条节拍一句话，须覆盖：章序号·场景·核心事件·情绪推进·埋下的钩子。严格按输出格式，每行以序号开头，不要写正文。";
+  const user="【目标分卷】"+(vol==="all"?"全书":volName(vol))+"\n\n【分卷专属设定（文风/人设最高优先级）】\n"+(volSec||"（无）")+"\n\n【关键人物】\n"+chars+"\n\n【待转写的大纲】\n"+src+"\n\n【输出格式】逐章输出节拍，每条一行：\n1. 第X章·场景：核心事件｜情绪推进｜钩子\n2. 第X章·场景：核心事件｜情绪推进｜钩子\n……\n要求：覆盖大纲主要章节；每条必须有具体场景与钩子；章序号可依据大纲推断。";
+  const _ot=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="转写中…";}
+  try{
+    const out=await callAI({sys:sys,user:user,temperature:0.7,max_tokens:2400,modelOverride:ai.model});
+    if(!out||!out.trim()){ toast("AI 返回为空，可重试"); return; }
+    const beats=out.split("\n").map(function(l){return l.trim();}).filter(function(l){return l && (/^\d+[\.、]/.test(l) || /^第.{1,8}章/.test(l));});
+    if(!beats.length){ toast("未能从结果解析出节拍卡，可重试"); return; }
+    save("activeDeduction",{idx:"大纲·"+(vol==="all"?"全书":volName(vol)), tone:(vol==="all"?"全书":volName(vol)), beats:beats, raw:out, at:Date.now()});
+    try{renderDeductions();}catch(e){}
+    const hint=document.getElementById("oppHint"); if(hint)hint.textContent="🎯 已转写为「深度续写」节拍卡并挂载（共 "+beats.length+" 个节拍）。去写章点「🧠深度续写」将严格按此推进。";
+    toast("🎯 已挂载为续写节拍卡（"+beats.length+" 节拍）");
+  }catch(e){ aiFail("大纲转节拍卡",e); }
+  finally{ if(btn){btn.disabled=false;btn.textContent=_ot;} }
 }
 
 /* ============== 大纲视图 ============== */
