@@ -1281,6 +1281,7 @@
         <button onclick="planOutlineClear()">清空</button>
       </div>
       <div class="meta" id="oppHint" style="margin-top:8px;"></div>
+      <div id="oppMount" style="margin-top:10px;"></div>
     </div>
   </div>
 
@@ -2841,6 +2842,19 @@ function oppBeatCommit(beats, vol, raw){
   try{renderDeductions();}catch(e){}
   const hint=document.getElementById("oppHint"); if(hint)hint.textContent="🎯 已转写为「深度续写」节拍卡并挂载（共 "+beats.length+" 个节拍）。去写章点「🧠深度续写」将严格按此推进。";
   toast("🎯 已挂载为续写节拍卡（"+beats.length+" 节拍）");
+  renderOppMount();
+}
+/* 大纲 tab 同步显示当前已挂载的续写节拍卡（可点开/收起明细，可解除挂载） */
+function renderOppMount(){
+  const el=document.getElementById("oppMount"); if(!el)return;
+  const m=load("activeDeduction",null);
+  if(!m||!m.beats||!m.beats.length){ el.innerHTML='<div class="meta">当前没有挂载的续写节拍卡；点「🎯 转成续写节拍卡」可绑定一套。</div>'; return; }
+  const list=m.beats.map(function(b,i){return (i+1)+". "+esc(b);}).join("<br>");
+  el.innerHTML='<details style="border:1px solid var(--ok,rgba(34,160,90,.4));border-radius:8px;background:var(--ok-soft,rgba(34,160,90,.1));padding:10px;">'+
+    '<summary style="cursor:pointer;font-weight:500;font-size:13px;">🎯 当前挂载的续写节拍卡：'+(m.tone||m.idx||"")+'（'+m.beats.length+' 拍）— 点开/收起</summary>'+
+    '<div style="margin-top:8px;font-size:13px;line-height:1.8;">'+list+'</div>'+
+    '<div style="margin-top:8px;"><button class="ghost" onclick="clearDeduction();renderOppMount();">解除挂载</button></div>'+
+    '</details>';
 }
 
 /* ============== 大纲视图 ============== */
@@ -2862,6 +2876,7 @@ function renderOutline(){
       '</div>';
   }).join("");
   oppPopulateVols();
+  renderOppMount();
 }
 function setSynopsis(id,v){ let ch=load("chapters",[]); const i=ch.findIndex(x=>x.id===id); if(i>=0){ch[i].synopsis=v; save("chapters",ch); try{ renderOutline(); }catch(e){} } }
 function olMove(id,dir){
