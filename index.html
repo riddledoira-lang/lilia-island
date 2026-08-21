@@ -1261,6 +1261,25 @@
       <div class="meta">按分卷纵览全部章节，直接写一句话梗概。↑/↓ 或拖拽可调整本卷内顺序，点「编辑」回到正文区修改。</div>
       <div id="outlineBox"></div>
     </div>
+    <div class="card">
+      <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A2 2 0 0 1 5 15V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><path d="M9 17l3 3 3-3M12 12v8"/></svg>AI 深度规划剧情大纲 <span class="pill">分卷 / 学期</span></h2>
+      <div class="meta">选定一个分卷（如「六年级上学期」），AI 综合<b>该卷已完稿梗概 + 你的线索/伏笔 + 人物设定 + 分卷剧情设置 + 世界观</b>，产出带<b>章节节拍 + 脑洞发散 + 伏笔回收</b>的深度大纲。先生成，再在下方填写你的脑洞，让 AI 据此深度修订。</div>
+      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+        <select id="oppVol"><option value="all">📚 全书总览</option></select>
+        <button class="primary" id="oppGenBtn" onclick="planOutlineVol(null)">🧭 生成大纲</button>
+        <button onclick="planOutlineLoad()">载入已存</button>
+      </div>
+      <label style="display:block;font-weight:600;font-size:13px;margin:10px 0 4px;">AI 大纲（可手动修改）</label>
+      <textarea id="oppOutline" style="min-height:220px;" placeholder="点「生成大纲」后，这里会出现 AI 产出的分卷深度大纲……"></textarea>
+      <label style="display:block;font-weight:600;font-size:13px;margin:10px 0 4px;">我的脑洞 / 修改想法（让 AI 据此深度修订）</label>
+      <textarea id="oppIdeas" style="min-height:78px;" placeholder="例如：想让薇拉这学期发现母亲的旧信；期末来一场决裂；多加一条关于……的暗线"></textarea>
+      <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap;">
+        <button class="primary" id="oppRevBtn" onclick="planOutlineVol('revise')">🔄 按我的想法深度修订</button>
+        <button onclick="planOutlineSave()">💾 保存大纲</button>
+        <button onclick="planOutlineClear()">清空</button>
+      </div>
+      <div class="meta" id="oppHint" style="margin-top:8px;"></div>
+    </div>
   </div>
 
   <div class="panel" id="p7">
@@ -2691,6 +2710,100 @@ function banScan(scope){
     found.map(w=>{ const h=agg[w].hits; const prev=h.slice(0,6).map(x=>'<div class="bh"><span class="bt">'+esc(x.title)+'</span> …'+esc(x.snippet)+'… '+(x.id&&x.id!=="__cur"?'<a onclick="editChapter(\''+x.id+'\')">查看</a>':'')+'</div>').join(""); return '<div class="bw"><div class="bn">'+esc(w)+'<span class="bc">×'+agg[w].count+'</span></div>'+prev+'</div>'; }).join("");
 }
 
+/* ============== AI 深度规划剧情大纲（分卷/学期级） ============== */
+function oppPopulateVols(){
+  const sel=document.getElementById("oppVol"); if(!sel)return;
+  const cur=sel.value;
+  const b=curBook(); const vols=(b&&b.volumes)||[];
+  let html='<option value="all">📚 全书总览</option>';
+  html+=vols.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join("");
+  sel.innerHTML=html;
+  if(cur) sel.value=cur;
+}
+function oppContext(vol){
+  const ch=load("chapters",[]);
+  const list = vol==="all"? ch : ch.filter(c=>(c.vol||"none")===vol);
+  const syn=list.filter(c=>(c.synopsis||"").trim()).map(c=>"· 第"+(c.num||"?")+"章《"+(c.title||"")+"》："+(c.synopsis||"").trim());
+  const doneBody=list.filter(c=>(c.status==="done")&&(c.body||"").trim()).slice(-4).map(c=>"=== 第"+(c.num||"?")+"章《"+(c.title||"")+"》 ===\n"+(c.body||"").slice(0,1200));
+  const plot=load("plot",[]);
+  let plotLines;
+  if(vol==="all"){ plotLines=plot.map(p=>"· ["+(p.status||"todo")+"] "+(p.line||"")+"："+(p.point||"")+(p.owner?("（归属："+p.owner+"）"):"")).join("\n"); }
+  else {
+    const own=plot.filter(function(p){const o=(p.owner||"").toString();const vn=volName(vol)||"";return o===vol||o===vn||(vn&&o.indexOf(vn)>=0);});
+    const others=plot.filter(function(p){return own.indexOf(p)<0;});
+    plotLines=(own.length?("【本卷线索/伏笔】\n"+own.map(p=>"· ["+(p.status||"todo")+"] "+(p.line||"")+"："+(p.point||"")).join("\n")+"\n\n"):"")+"【其它卷线索（次要背景）】\n"+(others.map(p=>"· ["+(p.status||"todo")+"] "+(p.line||"")+"："+(p.point||"")).join("\n")||"（无）");
+  }
+  const chars=load("chars",[]);
+  const charBlock=chars.map(function(c){
+    const parts=[];
+    if(c.core)parts.push("核心特质："+c.core);
+    if(c.desire)parts.push("表层欲望："+c.desire);
+    if(c.deepDesire)parts.push("深层欲望："+c.deepDesire);
+    if(c.appearance)parts.push("外貌："+c.appearance);
+    if(c.langSys)parts.push("语言："+c.langSys);
+    if(c.thinkMode)parts.push("思维："+c.thinkMode);
+    if(c.emotionalArcs&&c.emotionalArcs.length)parts.push("情感线："+c.emotionalArcs.map(a=>a.text).join("；"));
+    if(c.traits&&!c.core)parts.push(c.traits);
+    return "· "+(c.name||"?")+(c.house?("（"+(c.house||"")+"）"):"")+"："+parts.join(" | ");
+  }).join("\n")||"（暂无人物）";
+  const world=(load("world","")||"").trim();
+  const d=getDigest();
+  const digest = vol==="all"? (d.global||"") : ((d.volumes&&d.volumes[vol]&&d.volumes[vol].text)||"");
+  const volSet = vol==="all"? "" : getVolSetting(vol);
+  return {syn:syn.join("\n"),doneBody:doneBody.join("\n\n"),plotLines:plotLines||"（暂无线索）",charBlock:charBlock,world:world||"（未填）",digest:digest||"（空）",volSet:volSet||""};
+}
+function oppCtxText(ctx,volLabel){
+  return "【分卷】"+volLabel+"\n【世界观】\n"+(ctx.world)+"\n\n【分卷剧情设置】\n"+(ctx.volSet||"（未填）")+"\n\n【本卷已完稿梗概】\n"+(ctx.syn||"（无）")+"\n\n【最近已完稿正文片段】\n"+(ctx.doneBody||"（无）")+"\n\n【线索/伏笔】\n"+ctx.plotLines+"\n\n【人物设定】\n"+ctx.charBlock+"\n\n【AI 前文理解档案】\n"+ctx.digest;
+}
+async function planOutlineVol(mode){
+  const ai=load("ai",{});
+  if(!ai.base){ toast("未配置 AI：在「AI 生成设置」填好 API 后可用本功能。"); return; }
+  const sel=document.getElementById("oppVol"); const vol=sel?sel.value:"all";
+  const volLabel = vol==="all"? "全书总览" : volName(vol);
+  const btn = mode==="revise"? document.getElementById("oppRevBtn") : document.getElementById("oppGenBtn");
+  const outEl=document.getElementById("oppOutline"); const ideaEl=document.getElementById("oppIdeas"); const hint=document.getElementById("oppHint");
+  const ctx=oppContext(vol);
+  let sys, user;
+  if(mode==="revise"){
+    const cur=outEl?outEl.value.trim():"";
+    const idea=ideaEl?ideaEl.value.trim():"";
+    if(!cur){ toast("还没有大纲可修订，请先点「生成大纲」"); return; }
+    if(!idea){ toast("先在「我的脑洞/修改想法」里写上你的想法"); return; }
+    sys="你是资深小说架构师。作者已有一份大纲，并提出了新的想法/脑洞。请基于已有大纲与作者想法做【深度分析与修订】：保留优质结构、吸收作者意图、修正逻辑/节奏/伏笔漏洞，产出一份【完整修订后的大纲全文】（不要只给差异，要给可直接使用的新大纲）。保持原本的章节节拍格式，并在末尾保留「脑洞发散」区块。";
+    user="【大纲规划依据】\n"+oppCtxText(ctx,volLabel)+"\n\n【你之前的大纲】\n"+cur+"\n\n【作者新增想法/脑洞】\n"+idea+"\n\n请输出完整修订后的大纲。";
+  } else {
+    sys="你是资深小说架构师，擅长基于已有伏笔/人物设定/剧情设置做长线大纲规划。请为「"+volLabel+"」产出一份深度剧情大纲，结构如下：\n① 卷目标与情感基调（一句话）\n② 章节节拍（按时间/学期推进，至少 6 个节拍，每节拍：章序号·场景·核心事件·情绪推进·埋下的钩子）\n③ 伏笔/线索回收计划（哪些已有伏笔在本卷揭晓、哪些新埋）\n④ 人物成长弧（主要角色在本卷的变化）\n⑤ 脑洞发散（3-5 个可拓展/可替换的戏剧方向，标注风险与收益）\n要求：紧扣已有设定与伏笔，不写正文，只给骨架与方向。";
+    user="请基于以下已有关卡规划「"+volLabel+"」的大纲：\n\n"+oppCtxText(ctx,volLabel);
+  }
+  const _ot=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="规划中…";}
+  try{
+    const out=await callAI({sys:sys,user:user,temperature:0.85,max_tokens:3200,modelOverride:ai.model});
+    if(outEl)outEl.value=out.trim();
+    if(mode==="revise"&&ideaEl)ideaEl.value="";
+    if(hint)hint.textContent="✅ 已"+(mode==="revise"?"按你的想法修订":"生成")+"「"+volLabel+"」大纲 · "+new Date().toLocaleString();
+    toast("已"+(mode==="revise"?"修订":"生成")+"「"+volLabel+"」大纲");
+  }catch(e){ aiFail("AI 深度规划大纲",e); }
+  finally{ if(btn){btn.disabled=false;btn.textContent=_ot;} }
+}
+function planOutlineSave(){
+  const sel=document.getElementById("oppVol"); const vol=sel?sel.value:"all";
+  const outEl=document.getElementById("oppOutline"); if(!outEl||!outEl.value.trim()){toast("没有可保存的大纲");return;}
+  const all=load("outlinePlan",{}); all[vol]={text:outEl.value,at:Date.now()}; save("outlinePlan",all);
+  const hint=document.getElementById("oppHint"); if(hint)hint.textContent="💾 已保存「"+(vol==="all"?"全书":volName(vol))+"」大纲 · "+new Date().toLocaleString();
+  toast("已保存大纲");
+}
+function planOutlineLoad(){
+  const sel=document.getElementById("oppVol"); const vol=sel?sel.value:"all";
+  const all=load("outlinePlan",{}); const rec=all[vol];
+  const outEl=document.getElementById("oppOutline");
+  if(rec&&rec.text){ outEl.value=rec.text; const hint=document.getElementById("oppHint"); if(hint)hint.textContent="📋 已载入「"+(vol==="all"?"全书":volName(vol))+"」已存大纲"; toast("已载入已存大纲"); }
+  else toast("该分卷还没有已存大纲");
+}
+function planOutlineClear(){
+  const outEl=document.getElementById("oppOutline"); const ideaEl=document.getElementById("oppIdeas");
+  if(outEl)outEl.value=""; if(ideaEl)ideaEl.value=""; const hint=document.getElementById("oppHint"); if(hint)hint.textContent="";
+}
+
 /* ============== 大纲视图 ============== */
 function renderOutline(){
   const b=curBook(); const vols=(b.volumes||[{id:"none",name:"未分卷"}]);
@@ -2709,6 +2822,7 @@ function renderOutline(){
       '</div>').join("") : '<div class="meta">本卷暂无章节</div>')+
       '</div>';
   }).join("");
+  oppPopulateVols();
 }
 function setSynopsis(id,v){ let ch=load("chapters",[]); const i=ch.findIndex(x=>x.id===id); if(i>=0){ch[i].synopsis=v; save("chapters",ch); try{ renderOutline(); }catch(e){} } }
 function olMove(id,dir){
