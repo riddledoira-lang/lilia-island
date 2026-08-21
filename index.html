@@ -1057,10 +1057,11 @@
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
           </div>
-          <button id="digestOneBtn" onclick="digestOneChapter(null,this)">消化本章</button>
+          <button id="digestOneBtn" onclick="digestOneChapter(null,this)" title="仅「已完稿」章节会被消化进入前文档案；草稿/待修改不进入">消化本章</button>
           <button onclick="openFindReplace()">查找/替换</button>
           <button onclick="toggleFocus()">专注写作</button>
           <button onclick="resetChapterForm()">清空表单</button>
+          <button class="danger" onclick="delChapterFromEditor()" title="删除当前正在编辑的这章（不可撤销）">🗑 删除本章</button>
         </div>
         <span class="meta" id="chCount"></span>
       </div>
@@ -2335,7 +2336,12 @@ function curChapterView(){
   normalizeOrder();
   let ch=load("chapters",[]).slice().sort((a,b)=>(a.order||0)-(b.order||0));
   const cur=curBook().curVol||"all";
-  if(cur!=="all") ch=ch.filter(c=>(c.vol||"none")===cur);
+  if(cur!=="all"){
+    /* 修复：按分卷筛选时，其它分卷的章节仍要显示（置底），避免「保存了却看不见 / 像消失了」 */
+    const inVol=ch.filter(c=>(c.vol||"none")===cur);
+    const outVol=ch.filter(c=>(c.vol||"none")!==cur);
+    ch=inVol.concat(outVol);
+  }
   return ch;
 }
 function saveChapter(){
@@ -2389,6 +2395,19 @@ function delChapter(id){
   save("chapters",load("chapters",[]).filter(x=>x.id!==id));
   removeDigestSig(id);          // 同步移除该章对应的档案条目
   refreshChapterViews();
+}
+/* 编辑器内删除当前正在编辑的章节（大纲列表已有删除，这里补上编辑器入口） */
+function delChapterFromEditor(){
+  const id=document.getElementById("chId")?document.getElementById("chId").value:"";
+  if(!id){ toast("当前是未保存的新章节，无需删除（点「清空表单」即可）"); return; }
+  const c=load("chapters",[]).find(x=>x.id===id);
+  if(!c){ toast("找不到当前章节"); return; }
+  if(!confirm("确认删除「"+(c.title||("第"+(c.num||"?")+"章"))+"」？此操作不可撤销。")) return;
+  save("chapters",load("chapters",[]).filter(x=>x.id!==id));
+  try{ removeDigestSig(id); }catch(e){}
+  resetChapterForm();
+  refreshChapterViews();
+  toast("已删除当前章节");
 }
 function resetChapterForm(){
   ["chId","chNum","chTitle","chBody","chDue","chHook","chBrief"].forEach(i=>document.getElementById(i).value="");
@@ -4193,12 +4212,14 @@ async function analyzeCharPsyche(cid, btn){
   const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
   if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法分析（先让 ta 在多章里出现吧）"); return; }
   const done=hits.filter(function(ch){return (ch.status||"")==="done";});
-  const pool=(done.length?done:hits).slice().sort(function(a,b){(b.body||"").length-(a.body||"").length}).slice(0,4);
-  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,7000);}).join("\n\n----\n\n");
+  function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
+  const pool=(done.length?done:hits).slice().sort(function(a,b){ return _mentions(b,name)-_mentions(a,name) || (b.body||"").length-(a.body||"").length; }).slice(0,6);
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,5000);}).join("\n\n----\n\n");
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="分析中…";
   try{
     const sys="你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
-    const user="下面是小说人物【"+name+"】在已完稿章节中的出场正文。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const roleCtx=(c.house?("【"+name+"】所属学院/阵营："+c.house+"。") : "")+(c.traits?("已知基础设定："+c.traits+"。") : "");
+    const user="你正在分析的小说人物是【"+name+"】。"+roleCtx+"\n【铁的纪律】本书为第一人称（薇拉·奎克）视角，正文大量是叙述者薇拉的内心活动。你只许提取【"+name+"】这一个人的核心特质/欲望/外貌，严禁把薇拉·奎克或其他角色的特质安到【"+name+"】头上，也严禁输出薇拉的特质。\n下面是【"+name+"】在已完稿章节中的出场正文（已按与【"+name+"】的相关度排序）。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
     const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:1200});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
@@ -4206,7 +4227,7 @@ async function analyzeCharPsyche(cid, btn){
       cs[i].core=String(obj.core||"").trim();
       cs[i].desire=String(obj.desire||"").trim();
       cs[i].deepDesire=String(obj.deepDesire||"").trim();
-      cs[i].appearance=String(obj.appearance||"").trim();
+      const _app=String(obj.appearance||"").trim(); if(_app) cs[i].appearance=_app; /* 仅当有外貌描写才写入；否则保留你手填内容，绝不清空 */
       const d=new Date(); const ds=d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
       cs[i].psycheSrc="基于 "+pool.length+" 章已完稿分析 · "+ds;
       cs[i].demo=false; save("chars",cs);
@@ -4227,17 +4248,18 @@ async function analyzeCharAppearance(cid, btn){
   const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
   if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取外貌（先让 ta 在多章里出现吧）"); return; }
   const done=hits.filter(function(ch){return (ch.status||"")==="done";});
-  const pool=(done.length?done:hits).slice().sort(function(a,b){(b.body||"").length-(a.body||"").length}).slice(0,4);
-  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,7000);}).join("\n\n----\n\n");
+  function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
+  const pool=(done.length?done:hits).slice().sort(function(a,b){ return _mentions(b,name)-_mentions(a,name) || (b.body||"").length-(a.body||"").length; }).slice(0,6);
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,5000);}).join("\n\n----\n\n");
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="提取外貌…";
   try{
     const sys="你是小说人物外貌分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
-    const user="下面是小说人物【"+name+"】在已完稿章节中的出场正文。请只提炼其【外貌特征】：严格只从正文中直接的外貌描写提取——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、严禁任何推断或猜测）。只输出 JSON：{\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const user="你正在分析的小说人物是【"+name+"】。\n【铁的纪律】本书为第一人称（薇拉·奎克）视角，正文大量是叙述者薇拉的内心活动。你只许提取【"+name+"】这一个人的外貌，严禁把薇拉·奎克或其他角色的外貌安到【"+name+"】头上。\n请只提炼【"+name+"】的【外貌特征】：严格只从正文中直接的外貌描写提取——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、严禁任何推断或猜测）。只输出 JSON：{\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
     const out=await callAI({sys:sys, user:user, temperature:0.3, max_tokens:600});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
     const app=String(obj.appearance||"").trim();
-    cs[i].appearance=app;
+    if(app) cs[i].appearance=app; /* 仅当有外貌描写才写入；空则保留你手填内容，不覆盖 */
     const d=new Date(); const ds=d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
     cs[i].appearanceSrc="基于 "+pool.length+" 章已完稿提取 · "+ds;
     cs[i].demo=false; save("chars",cs);
