@@ -4213,8 +4213,9 @@ async function autoTimelineFromChapter(c){
         /* 只保留已有人物列表中的名字（防止 AI 返回非人名） */
         const validNames={};load("chars",[]).forEach(function(x){if(x.name)validNames[x.name]=1;});
         const evChars=(ev.chars&&Array.isArray(ev.chars))?ev.chars.map(function(x){return String(x).slice(0,10);}).filter(function(cn){return validNames[cn];}).slice(0,5):[];
-        /* v46：无人物关联的事件一律丢弃，绝不放进时间线（避免无关词汇污染人物时间线） */
-        if(!evChars.length)return;
+        /* v46：无人物关联的事件，仅当「已有已知人物库却一个都匹配不上」才丢弃（避免 AI 返回无关词汇污染人物时间线）；
+           若人物库尚为空，则保留事件（无人物标签），让用户先看到时间线骨架，待补完人物库后再用「清理无关关联」校正 */
+        if(!evChars.length && charNames.length)return;
         kept.push({id:uid(),date:String(ev.date||"").replace(/"/g,"").slice(0,24),title:String(ev.title||"").replace(/"/g,"").slice(0,30),desc:String(ev.desc||"").replace(/"/g,"").slice(0,80),chars:evChars,ch:c.id,chId:c.id,chHash:hash,vol:c.vol||"none",auto:true});
       }
     });
@@ -4494,6 +4495,19 @@ function renderCharEditor(){
     '</div>';
   box.innerHTML=html;
 }
+/* 判断某人物名是否在某段正文里出现（兼容「全名 / 首词昵称 / 末词」三种写法，
+   如「薇拉·奎克」可匹配正文里的「薇拉」或「奎克」，避免仅以昵称出场时误报「没发现出场」） */
+function charAppearsInText(text, name){
+  if(!text||!name) return false;
+  if(text.indexOf(name)>-1) return true;
+  const parts=String(name).split(/[·\s·]/).filter(Boolean);
+  if(parts.length>1){
+    const first=parts[0], last=parts[parts.length-1];
+    if(first&&first.length>=2&&text.indexOf(first)>-1) return true;
+    if(last&&last.length>=2&&text.indexOf(last)>-1) return true;
+  }
+  return false;
+}
 async function analyzeCharPsyche(cid, btn){
   const ai=load("ai",{});
   if(!ai.base){ toast("未配置 AI：在「AI 生成设置」填好 API 后，点此可基于已完稿章节自动提炼人物的核心特质 / 表层欲望 / 深层欲望。"); return; }
@@ -4501,7 +4515,7 @@ async function analyzeCharPsyche(cid, btn){
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
+  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
   if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法分析（先让 ta 在多章里出现吧）"); return; }
   const done=hits.filter(function(ch){return (ch.status||"")==="done";});
   function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
@@ -4537,7 +4551,7 @@ async function analyzeCharAppearance(cid, btn){
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
+  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
   if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取外貌（先让 ta 在多章里出现吧）"); return; }
   const done=hits.filter(function(ch){return (ch.status||"")==="done";});
   function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
@@ -4568,7 +4582,7 @@ async function analyzeCharLang(cid, btn){
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return (ch.body||"").indexOf(name)>-1;});
+  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
   if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取语言体系"); return; }
   const done=hits.filter(function(ch){return (ch.status||"")==="done";});
   const pool=(done.length?done:hits).slice().sort(function(a,b){(b.body||"").length-(a.body||"").length}).slice(0,4);
@@ -5310,7 +5324,7 @@ function genModelCandidates(){
    }
    章节消化状态 status 枚举：
      undigested(未消化) | digested(已消化) | parse_failed(解析失败) | network_failed(网络失败) | degraded(降级摘要) */
-var DS_UNDIGESTED='undigested', DS_DIGESTED='digested', DS_PARSE_FAILED='parse_failed', DS_NET_FAILED='network_failed', DS_DEGRADED='degraded';
+var DS_UNDIGESTED='undigested', DS_DIGESTED='digested', DS_PARSE_FAILED='parse_failed', DS_NET_FAILED='network_failed', DS_DEGRADED='degraded', DS_TIMEOUT='timeout_failed';
 
 /* 所有分卷 ID（含 none），按 volumes 数组顺序 */
 function allVolIds(){
@@ -5588,6 +5602,16 @@ function isNetworkError(e){
   const dt=e&&e.digestType;
   return dt==='network'||dt==='timeout'||dt==='ratelimit';
 }
+/* 消化状态分类：超时与「真网络失败」区分开。
+   - timeout：模型太慢/网络波动导致请求超时（网络本身可能是好的）→ 标「⏱超时未成」，不再谎称网络失败
+   - network/ratelimit：真网络或限流 → 标「🔴网络失败」
+   - 其它（解析/空/HTTP）：标「🔴解析失败」 */
+function digestStatusFromErr(e){
+  const dt=e&&e.digestType;
+  if(dt==='network'||dt==='ratelimit') return DS_NET_FAILED;
+  if(dt==='timeout') return DS_TIMEOUT;
+  return DS_PARSE_FAILED;
+}
 
 /* ============ 降级检测：判断 AI 输出是否结构化残缺 ============ */
 /* 返回 {degraded:bool, reason:string} */
@@ -5789,13 +5813,11 @@ async function digestSerialQueue(chapters, vid, opts){
       if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
       if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
       const errMsg=friendlyDigestError(e, chLabel);
-      let status=DS_PARSE_FAILED;
-      if(isNetworkError(e)){
-        status=DS_NET_FAILED;
-        consecutiveNetFail++;
-      } else {
-        consecutiveNetFail=0; /* 解析失败不算网络失败，不触发熔断 */
-      }
+      const dt=e&&e.digestType;
+      let status;
+      if(dt==='network'||dt==='ratelimit'){ status=DS_NET_FAILED; consecutiveNetFail++; }
+      else if(dt==='timeout'){ status=DS_TIMEOUT; consecutiveNetFail++; } /* 慢模型超时也算瞬时失败，触发冷却/熔断保护 */
+      else { status=DS_PARSE_FAILED; consecutiveNetFail=0; } /* 解析失败不算网络失败，不触发熔断 */
       setChDigestStatusInPlace(d, c.id, vid, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(c));
       saveDigest(d);
       failCount++;
@@ -6095,8 +6117,7 @@ async function digestOneChapter(chId, btn){
     const vid2=ch.vol||"none";
     if(!d.volumes[vid2]) d.volumes[vid2]={text:"",sig:{},chapters:{}};
     if(!d.volumes[vid2].chapters) d.volumes[vid2].chapters={};
-    let status=DS_PARSE_FAILED;
-    if(isNetworkError(e)) status=DS_NET_FAILED;
+    let status=digestStatusFromErr(e);
     if(ch.id&&ch.id!=="_tmp"){
       setChDigestStatusInPlace(d, ch.id, vid2, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(ch));
       saveDigest(d);
@@ -6230,6 +6251,7 @@ function dsTag(st){
   if(st===DS_DIGESTED) return '<span class="ds-tag ds-ok">✅已消化</span>';
   if(st===DS_DEGRADED) return '<span class="ds-tag ds-warn">🟡降级摘要</span>';
   if(st===DS_NET_FAILED) return '<span class="ds-tag ds-net">🔴网络失败</span>';
+  if(st===DS_TIMEOUT) return '<span class="ds-tag ds-net">⏱超时未成</span>';
   if(st===DS_PARSE_FAILED) return '<span class="ds-tag ds-fail">🔴解析失败</span>';
   return '<span class="ds-tag ds-none">未消化</span>';
 }
@@ -6238,6 +6260,7 @@ function dsLabelMini(st){
   if(st===DS_DIGESTED) return '✅已消化';
   if(st===DS_DEGRADED) return '🟡降级';
   if(st===DS_NET_FAILED) return '🔴网络失败';
+  if(st===DS_TIMEOUT) return '⏱超时未成';
   if(st===DS_PARSE_FAILED) return '🔴解析失败';
   return '未消化';
 }
