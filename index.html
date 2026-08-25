@@ -6879,10 +6879,17 @@ async function aiDeepGen(){
       if(curVolDigest) digestSection+="\n\n=== 当前分卷「"+volName(curVol)+"」子档案 ===\n"+curVolDigest;
       if(otherVolDigests) digestSection+="\n\n=== 其它分卷子档案 ===\n"+otherVolDigests;
     }
-    /* 分析缓存：消化档案每次更新都会刷新 digest_update_at，缓存随之自动失效重分析 */
+    /* 分析缓存失效修复：旧逻辑只看 digest_update_at，当新增/修改前文章节（如刚消化第12章）
+       但消化时间戳未领先缓存时，会复用只覆盖到上一章的旧分析，导致续写下一章时分析从上一章结尾出发、漏掉刚消化章。
+       现改用「前文章节指纹」作为缓存键：卷 + 章数 + 前文章节总正文长度 + 最大章号 + 消化时间戳。
+       任一篇章有增减/修改指纹即变 → 强制重新分析，保证下一章分析一定包含刚消化的上一章。 */
+    const _priorFp=(curVol||"none")+"#"+prior.count+"#"+prior.prior.length+"#"+
+      prior.prior.reduce(function(s,c){return s+((c.body||"")||"").length;},0)+"#"+
+      (prior.prior.length?Math.max.apply(null,prior.prior.map(function(c){return Number(c.num)||0;})):0)+"#"+
+      (dFresh.digest_update_at||0);
     const forceRe=document.getElementById("deepReAnalyze")&&document.getElementById("deepReAnalyze").checked;
     const _daCache=dFresh.deepAnalysis;
-    const _daFresh=_daCache&&_daCache.text&&_daCache.vol===(curVol||"none")&&(_daCache.at||0)>=(dFresh.digest_update_at||0);
+    const _daFresh=_daCache&&_daCache.text&&_daCache.vol===(curVol||"none")&&_daCache.fp===_priorFp;
     let analysis="";
     if(_daFresh&&!forceRe&&!deepPro){
       analysis=_daCache.text;
@@ -6890,9 +6897,9 @@ async function aiDeepGen(){
     } else {
       analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride: ((deepPro||ai.eco===false)?ai.model:(ai.genModel||ai.model||"deepseek-v4-flash"))});
       if(!analysis.trim()) throw new Error("分析返回为空");
-      /* 写入缓存，供下次生成直接调用 */
+      /* 写入缓存，供下次生成直接调用（带前文章节指纹，下一次前文变化即失效重分析） */
       const dCache=getDigest();
-      dCache.deepAnalysis={text:analysis, at:Date.now(), vol:curVol||"none"};
+      dCache.deepAnalysis={text:analysis, at:Date.now(), vol:curVol||"none", fp:_priorFp};
       saveDigest(dCache);
     }
     btn.textContent="规划节拍…";
