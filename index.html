@@ -2816,7 +2816,8 @@ async function oppToBeatCard(btn){
   const src=(outEl&&outEl.value.trim())?outEl.value.trim():saved.trim();
   if(!src){ toast("该分卷还没有大纲：先「生成大纲」或「保存大纲」。"); return; }
   const volSec=(vol!=="all")?getVolSetting(vol):"";
-  const chars=load("chars",[]).slice(0,10).map(function(c){return "· "+c.name+(c.house?("("+c.house+")"):"")+"："+(c.core||c.traits||"").slice(0,40);}).join("\n")||"（暂无人物）";
+  const _bc=(vol!=="all")?volScopedChars(vol, load("chars",[])):load("chars",[]);
+  const chars=_bc.slice(0,10).map(function(c){return "· "+c.name+(c.house?("("+c.house+")"):"")+"："+(c.core||c.traits||"").slice(0,40);}).join("\n")||"（暂无人物）";
   const sys="你是资深小说剧情策划。请把一份已写好的分卷大纲，结构化转写为可直接用于 AI 深度续写的「章节级节拍卡」数组。每条节拍一句话，须覆盖：章序号·场景·核心事件·情绪推进·埋下的钩子。严格按输出格式，每行以序号开头，不要写正文。";
   const user="【目标分卷】"+(vol==="all"?"全书":volName(vol))+"\n\n【分卷专属设定（文风/人设最高优先级）】\n"+(volSec||"（无）")+"\n\n【关键人物】\n"+chars+"\n\n【待转写的大纲】\n"+src+"\n\n【输出格式】逐章输出节拍，每条一行：\n1. 第X章·场景：核心事件｜情绪推进｜钩子\n2. 第X章·场景：核心事件｜情绪推进｜钩子\n……\n要求：覆盖大纲主要章节；每条必须有具体场景与钩子；章序号可依据大纲推断。";
   const _ot=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="转写中…";}
@@ -6426,10 +6427,14 @@ async function aiGen(){
    深度续写前：基于分析结果+线索+人物，生成3套差异化节拍骨架（仅剧情节拍，不写正文）。
    弹窗让用户选一套，作为生成阶段的强制前置约束。+1 调用，零额外 UI 标记。 */
 async function planBeatCard(opts){
-  /* opts: {analysis, plot, chars, num, title, body, brief, volSec, volName} */
+  /* opts: {analysis, plot, chars, num, title, body, brief, volSec, volName, volId}
+     volId 非空=分卷模式：只保留本卷相关人物/线索，避免把其它分卷角色(如沙菲克)串进本卷节拍卡 */
   const ai=load("ai",{});
-  const plotLines=(opts.plot||[]).map(p=>"· ["+(p.status||"todo")+"] "+p.line+"："+p.point+(p.owner?("("+p.owner+")"):"")).join("\n")||"（暂无 tracked 线索）";
-  const charList=(opts.chars||[]).slice(0,12).map(c=>"· "+c.name+"("+c.house+")："+(c.traits||"").slice(0,60)).join("\n")||"（暂无人物卡）";
+  const volId=opts.volId;
+  const _plots=(volId&&volId!=="none")?volScopedPlots(volId,opts.plot||[]):(opts.plot||[]);
+  const _chars=(volId&&volId!=="none")?volScopedChars(volId,opts.chars||[]):(opts.chars||[]);
+  const plotLines=_plots.map(p=>"· ["+(p.status||"todo")+"] "+p.line+"："+p.point+(p.owner?("("+p.owner+")"):"")).join("\n")||"（暂无 tracked 线索）";
+  const charList=_chars.slice(0,12).map(c=>"· "+c.name+"("+c.house+")："+(c.traits||"").slice(0,60)).join("\n")||"（暂无人物卡）";
   const sys="你是资深小说剧情策划。基于前文分析与线索，为下一章生成3套**完全差异化**的节拍骨架。每套只写剧情节拍（场景级），绝不写正文。3套必须走不同情感基调/冲突重心。";
   let user="为第"+opts.num+"章《"+opts.title+"》生成3套差异化节拍骨架。\n\n";
   if(opts.volSec) user+="【本分卷专属设定】\n"+opts.volSec+"\n\n";
@@ -6505,17 +6510,42 @@ function _ragTok(s){
   s.split(" ").forEach(function(w){ if(w&&/^[a-z0-9]/.test(w)) toks[w]=(toks[w]||0)+1; });
   return toks;
 }
-function buildRagIndex(){
+/* 分卷相关人物/线索筛选：人物卡与线索本身没有 vol 字段，改为
+   依据「当前分卷的章节正文 + 本卷消化档案 + 分卷名」语料中是否出现该人物名来判定归属。
+   这样深度续写(分卷模式)规划节拍卡与 RAG 检索不会把其它分卷角色(如詹姆斯篇的沙菲克)串进西里斯篇。 */
+function volScopedChars(volId, allChars){
+  if(!volId||volId==="none") return allChars;
+  const ch=load("chapters",[]);
+  const vols=ch.filter(c=>(c.vol||"none")===volId);
+  const d=getDigest();
+  const dig=(d.volumes&&d.volumes[volId]&&d.volumes[volId].text)||"";
+  const corpus=(vols.map(c=>(c.body||"")+"\n"+(c.title||"")+"\n"+(c.synopsis||"")).join("\n")+"\n"+dig+"\n"+(volName(volId)||"")).toLowerCase();
+  return allChars.filter(c=> c&&c.name && corpus.indexOf(c.name.toLowerCase())>=0);
+}
+function volScopedPlots(volId, allPlots){
+  if(!volId||volId==="none") return allPlots;
+  const relNames=volScopedChars(volId, load("chars",[])).map(c=>c.name.toLowerCase());
+  return allPlots.filter(p=>{
+    const t=((p.line||"")+" "+(p.point||"")+" "+(p.owner||"")).toLowerCase();
+    return relNames.some(n=> n && t.indexOf(n)>=0);
+  });
+}
+function buildRagIndex(volId){
   var idx=[];
-  load("chars",[]).forEach(function(c){
+  var chars = (volId&&volId!=="none") ? volScopedChars(volId, load("chars",[])) : load("chars",[]);
+  chars.forEach(function(c){
     var t=[c.name,(c.house||""),(c.traits||""),(c.core||""),(c.desire||""),(c.deepDesire||""),(c.taboos||""),(c.langSys||""),(c.thinkMode||"")].filter(Boolean).join(" ");
     if(t.trim()) idx.push({type:"人物",title:c.name||"?",text:t,tok:_ragTok(t)});
   });
-  load("plot",[]).forEach(function(p){
+  var plots = (volId&&volId!=="none") ? volScopedPlots(volId, load("plot",[])) : load("plot",[]);
+  plots.forEach(function(p){
     var t="["+(p.status||"todo")+"] "+(p.line||"")+"："+(p.point||"")+(p.owner?("("+p.owner+")"):"");
     idx.push({type:"线索",title:p.line||"?",text:t,tok:_ragTok(t)});
   });
-  load("chapters",[]).filter(function(c){return (c.body||"").trim();}).forEach(function(c){
+  load("chapters",[]).filter(function(c){
+    if(volId&&volId!=="none") return (c.vol||"none")===volId && (c.body||"").trim();
+    return (c.body||"").trim();
+  }).forEach(function(c){
     var t=(c.title||("第"+(c.num||"?")+"章"))+"。 "+(c.body||"");
     idx.push({type:"章节",title:c.title||("第"+(c.num||"?")+"章"),text:t.slice(0,4000),tok:_ragTok(t.slice(0,4000))});
   });
@@ -6737,9 +6767,10 @@ async function aiDeepGen(){
       toast("🎯 采用已挂载的灵感推演方案"+_ded.idx+(_ded.tone?(" · "+_ded.tone):"")+" 作为强制前置约束");
     } else {
       try{
+        const _planVol=(writeMode==="vol")?(curVol||"none"):null;
         beatCard=await planBeatCard({
           analysis, plot:load("plot",[]), chars:load("chars",[]),
-          num, title, body, brief, volSec, volName:volName(curVol)
+          num, title, body, brief, volSec, volName:volName(curVol), volId:_planVol
         });
       }catch(e){ console.warn("节拍卡规划失败(非致命,跳过):",e.message); }
     }
@@ -6755,7 +6786,7 @@ async function aiDeepGen(){
     try{
       /* 检索词用 标题+本章指令+分析头部（章号是检索噪声，已剔除），提高人设/伏笔召回准确度 */
       const ragQ=((title||"")+" "+(brief||"")+" "+(analysis||"").slice(0,300)).replace(/\n/g," ");
-      const rag=ragRetrieve(ragQ,6);
+      const rag=ragRetrieve(ragQ,6, buildRagIndex(writeMode==="vol"?(curVol||"none"):null));
       if(rag.length){
         userMsg += "\n\n【📚 相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
           rag.map(function(it){return "· ["+it.type+"] "+it.title+"："+it.text.slice(0,300);}).join("\n");
