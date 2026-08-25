@@ -6790,6 +6790,17 @@ async function aiDeepGen(){
   const curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
   const prior=collectPrior(num, (deepPro||ai.eco===false)?24000:12000, {all: writeMode==="book"});
   if(!prior.count){ alert("你还没有任何「已写章节」（序号小于 "+num+" 的章）可供分析。请先导入 / 添加前面的章节，再到这里生成新章。"); return; }
+  /* 诊断：紧邻的上一章(num-1)若存在章节库却被排除在前文之外(分卷不一致/正文为空/未保存)，明确提示，避免静默漏掉上下文 */
+  try{
+    if(num>1){
+      const prev=load("chapters",[]).find(function(c){return Number(c.num)===num-1;});
+      if(prev && !prior.prior.some(function(c){return Number(c.num)===num-1;})){
+        const why=(prev.vol&&prev.vol!==(curVol||"none"))?"（分卷不一致：上一章在「"+(prev.vol)+"」而当前在「"+(curVol||"none")+"」）":"（上一章正文可能为空或未保存/未设「已完稿」）";
+        console.warn("[aiDeepGen] 紧邻上一章 第"+(num-1)+"章 未进入前文语料"+why);
+        toast("⚠️ 续写第"+num+"章时，第"+(num-1)+"章未纳入前文分析"+why+"，建议先保存并消化第"+(num-1)+"章");
+      }
+    }
+  }catch(e){}
   /* ① 校验消化状态：统计三类状态（未消化/失败/降级），弹窗风险提示 */
   const chs=digestChaptersOrdered();
   const d=getDigest();
