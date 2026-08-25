@@ -1414,6 +1414,12 @@
   <div class="modal">
     <h3>数据与备份</h3>
     <p class="meta">所有数据仅存你本机浏览器，建议定期「导出JSON备份」。</p>
+    <div style="margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card2);">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--sub);"><span>本地存储用量</span><span id="storePct">—</span></div>
+      <div style="height:8px;border-radius:6px;background:var(--line);overflow:hidden;margin:6px 0;"><div id="storeFill" style="height:100%;width:0%;background:#3a6ea5;transition:width .3s;"></div></div>
+      <div id="storeSub" style="font-size:12px;color:var(--sub);">打开面板时自动检测；接近上限会导致正文保存失败。</div>
+    </div>
+    <button class="secondary" style="width:100%;margin-bottom:10px;" onclick="cleanHistoryCache()">清理历史版本缓存（可腾出大量空间）</button>
     <div class="dp-grid">
       <button class="primary" onclick="exportJSON()">导出JSON备份</button>
       <button onclick="document.getElementById('imp').click()">导入恢复</button>
@@ -1789,18 +1795,82 @@ let _digestChTimer=null;
 const TODAY=(function(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
 const YEST=(function(){const d=new Date();d.setDate(d.getDate()-1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
 function rawLoad(k,d){try{const v=localStorage.getItem(PREFIX+k);return v?JSON.parse(v):d;}catch(e){return d;}}
+/* 节流提示：避免每次保存都刷 toast，但保证用户一定能看到存储告急 */
+function _quotaWarn(msg){
+  const now=Date.now();
+  if(window.__quotaWarnT && now-window.__quotaWarnT<8000) return;
+  window.__quotaWarnT=now;
+  toast(msg, true);
+}
+function _quotaFail(k){
+  console.error("[rawSave] 存储容量超限，本次写入被丢弃：",k);
+  _quotaWarn("⚠️ 本地存储已满，正文可能未保存！请立即「数据→导出JSON备份」，并点「清理历史缓存」腾出空间后重试。");
+}
+/* 容量超限时尝试自动腾空间：优先裁剪可重建的章节历史快照，其次精简 AI 消化档案；成功返回 true。
+   直接就地修改 v（即 BOOKS 本体），重试时用更小体积落盘，从而保住用户刚写的正文。 */
+function _quotaRecover(k,v){
+  let trimmed=false;
+  if(k==="books" && Array.isArray(v)){
+    v.forEach(function(b){
+      (b.chapters||[]).forEach(function(c){
+        if(Array.isArray(c.history) && c.history.length){
+          if(c.history.length>3){ c.history=c.history.slice(0,3); trimmed=true; }
+          c.history.forEach(function(s){ if(s && typeof s.body==="string" && s.body.length>3000){ s.body=s.body.slice(0,3000); trimmed=true; } });
+        }
+      });
+      if(b.aiDigest && b.aiDigest.volumes){
+        Object.keys(b.aiDigest.volumes).forEach(function(vid){
+          const vv=b.aiDigest.volumes[vid];
+          if(vv && vv.text && vv.text.length>6000){ vv.text=vv.text.slice(0,6000)+"（…缓存已精简）"; vv.globalDirty=true; trimmed=true; }
+        });
+      }
+    });
+  }
+  return trimmed;
+}
 function rawSave(k,v){
   try{ localStorage.setItem(PREFIX+k,JSON.stringify(v)); }
   catch(e){
-    /* 本地存储容量超限：停止写入并提示导出备份，避免静默丢稿（原代码会直接崩） */
     if(e && (e.name==="QuotaExceededError"||e.code===22||e.code===1014)){
-      if(!window.__quotaWarned){ window.__quotaWarned=true; toast("⚠️ 本地存储已满，部分内容可能无法保存，请立即导出备份！"); }
-      console.error("[rawSave] 存储容量超限，已跳过写入：",k);
-      return;
+      /* 关键修复：不再静默吞掉写入。先自动裁剪可重建数据腾出空间并重试，保住用户正文 */
+      if(_quotaRecover(k,v)){
+        try{ localStorage.setItem(PREFIX+k,JSON.stringify(v)); }
+        catch(e2){ return _quotaFail(k); }
+        _quotaWarn("⚠️ 本地存储曾接近上限，已自动精简历史/缓存以保住本章内容，建议尽快「导出JSON备份」并清理历史缓存。");
+        if(k==="books"||k==="curBook") maybeAutoSync();
+        return;
+      }
+      return _quotaFail(k);
     }
     throw e;
   }
   if(k==="books"||k==="curBook") maybeAutoSync();
+}
+/* 估算本机 localStorage 已用字节数（UTF-16 按 2 字节/字符计），上限按标准 5MB 估算 */
+function storageUsage(){
+  let used=0;
+  try{ for(let i=0;i<localStorage.length;i++){ const kk=localStorage.key(i); const vv=localStorage.getItem(kk); used += (kk?kk.length:0)*2 + (vv?vv.length:0)*2; } }catch(e){}
+  const total=5*1024*1024;
+  return {used:used, total:total, pct: total? Math.min(100, used/total*100):0};
+}
+function renderStorageMeter(){
+  const el=document.getElementById("storePct"); if(!el) return;
+  const u=storageUsage();
+  el.textContent=u.pct.toFixed(1)+"% （"+(u.used/1024/1024).toFixed(2)+" / "+(u.total/1024/1024).toFixed(0)+" MB）";
+  const fill=document.getElementById("storeFill"); if(fill) fill.style.width=Math.min(100,u.pct)+"%";
+  const sub=document.getElementById("storeSub");
+  if(u.pct>=90){ if(fill)fill.style.background="#c0392b"; if(sub)sub.textContent="⚠️ 已接近上限，正文可能保存失败！请点「清理历史缓存」并「导出JSON备份」。"; }
+  else if(u.pct>=70){ if(fill)fill.style.background="#b8860b"; if(sub)sub.textContent="用量偏高，建议定期清理历史缓存与导出备份。"; }
+  else { if(fill)fill.style.background="#2e7d4f"; if(sub)sub.textContent="用量正常。"; }
+}
+/* 主动清理：把所有章节的历史快照压到 2 条并截断长缓存，并精简消化档案，腾出空间 */
+function cleanHistoryCache(){
+  let ch=load("chapters",[]);
+  ch.forEach(function(c){ if(Array.isArray(c.history) && c.history.length){ c.history=c.history.slice(0,2).map(function(s){ return {t:s.t, body:(s.body&&s.body.length>2000? s.body.slice(0,2000): s.body)}; }); } });
+  save("chapters",ch);
+  try{ const d=getDigest(); Object.keys(d.volumes||{}).forEach(function(vid){ const vv=d.volumes[vid]; if(vv&&vv.text&&vv.text.length>6000){ vv.text=vv.text.slice(0,6000)+"（…已精简）"; } }); d.globalDirty=true; saveDigest(d); }catch(e){}
+  try{ renderStorageMeter(); }catch(e){}
+  toast("已清理历史版本缓存，腾出空间 ✅");
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 
@@ -1892,6 +1962,8 @@ function ensureBooks(){
 ensureBooks();
 /* 主题迁移（星空紫改版）：旧默认暖棕书色 → 新星空紫；用户手动选过的颜色不动 */
 (function(){let chg=false;BOOKS.forEach(function(b){if(b.color==="#8a5a2b"||b.color==="#7c4fc4"){b.color="#8e7cc3";chg=true;}});if(chg)rawSave("books",BOOKS);})();
+/* 启动即检测本机存储是否接近上限，提前预警（防止正文静默保存失败） */
+(function(){ try{ const u=storageUsage(); if(u.pct>=90){ setTimeout(function(){ toast("⚠️ 本地存储已接近上限（"+u.pct.toFixed(0)+"%），正文可能保存失败！请点右上「数据→清理历史缓存」并导出备份。", true); }, 1500); } }catch(e){} })();
 
 function curBook(){ return BOOKS && BOOKS.length ? (BOOKS.find(b=>b.id===curId) || BOOKS[0]) : null; }
 /* 关键：所有旧代码的 load/save 现在都指向「当前书」 */
@@ -4241,8 +4313,11 @@ function pushHistory(c){
   const h=ch[i].history=ch[i].history||[];
   const now=Date.now();
   if(h[0] && now-h[0].t<120000) return;
-  h.unshift({t:now,body:c.body||""});
-  if(h.length>8) h.length=8;
+  const body=(c.body||"");
+  /* 修复：历史快照只存截断副本（最多 4000 字），最多 5 版；避免整章正文 ×N 把 localStorage 撑爆导致正文保存失败 */
+  const snap = body.length>4000 ? (body.slice(0,4000)+"（…已截断的缓存副本，完整正文见章节）") : body;
+  h.unshift({t:now,body:snap});
+  if(h.length>5) h.length=5;
   ch[i].history=h; save("chapters",ch);
 }
 function openHist(id){
@@ -7372,7 +7447,7 @@ function clearSample(){
 }
 function openModal(t,x){document.getElementById("mTitle").textContent=t;document.getElementById("mText").textContent=x;document.getElementById("mask").classList.add("on");}
 function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
-function openDataPanel(){document.getElementById("dataPanel").classList.add("on");}
+function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}
@@ -7382,7 +7457,7 @@ function closeAppMenu(){ document.getElementById("appMenu").classList.remove("on
 /* 编辑器「更多操作」折叠：默认收起，点一下展开深度选项与次要操作 */
 function toggleGenMore(btn){ var el=document.getElementById("genMore"); var on=el.classList.toggle("on"); btn.textContent = on ? "⋯ 更多操作（收起）▲" : "⋯ 更多操作（消化 / 查找替换 / 专注 / 清空 / 深度选项）▾"; }
 let _toastTimer=null;
-function toast(msg){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";document.body.appendChild(t);}t.textContent=msg;t.classList.add("on");if(_toastTimer)clearTimeout(_toastTimer);_toastTimer=setTimeout(()=>t.classList.remove("on"),2400);}
+function toast(msg,sticky){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";document.body.appendChild(t);}t.textContent=msg;t.classList.add("on");if(_toastTimer)clearTimeout(_toastTimer);if(sticky){t.classList.add("sticky");t.onclick=function(){t.classList.remove("on");t.classList.remove("sticky");};}else{t.onclick=null;_toastTimer=setTimeout(function(){t.classList.remove("on");},2400);}}
 
 /* ---------- Tab ---------- */
 function switchTab(p,el){
