@@ -4812,8 +4812,13 @@ function buildBookContext(forGen){
   if(w)parts.push("【世界观核心设定】\n"+w);
   /* 生成阶段(forGen=true)不再注入各章梗概：该信息已在 user 消息的「全书情节脉络(prior.syn)」中提供，避免重复占用 token、也防止 sys/user 两份不一致导致模型困惑 */
   if(!forGen){
-  const syn=load("chapters",[]).filter(c=>c.synopsis&&c.synopsis.trim()).map(c=>"· 第"+(c.num||"?")+"章《"+(c.title||"")+"》： "+c.synopsis.trim());
-  if(syn.length)parts.push("【各章一句话梗概（剧情大纲）】\n"+syn.join("\n"));
+  /* 梗概列表封顶：书变长后全本一句话梗概会线性膨胀、推高每章成本；按最近章优先取、字符封顶。
+     长线脉络已由消化档案承载，梗概只作最近剧情大纲，质量不受影响。 */
+  const _synChs=load("chapters",[]).filter(c=>c.synopsis&&c.synopsis.trim()).map(c=>({num:c.num,line:"· 第"+(c.num||"?")+"章《"+(c.title||"")+"》： "+c.synopsis.trim()}));
+  _synChs.sort((a,b)=>Number(b.num)-Number(a.num));
+  let _synTxt="", _synUsed=0; const SYN_CAP=3000;
+  for(const x of _synChs){ if(_synUsed+x.line.length>SYN_CAP) break; _synTxt+=(_synTxt?"\n":"")+x.line; _synUsed+=x.line.length; }
+  if(_synTxt)parts.push("【各章一句话梗概（仅最近相关，完整脉络见消化档案）】\n"+_synTxt);
   }
   const pl=load("plot",[]).filter(p=>p.line&&p.point).map(p=>"· "+p.line+"："+p.point);
   if(pl.length)parts.push("【核心线索】\n"+pl.join("\n"));
@@ -4976,8 +4981,7 @@ function collectPrior(targetNum, maxChars, opts){
     if(targetNum && !isNaN(targetNum)) return n < Number(targetNum);
     return true;
   }).sort((a,b)=>Number(a.num)-Number(b.num));
-  const syn=prior.filter(c=>c.synopsis&&c.synopsis.trim())
-    .map(c=>"· 第"+(c.num)+"章《"+(c.title||"")+"》： "+c.synopsis.trim());
+  /* syn(全本一句话梗概) 改在下方 allKw/relevanceOf 就绪后构造，并按预算封顶，避免书变长后成本线性叠加（见 SYN_BUDGET） */
   /* 精准切片（替代向量库的检索增强）：按线索/人物/伏笔相关度排序，而非无差别灌最近N章。
      50% 预算给高相关度章节(含线索词/人物名/伏笔关键词)，50% 给最近章节(保情感连贯)，去重后按时间序排列 */
   const plotKw=(load("plot",[])||[]).filter(p=>p.status!=="done").flatMap(p=>[p.line,p.point,p.owner].filter(x=>x&&String(x).trim()).map(x=>String(x).trim()));
@@ -4992,6 +4996,20 @@ function collectPrior(targetNum, maxChars, opts){
     for(const kw of allKw){ if(txt.indexOf(kw.toLowerCase())>=0) score++; }
     return score;
   }
+  /* === 梗概列表封顶（防成本随书长线性叠加）===
+     原逻辑把全部前章一句话梗概都注入分析/生成 prompt；书到 200 万字(数百章)时这部分线性膨胀。
+     长线脉络已由消化档案(digest)压缩承载，梗概只需保「最近 + 与当前线索/人物/伏笔相关」的若干条连贯性。
+     按相关度降序取，预算未满再用最近章补，最后按章号排序；质量不受影响。 */
+  const SYN_BUDGET=3600;
+  function _synRel(c){ const t=((c.title||"")+" "+(c.synopsis||"")).toLowerCase(); let s=0; for(const kw of allKw){ if(kw && t.indexOf(kw.toLowerCase())>=0) s++; } return s; }
+  const _synAll=prior.filter(c=>c.synopsis&&c.synopsis.trim())
+    .map(c=>({num:c.num, id:c.id, s:_synRel(c), line:"· 第"+(c.num)+"章《"+(c.title||"")+"》： "+c.synopsis.trim()}));
+  _synAll.sort((a,b)=>b.s-a.s||Number(b.num)-Number(a.num));
+  let _synUsed=0; const _synPicked=[]; const _synSeen=new Set();
+  for(const x of _synAll){ if(_synUsed>=SYN_BUDGET) break; if(_synSeen.has(x.id)) continue; _synPicked.push(x); _synSeen.add(x.id); _synUsed+=x.line.length; }
+  if(_synUsed<SYN_BUDGET){ for(let i=prior.length-1;i>=0;i--){ const c=prior[i]; if(!c.synopsis||!c.synopsis.trim()) continue; if(_synSeen.has(c.id)) continue; const line="· 第"+(c.num)+"章《"+(c.title||"")+"》： "+c.synopsis.trim(); if(_synUsed+line.length>SYN_BUDGET) break; _synPicked.push({num:c.num,id:c.id,line}); _synSeen.add(c.id); _synUsed+=line.length; } }
+  _synPicked.sort((a,b)=>Number(a.num)-Number(b.num));
+  const syn=_synPicked.map(x=>x.line);
   const halfBudget=Math.floor((maxChars||20000)/2);
   /* 高相关度章节（按分数降序，同分按时间近优先） */
   const byRel=[...prior].map(c=>({c,s:relevanceOf(c)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s||Number(b.c.num)-Number(a.c.num));
