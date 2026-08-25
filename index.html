@@ -1839,7 +1839,7 @@ function _quotaRecover(k,v){
       (b.chapters||[]).forEach(function(c){
         if(Array.isArray(c.history) && c.history.length){
           if(c.history.length>3){ c.history=c.history.slice(0,3); trimmed=true; }
-          c.history.forEach(function(s){ if(s && typeof s.body==="string" && s.body.length>3000){ s.body=s.body.slice(0,3000); trimmed=true; } });
+          /* v71 已迁 IndexedDB：历史正文不再截断（旧版截到3000字会在「恢复历史版本」时静默丢稿），仅保留版本数裁剪腾空间 */
         }
       });
       if(b.aiDigest && b.aiDigest.volumes){
@@ -1897,7 +1897,7 @@ function renderStorageMeter(){
 /* 主动清理：把所有章节的历史快照压到 2 条并截断长缓存，并精简消化档案，腾出空间 */
 function cleanHistoryCache(){
   let ch=load("chapters",[]);
-  ch.forEach(function(c){ if(Array.isArray(c.history) && c.history.length){ c.history=c.history.slice(0,2).map(function(s){ return {t:s.t, body:(s.body&&s.body.length>2000? s.body.slice(0,2000): s.body)}; }); } });
+  ch.forEach(function(c){ if(Array.isArray(c.history) && c.history.length){ c.history=c.history.slice(0,2).map(function(s){ return {t:s.t, body:s.body}; }); } });
   save("chapters",ch);
   try{ const d=getDigest(); Object.keys(d.volumes||{}).forEach(function(vid){ const vv=d.volumes[vid]; if(vv&&vv.text&&vv.text.length>6000){ vv.text=vv.text.slice(0,6000)+"（…已精简）"; } }); d.globalDirty=true; saveDigest(d); }catch(e){}
   try{ renderStorageMeter(); }catch(e){}
@@ -4340,8 +4340,10 @@ function pushHistory(c){
   const now=Date.now();
   if(h[0] && now-h[0].t<120000) return;
   const body=(c.body||"");
-  /* 修复：历史快照只存截断副本（最多 4000 字），最多 5 版；避免整章正文 ×N 把 localStorage 撑爆导致正文保存失败 */
-  const snap = body.length>4000 ? (body.slice(0,4000)+"（…已截断的缓存副本，完整正文见章节）") : body;
+  /* v71 已迁 IndexedDB（无 5MB 上限）：历史存【完整正文】，不再截断。
+     旧版为省 localStorage 把快照截到 4000 字，而「恢复历史版本」会把截断快照回写进章节 body，
+     造成正文被静默截掉、编辑后永久丢失（用户报"第12章显示4000字、内容不全、编辑丢内容"）。现改为存全文，恢复即无损。 */
+  const snap = body;
   h.unshift({t:now,body:snap});
   if(h.length>5) h.length=5;
   ch[i].history=h; save("chapters",ch);
@@ -4357,10 +4359,15 @@ function openHist(id){
 }
 function closeHist(){document.getElementById("histMask").classList.remove("on");}
 function restoreHist(id,idx){
-  if(!confirm("恢复到这个版本？当前编辑内容会被覆盖（可再次从历史恢复）。"))return;
   let ch=load("chapters",[]); const i=ch.findIndex(x=>x.id===id); if(i<0)return;
   const h=ch[i].history||[]; if(!h[idx])return;
-  ch[i].body=h[idx].body; save("chapters",ch);
+  const snapBody=h[idx].body||"";
+  let msg="恢复到这个版本？当前编辑内容会被覆盖（可再次从历史恢复）。";
+  if(snapBody.indexOf("（…已截断")>=0||snapBody.indexOf("已截断的缓存副本")>=0){
+    msg="⚠️ 警告：该历史版本是【旧版截断副本】（正文不足，后续内容已丢失），恢复会覆盖当前完整正文并造成永久丢稿！\n仅在你确认当前正文也不要了时才继续。确定恢复？";
+  }
+  if(!confirm(msg))return;
+  ch[i].body=snapBody; save("chapters",ch);
   if(document.getElementById("chId").value===id){ document.getElementById("chBody").value=ch[i].body; document.getElementById("chCount").textContent="字数："+ch[i].body.length; }
   closeHist(); renderChapters(); renderStats();
 }
