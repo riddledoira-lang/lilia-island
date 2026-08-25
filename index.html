@@ -2589,13 +2589,28 @@ async function autoGenBriefTemplate(textarea){
   const ai=load("ai",{});
   if(!ai.base){textarea.value="";toast("需先在「AI 生成设置」填 API 才能智能生成模板。");return;}
   const curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
-  /* 分卷隔离：只取「当前分卷」已完稿章节，避免不同分卷剧情互相串味 */
-  const chs=load("chapters",[]).filter(function(c){return c.status==="done"&&(c.body||"").trim()&&(c.vol||"none")===curVol;});
-  if(!chs.length){textarea.value="";toast("当前分卷「"+volName(curVol)+"」还没有已完稿章节可供分析（可先消化本卷章节，或用「快速模板」选单章）。");return;}
-  /* 取本卷最近3章已完稿内容 */
+  const allDone=load("chapters",[]).filter(function(c){return c.status==="done"&&(c.body||"").trim();});
+  if(!allDone.length){textarea.value="";toast("本书还没有「已完稿且有正文」的章节可供分析（可先消化本卷章节，或用「快速模板」选单章）。");return;}
+  /* v77：以「章号最大的已完稿章」所属分卷作为分析范围，避免正在写的新章(ch13)尚未设分卷、
+     与上一章(ch12)分卷不一致而被整体排除——这是"AI生成模板跳过第12章"的根因之一 */
+  const byNum=allDone.slice().sort(function(a,b){return Number(a.num)-Number(b.num);});
+  const top=byNum[byNum.length-1];
+  const scopeVol=(top.vol&&top.vol!=="none")?top.vol:curVol;
+  const chs=byNum.filter(function(c){return (c.vol||"none")===scopeVol;});
+  if(!chs.length){textarea.value="";toast("当前分卷「"+volName(scopeVol)+"」还没有已完稿章节可供分析（可先消化本卷章节，或用「快速模板」选单章）。");return;}
+  /* 按章号取本卷最近3章（真正的「最近」而非数组尾部，避免章节乱序导致漏掉关键章） */
   const recent=chs.slice(-3);
+  /* 诊断：若紧邻上一章(最大章号-1)存在却未进入最近3章，提示原因（状态/正文/分卷），不静默漏掉上下文 */
+  const maxNum=Number(top.num)||0;
+  if(maxNum>1){
+    const prev=allDone.find(function(c){return Number(c.num)===maxNum-1;});
+    if(prev && !recent.some(function(c){return Number(c.num)===maxNum-1;})){
+      const why=(prev.vol&&prev.vol!==scopeVol)?"分卷不一致（上一章在「"+(prev.vol)+"」而分析范围在「"+(scopeVol)+"」）":((prev.status!=="done")?"状态不是「已完稿」":"正文为空/未保存");
+      toast("⚠️ 智能模板未纳入第"+(maxNum-1)+"章（"+why+"），已基于其它已完稿章生成；建议先保存并「消化」第"+(maxNum-1)+"章以获得更连贯的模板");
+    }
+  }
   const corpus=recent.map(function(c){return "第"+(c.num||"?")+"章《"+(c.title||"")+"》\n"+(c.body||"").slice(0,6000);}).join("\n\n---\n\n");
-  const volSec=getVolSetting(curVol);
+  const volSec=getVolSetting(scopeVol);
   try{
     const sys="你是小说写作助手。只输出章节写作指令模板，不要输出正文。";
     const user="基于以下最近已完稿章节的内容，为下一章自动生成一份【写作指令模板】。\n\n要求：\n① 分析已有章节的情节走向、人物状态、未解决的伏笔\n② 提出下一章最合理的3-5个核心情节节点\n③ 每个节点给出具体的场景/对话/情感方向建议\n④ 格式清晰，可直接粘贴到写作指令框使用\n\n"+(volSec?"【分卷专属设定】\n"+volSec+"\n\n":"")+"【最近已完稿章节】\n"+corpus;
@@ -5031,7 +5046,10 @@ function collectPrior(targetNum, maxChars, opts){
   full.sort((a,b)=>a.num-b.num);
   const fullText=full.map(f=>"【前文·第"+f.num+"章《"+f.title+"》（人物互动/情感推进/关键伏笔）】\n"+f.body);
   const d=getDigest();
-  const curVolDigest=(d.volumes[edVol||"none"]&&d.volumes[edVol||"none"].text)||"";
+  let curVolDigest=(d.volumes[edVol||"none"]&&d.volumes[edVol||"none"].text)||"";
+  /* v77：注入续写/分析 prompt 的分卷档案封顶最近 8000 字（增量消化后档案按章序累积，尾部=最新章最相关），
+     防止长卷档案把上下文与输入费线性撑爆——既是省钱（输入 token 不随卷长膨胀）也不降质（保留最新线索） */
+  if(curVolDigest.length>8000) curVolDigest=curVolDigest.slice(-8000);
   /* 分卷模式：只给本卷子档案，绝不注入其它卷/全书总档案，避免跨卷串味与上下文膨胀；
      book 模式({all:true})：给全书总档案 + 其它卷子档案（作为次要背景），保持原全书行为 */
   const digest = opts.all ? getGlobalDigestText() : curVolDigest;
@@ -5191,7 +5209,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   const finalModel=model||ai.model||"deepseek-v4-flash";
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   const body={model:finalModel,messages:[{role:"system",content:sys},{role:"user",content:user}],temperature:temperature||0.4,max_tokens:max_tokens||12000,stream:false};
-  const ms=timeout||120000;
+  const ms=timeout||180000;
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(), ms);
   let resp;
@@ -5200,7 +5218,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   }catch(e){
     clearTimeout(tid);
     const isAbort=(e&&e.name==='AbortError');
-    const err=new Error(isAbort?"本地网络异常：请求超时（"+(ms/1000)+"秒），请检查网络环境":"本地网络异常：网络连接失败，请检查网络环境");
+    const err=new Error(isAbort?"AI 生成超时：请求在 "+(ms/1000)+" 秒内未完成，可能是模型较慢或网络波动。可改用更快的模型（如 deepseek-v4-flash），或稍后重试。":"本地网络异常：网络连接失败，请检查网络环境");
     err.digestType=isAbort?'timeout':'network';
     throw err;
   }
@@ -5542,7 +5560,7 @@ function friendlyDigestError(e, chLabel){
   const m=String((e&&e.message)||"");
   const dt=e&&e.digestType;
   /* 优先按 digestType 分类 */
-  if(dt==='timeout') return "本地网络异常：请求超时，请检查网络环境";
+  if(dt==='timeout') return "AI 生成超时：请求在限定时间内未完成（模型较慢或网络波动），可改用更快的模型或稍后重试";
   if(dt==='network') return "本地网络异常：网络连接失败，请检查网络环境";
   if(dt==='ratelimit') return "接口访问暂时受限，请间隔一段时间重试";
   if(dt==='auth') return "API Key 无效或已过期，请检查「AI 生成设置」";
@@ -5718,15 +5736,17 @@ async function digestSerialQueue(chapters, vid, opts){
       const synAll=volChs.filter(ch=>ch.synopsis&&ch.synopsis.trim())
         .map(ch=>"· 第"+(ch.num||"?")+"章《"+(ch.title||"")+"》： "+ch.synopsis.trim()).join("\n");
 
-      const user="你正在消化「"+volName(vid)+"」分卷的章节。请结合已有子档案，产出【更新后的完整分卷子档案】。\n\n"+
-        "=== 已有子档案 ===\n"+(existing||"（无，请建立初始子档案）")+"\n\n"+
+      /* v77 增量消化：只输出本章新增条目，输出 token ~5000，提速省钱不降质 */
+      const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
+      const user="你正在消化「"+volName(vid)+"」分卷的章节。请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，不要复述已有子档案全文，保持档案增量、快速且省钱。\n严格按结构：①本卷人物档案 ②本卷伏笔/线索 ③本卷时间线 ④本卷已完成剧情 ⑤本章一句话梗概(⟦本章梗概⟧此处填写,≤40字)\n\n"+
+        "=== 已有子档案(勿复述) ===\n"+(existTail||"（无，请建立初始子档案）")+"\n\n"+
         "=== 本章全文（"+chLabel+"）===\n"+bodyText+"\n\n"+
         "=== 本卷章节梗概 ===\n"+(synAll||"（无）");
 
       let out=null, lastErr=null;
       for(const m of digestModelCandidates()){
         try{
-          out=await callAIDigest({sys:digestVolSysPrompt(vid), user, temperature:0.4, max_tokens:12000, model:m});
+          out=await callAIDigest({sys:digestVolSysPrompt(vid), user, temperature:0.4, max_tokens:5000, timeout:180000, model:m});
           if(out&&out.trim()) break;
         }catch(e){ lastErr=e; if(isNetworkError(e)) break; }
       }
@@ -5742,7 +5762,7 @@ async function digestSerialQueue(chapters, vid, opts){
         const deg=detectDegraded(out, chLabel);
         if(deg.degraded){
           /* 降级模式：保留 AI 产出内容作为降级摘要，标记 degraded */
-          d.volumes[vid].text=out.trim();
+          d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
           d.volumes[vid].sig[c.id]=chSig(c);
           setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可使用但线索精度下降", out.trim(), chapterContentHash(c));
           d.globalDirty=true;
@@ -5751,7 +5771,7 @@ async function digestSerialQueue(chapters, vid, opts){
           consecutiveNetFail=0; /* 降级不算网络失败 */
         } else {
           /* 正常成功 */
-          d.volumes[vid].text=out.trim();
+          d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
           d.volumes[vid].sig[c.id]=chSig(c);
           setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c));
           d.globalDirty=true;
@@ -6014,14 +6034,17 @@ async function digestOneChapter(chId, btn){
     const existing=d.volumes[vid].text||"";
     const bodyText=(ch.body||"").slice(0,12000);
     const head=chLabel+"（分卷："+volName(vid)+"）";
+    /* v77 增量消化：只让 AI 输出「本章新增提取条目」，不再复述整卷档案；输出 token 从 ~12000 降到 ~5000，
+       既提速（不再触发 180s 超时误报"网络失败"）又省钱，且每章信息都独立留存、不丢线索（质量不降）。 */
+    const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
     const user=existing
-      ? "你维护着「"+volName(vid)+"」分卷的子档案。用户要求对单章进行深度解析并并入子档案。请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，充分提取本章全部有效信息，产出【更新后的完整分卷子档案】。\n\n=== 已有子档案 ===\n"+existing+"\n\n=== 本章全文（"+head+"）===\n"+bodyText
-      : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，充分提取本章全部有效信息，建立「"+volName(vid)+"」分卷的初始子档案。\n\n=== "+head+" 全文 ===\n"+bodyText;
+      ? "你是「"+volName(vid)+"」分卷前文档案维护助手。下面给出【已有子档案】(仅供你参考、避免重复，请勿复述它) 与【本章全文】。\n请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，以保持档案增量、快速且省钱。\n严格按以下结构输出：\n① 本卷人物档案（本章出场人物的情绪变化/动机/秘密/关系动态）\n② 本卷伏笔/线索（本章新埋或推进的伏笔、物件、预言）\n③ 本卷时间线（本章按发生顺序的关键事件）\n④ 本卷已完成剧情（本章了结的冲突）\n⑤ 本章一句话剧情梗概（≤40字，客观陈述，格式：⟦本章梗概⟧此处填写）\n\n=== 已有子档案(勿复述) ===\n"+existTail+"\n\n=== 本章全文（"+head+"）===\n"+bodyText
+      : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，建立「"+volName(vid)+"」分卷的初始子档案。\n严格按结构输出：①人物档案 ②伏笔/线索 ③时间线 ④已完成剧情，每条绑定原文依据(章号+摘抄)；并在【全文最开头第一行】用固定格式输出本章一句话梗概：⟦本章梗概⟧此处填写(≤40字)\n\n=== "+head+" 全文 ===\n"+bodyText;
     if(btn) btn.textContent="AI 解析中…";
     let out=null, lastErr=null, usedModel=null;
     for(const m of digestModelCandidates()){
       try{
-        out=await callAIDigest({sys:digestSingleChSysPrompt(vid), user, temperature:0.4, max_tokens:12000, model:m});
+        out=await callAIDigest({sys:digestSingleChSysPrompt(vid), user, temperature:0.4, max_tokens:5000, timeout:180000, model:m});
         if(out&&out.trim()){ usedModel=m; break; }
       }catch(e){ lastErr=e; if(isNetworkError(e)) break; /* 网络/超时/限流换模型无用，直接退出 */ }
     }
@@ -6036,7 +6059,7 @@ async function digestOneChapter(chId, btn){
       const deg=detectDegraded(out, chLabel);
       if(deg.degraded){
         /* 降级模式：保存全文为降级摘要 */
-        d.volumes[vid].text=out.trim();
+        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         if(ch.id&&ch.id!=="_tmp"){
           d.volumes[vid].sig[ch.id]=chSig(ch);
           setChDigestStatusInPlace(d, ch.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可使用但线索精度下降", out.trim(), chapterContentHash(ch));
@@ -6049,7 +6072,7 @@ async function digestOneChapter(chId, btn){
         toastErr("⚠️ "+chLabel+" 为降级摘要（"+deg.reason+"），结构化提取不完全，续写可以使用但线索精度下降");
       } else {
         /* 正常成功 */
-        d.volumes[vid].text=out.trim();
+        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         if(ch.id&&ch.id!=="_tmp"){
           d.volumes[vid].sig[ch.id]=chSig(ch);
           setChDigestStatusInPlace(d, ch.id, vid, DS_DIGESTED, "", "", chapterContentHash(ch));
@@ -6102,13 +6125,15 @@ async function digestChapterNow(c){
     if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
     const existing=d.volumes[vid].text||"";
     const head="第"+(c.num||"?")+"章《"+(c.title||"")+"》（分卷："+volName(vid)+"）";
+    /* v77 增量消化：只输出本章新增条目，输出 token ~5000，提速省钱不降质 */
+    const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
     const user=existing
-      ? "你维护着「"+volName(vid)+"」分卷的子档案。用户新写/修改了一章，请基于本章原文细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，并入子档案，输出【更新后的完整分卷子档案】。\n\n=== 已有子档案 ===\n"+existing+"\n\n=== 新章全文（"+head+"）===\n"+(c.body||"").slice(0,12000)
-      : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，建立「"+volName(vid)+"」分卷的初始子档案。\n\n=== "+head+" 全文 ===\n"+(c.body||"").slice(0,12000);
+      ? "你是「"+volName(vid)+"」分卷前文档案维护助手。下面给出【已有子档案】(仅供你参考、避免重复，请勿复述它) 与【新章全文】。\n请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，保持档案增量、快速且省钱。\n严格按结构：①本卷人物档案 ②本卷伏笔/线索 ③本卷时间线 ④本卷已完成剧情 ⑤本章一句话梗概(⟦本章梗概⟧此处填写,≤40字)\n\n=== 已有子档案(勿复述) ===\n"+existTail+"\n\n=== 新章全文（"+head+"）===\n"+(c.body||"").slice(0,12000)
+      : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，建立「"+volName(vid)+"」分卷的初始子档案。\n严格按结构输出：①人物档案 ②伏笔/线索 ③时间线 ④已完成剧情，每条绑定原文依据；并在【全文最开头第一行】输出本章一句话梗概：⟦本章梗概⟧此处填写(≤40字)\n\n=== "+head+" 全文 ===\n"+(c.body||"").slice(0,12000);
     let out=null, lastErr=null;
     for(const m of digestModelCandidates()){
       try{
-        out=await callAIDigest({sys:digestSingleChSysPrompt(vid), user, temperature:0.4, max_tokens:12000, model:m});
+        out=await callAIDigest({sys:digestSingleChSysPrompt(vid), user, temperature:0.4, max_tokens:5000, timeout:180000, model:m});
         if(out&&out.trim()) break;
       }catch(e){ lastErr=e; if(isNetworkError(e)) break; }
     }
@@ -6119,11 +6144,11 @@ async function digestChapterNow(c){
       /* 降级检测 */
       const deg=detectDegraded(out);
       if(deg.degraded){
-        d.volumes[vid].text=out.trim();
+        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         d.volumes[vid].sig[c.id]=chSig(c);
         setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason, out.trim(), chapterContentHash(c));
       } else {
-        d.volumes[vid].text=out.trim();
+        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         d.volumes[vid].sig[c.id]=chSig(c);
         setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c));
       }
