@@ -5045,13 +5045,23 @@ function parseSSE(raw){
   });
   return out;
 }
+/* v73：前缀缓存辅助——给 system + 最后一个 user 消息打 cache_control，
+   把「最长稳定前缀」(系统提示+前文全文+分析+档案+RAG+节拍卡+指令)标记为可缓存，
+   同章连出多版 / 同卷连写时这段前缀命中缓存，输入费打约 1/30。模型所见文字逐字不变，质量零影响。 */
+function addCacheControl(ms){
+  const out=ms.map(function(m){ return {role:m.role, content:m.content}; });
+  let lastUser=-1;
+  out.forEach(function(m,i){ if(m.role==="user") lastUser=i; });
+  out.forEach(function(m,i){ if(m.role==="system" || i===lastUser) m.cache_control={type:"ephemeral"}; });
+  return out;
+}
 /* 单次请求（返回 {content, finish_reason}），供 callAI 包装调用 */
-async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout){
+async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-v4-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
   const model = modelOverride || (onToken ? (ai.genModel||ai.model||"deepseek-v4-flash") : (ai.model||"deepseek-v4-flash"));
-  const body={model:model, messages:messages, temperature:temperature||0.8, max_tokens:max_tokens||8000, stream:!!onToken};
+  const body={model:model, messages:(_noCache?messages:addCacheControl(messages)), temperature:temperature||0.8, max_tokens:max_tokens||8000, stream:!!onToken};
   const ms = timeout || (onToken?180000:120000);
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(), ms);
@@ -5064,7 +5074,15 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     throw new Error("网络异常，无法连接 AI 接口："+(e&&e.message?String(e.message).slice(0,160):"未知"));
   }
   clearTimeout(tid);
-  if(!resp.ok){const t=await resp.text();throw new Error("HTTP "+resp.status+" "+t.slice(0,300));}
+  if(!resp.ok){
+    const t=await resp.text();
+    /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
+    if(resp.status===400 && !_noCache){
+      console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true);
+    }
+    throw new Error("HTTP "+resp.status+" "+t.slice(0,300));
+  }
   /* 流式：逐片把 delta 喂给 onToken，首字即现、体感快、不再傻等整段 */
   if(onToken){
     const ct=resp.headers.get('content-type')||"";
