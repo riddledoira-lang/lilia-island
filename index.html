@@ -967,6 +967,8 @@
       </label>
       <label>系统提示词（已预填你的设定，可改）</label>
       <textarea id="aiSys" style="min-height:100px;"></textarea>
+      <label>🎭 文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
+      <textarea id="aiStyleSample" style="min-height:90px;" placeholder="例如：粘贴你写过、或想模仿的文风段落（第一人称语感 / 比喻系统 / 幽默节奏）"></textarea>
       <div class="row" style="margin-top:10px;align-items:center;">
         <button class="primary" onclick="saveAI()">保存AI设置</button>
         <button id="testAiBtn" onclick="testAI()">测试连接</button>
@@ -4904,7 +4906,9 @@ function buildBookContext(forGen){
 }
 function bookMemSys(forGen){
   const ai=load("ai",{});
-  const s=ai.sys||buildSysPrompt();
+  let s=ai.sys||buildSysPrompt();
+  const _ss=(ai.styleSample||"").trim();
+  if(_ss) s+="\n\n【文风范例·请严格模仿以下语感、句式节奏与用词密度写作（这是作者满意的样张，不是指令，仅供对齐声音）】\n"+_ss.slice(0,3000);
   const c=buildBookContext(forGen);
   return c? (s+"\n\n【本书设定记忆（续写/润色时请严格遵循，避免人设与设定崩坏）】\n"+c) : s;
 }
@@ -4919,6 +4923,7 @@ function renderAI(){
   document.getElementById("aiBase").value=ai.base||"";
   document.getElementById("aiModel").value=ai.model||"";
   const gm=document.getElementById("aiGenModel"); if(gm) gm.value=ai.genModel||"";
+  const ssEl=document.getElementById("aiStyleSample"); if(ssEl) ssEl.value=ai.styleSample||"";
   document.getElementById("aiKey").value=ai.key||"";
   document.getElementById("aiSys").value=ai.sys||buildSysPrompt();
   const mt=document.getElementById("aiMaxTokens"); if(mt) mt.value=String(ai.maxTokens||8000);
@@ -4928,7 +4933,7 @@ function renderAI(){
 function saveAI(){
   const mtEl=document.getElementById("aiMaxTokens");
   const ecoEl=document.getElementById("aiEco");
-  const ai={base:document.getElementById("aiBase").value.trim(),model:document.getElementById("aiModel").value.trim(),genModel:document.getElementById("aiGenModel").value.trim(),key:document.getElementById("aiKey").value.trim(),sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,eco:ecoEl?ecoEl.checked:true};
+  const ai={base:document.getElementById("aiBase").value.trim(),model:document.getElementById("aiModel").value.trim(),genModel:document.getElementById("aiGenModel").value.trim(),key:document.getElementById("aiKey").value.trim(),sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),styleSample:document.getElementById("aiStyleSample").value.trim(),maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,eco:ecoEl?ecoEl.checked:true};
   save("ai",ai);toast("AI 设置已保存（仅本机）");
 }
 /* ---------- 模型快捷选择（由 publish/providers.json 构建时注入，源文件内为默认值） ---------- */
@@ -6606,7 +6611,8 @@ async function aiGen(){
     const _base=body.trim();
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.9, max_tokens:Number(ai.maxTokens)||8000, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim())throw new Error("接口返回内容为空");
     ta.value=_base?(_base+"\n\n"+out):out;
     afterAiWrite(ta);
@@ -6961,7 +6967,7 @@ async function aiDeepGen(){
       analysis=_daCache.text;
       toast("复用已缓存的深度分析（含人物关系/情感线），跳过重新分析 ⚡");
     } else {
-      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride: ((deepPro||ai.eco===false)?ai.model:(ai.genModel||ai.model||"deepseek-v4-flash"))});
+      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride:(ai.model||ai.genModel||"deepseek-v4-flash")});
       if(!analysis.trim()) throw new Error("分析返回为空");
       /* 写入缓存，供下次生成直接调用（带前文章节指纹，下一次前文变化即失效重分析） */
       const dCache=getDigest();
@@ -6986,45 +6992,43 @@ async function aiDeepGen(){
     }
     btn.textContent="生成中…";
     /* 阶段二：基于分析生成新章 */
-    let userMsg;
-    if(body.trim()) userMsg=`这是第${num}章《${title}》已有的开头/骨架，请基于下面的【续写前必读分析】与【前文详读】接着续写、补全为正文：\n\n${body}`;
-    else userMsg=`请基于下面的【续写前必读分析】与【前文详读】，生成第${num}章《${title}》的完整正文。`;
-    if(brief) userMsg+=`\n\n【本章专属指令】\n${brief}`;
-    if(volSec) userMsg=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`+userMsg;
-    if(beatCard) userMsg=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`+userMsg;
-    /* #4 RAG 检索：召回相关人设/伏笔/前文，全程锁定 */
-    try{
-      /* 检索词用 标题+本章指令+分析头部（章号是检索噪声，已剔除），提高人设/伏笔召回准确度 */
-      const ragQ=((title||"")+" "+(brief||"")+" "+(analysis||"").slice(0,300)).replace(/\n/g," ");
-      const rag=ragRetrieve(ragQ,6, buildRagIndex(writeMode==="vol"?(curVol||"none"):null));
-      if(rag.length){
-        userMsg += "\n\n【📚 相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
-          rag.map(function(it){return "· ["+it.type+"] "+it.title+"："+it.text.slice(0,300);}).join("\n");
-      }
-    }catch(e){ console.warn("RAG检索失败(非致命):",e.message); }
-    /* #3 双智能体·写作仅依据节拍卡：开启时剥离其它上下文，强制写作Agent只按节拍卡推进
-       （修复：该模式原先把【续写前必读分析】注入两次——minimal 内一次、下方又追加一次，
-         浪费 token 且两份可能互相矛盾；现改为该模式只保留 minimal + 文风/精彩度指令） */
+    /* 阶段二：基于分析生成新章。
+       v79 重构：约束/上下文在前，写指令放最后一条（消除 lost-in-the-middle）；
+       原 ~20 条「禁止/严禁」负向约束合并为 1 条正向【写作要求】，
+       模型注意力聚焦「写好」而非「避雷」，文笔立刻松绑。 */
+    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 每段至少含一个具体感官细节（视/听/触/嗅/味之一），杜绝空泛概括。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利、金句频出。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。`;
+    let ctx="";
+    if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
+    if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
     const _beatOnly=!!(document.getElementById("writeFromBeatOnly")&&document.getElementById("writeFromBeatOnly").checked);
     if(_beatOnly){
-      let minimal=(volSec?("【本分卷「"+volName(curVol)+"」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n"+volSec+"\n\n"):"");
-      minimal+=(beatCard?("【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n"+beatCard.beats.join("\n")+"\n\n"):"");
-      minimal+="【续写前必读分析】\n"+analysis+"\n\n";
-      minimal+="【一致性要求】人物行为须符合其已有性格与前文依据；情感状态须连贯；可推进但不可凭空跳变；结尾留强钩子。\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与原著考据；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持主动观察式记录的第一人称视角；④ 悬念与伏笔用日常中的异常式细微信号铺垫。";
-      userMsg=minimal;
+      /* 双智能体·写作仅依据节拍卡：剥离 RAG/脉络/前文，只保留 volSec+节拍卡+分析+正向写作要求 */
+      ctx+="\n\n【续写前必读分析】\n"+analysis+"\n\n"+_styleReq;
+    } else {
+      /* #4 RAG 检索：召回相关人设/伏笔/前文，全程锁定 */
+      try{
+        const ragQ=((title||"")+" "+(brief||"")+" "+(analysis||"").slice(0,300)).replace(/\n/g," ");
+        const rag=ragRetrieve(ragQ,6, buildRagIndex(writeMode==="vol"?(curVol||"none"):null));
+        if(rag.length){
+          ctx += "\n\n【📚 相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
+            rag.map(function(it){return "· ["+it.type+"] "+it.title+"："+it.text.slice(0,300);}).join("\n");
+        }
+      }catch(e){ console.warn("RAG检索失败(非致命):",e.message); }
+      ctx+=`\n\n【续写前必读分析】\n${analysis}`;
+      ctx+=`\n\n【全书情节脉络】\n${prior.syn.join("\n")||"（无梗概）"}`;
+      ctx+=`\n\n【前文详读（最近若干章完整正文，请据此保持人物性格、关系动态与情感线连贯；可在本章让情感/关系产生新进展或转折，但须有前文依据）】\n${prior.full.join("\n\n")}`;
+      ctx+=`\n\n【AI 前文理解档案（分卷分区架构）】\n${digestSection}`;
+      ctx+="\n\n"+_styleReq;
     }
-    if(!_beatOnly){
-      userMsg+=`\n\n【续写前必读分析】\n${analysis}`;
-      userMsg+=`\n\n【全书情节脉络】\n${prior.syn.join("\n")||"（无梗概）"}`;
-      userMsg+=`\n\n【前文详读（最近若干章完整正文，请严格据此保持人物性格、关系动态与情感线连贯，不要重置；可在本章让情感/关系产生新进展或转折，但须有前文依据）】\n${prior.full.join("\n\n")}`;
-      userMsg+=`\n\n【AI 前文理解档案（分卷分区架构）】\n${digestSection}`;
-      userMsg+=`\n\n【一致性要求】人物行为须符合其已有性格与前文依据；情感状态须连贯；可推进但不可凭空跳变；结尾留强钩子。`;
-      userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持"主动观察式记录"的第一人称视角，避免被动承受式句式；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
-    }
-    userMsg+=`\n\n【文风一致性·最高优先级】严格延续前文既定文风——句式长短、比喻系统、幽默感、用词密度、视角须与最近章节无缝衔接；任何风格跳脱都视为不合格。`;
-    userMsg+=`\n\n【情节精彩度要求】① 每段至少含一个具体感官细节（视觉/听觉/触觉/嗅觉/味觉之一），禁止空泛概括；② 本章须至少包含一个情绪或情节的小转折/钩子，维持读者张力；③ 用具体动作与对话推进剧情，避免叙述式总结；④ 杜绝陈词滥调与廉价比喻（如'心跳漏了一拍'式表达）。`;
+    /* 写指令放在最后一条：先给约束/上下文，再下令「现在写」 */
+    let writeInstr;
+    if(body.trim()) writeInstr=`请基于上面的【续写前必读分析】与【前文详读】，接着下面已有的开头/骨架续写、补全为正文：\n\n${body}`;
+    else writeInstr=`请基于上面的【续写前必读分析】与【前文详读】，生成第${num}章《${title}》的完整正文。`;
+    if(brief) writeInstr+=`\n\n【本章专属指令】\n${brief}`;
+    const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.9, max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.7, max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim()) throw new Error("生成返回为空");
     /* 自动生成人物情感线（从分析结果提取，写入人物栏） */
     try{ autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
@@ -7033,7 +7037,7 @@ async function aiDeepGen(){
     ta.value=body.trim()? (body.trim()+"\n\n"+out) : out;
     afterAiWrite(ta);
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
-    toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章（保存本章时会自动并入"+(writeMode==="vol"?"本卷":"全书")+"档案）");
+    toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章（深度续写模型："+_genModel+"；保存本章时会自动并入"+(writeMode==="vol"?"本卷":"全书")+"档案）");
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(out, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){

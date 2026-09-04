@@ -1,5 +1,5 @@
 /* 莉莉娅的写作岛 · 离线 Service Worker（让网页变成可离线打开的 APP，且自动同步新版本） */
-const CACHE = 'jkd-app-v78';
+const CACHE = 'jkd-app-v79';
 const STATIC = [
   './',
   './index.html',
