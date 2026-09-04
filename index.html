@@ -4915,7 +4915,7 @@ function bookMemSys(forGen){
 function buildSysPrompt(){
   const cs=load("chars",[]).map(c=>`· ${c.name}（${c.house||""}）：${c.traits||""}`).join("\n");
   const st=load("style",[]).map((s,i)=>`${i+1}. ${s}`).join("\n");
-  const tb="1.禁止「他(v.)了，很轻，像是怕惊扰了什么」\n2.禁止「不是…而是…」结构\n3.禁止「语气像是在说『今天天气很好』」及类似平淡语气形容\n4.比喻词不可通篇只有「像」，需多样化（仿佛/如同/堪比/犹如…）\n5.禁止「放下，拿起来，又放下」类重复动作\n6.禁止「也许/更像是别的什么东西」模糊表达\n7.禁止两三个连续形容词用顿号隔开\n8.禁止频繁用破折号做解释说明\n9.禁止莫名分段写小短句制造「节奏感」\n10.禁止「语气很平」「嗓音很哑」缺主语的断裂形容\n11.禁止「他(v.)了很久，久到XX以为他……」模板化时间描写\n12.转折词不可通篇只有「但」，需多样化（然而/可/只是/只不过）";
+  const tb="1.禁止「他(v.)了，很轻，像是怕惊扰了什么」\n2.禁止「不是…而是…」结构\n3.禁止「语气像是在说『今天天气很好』」及类似平淡语气形容\n4.比喻词不可通篇只有「像」，需多样化（仿佛/如同/堪比/犹如…）\n5.禁止「放下，拿起来，又放下」类重复动作\n6.禁止「也许/更像是别的什么东西」模糊表达\n7.禁止两三个连续形容词用顿号隔开\n8.禁止频繁用破折号做解释说明\n9.禁止莫名分段写小短句制造「节奏感」\n10.禁止「语气很平」「嗓音很哑」缺主语的断裂形容\n11.禁止「他(v.)了很久，久到XX以为他……」模板化时间描写\n12.转折词不可通篇只有「但」，需多样化（然而/可/只是/只不过）\n13.禁止现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等），叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏";
   return `你是《HP轻世代即刻心动》的AI协作写作助手，严格以薇拉·奎克第一人称视角创作。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、金句频出、用词犀利但保持英式礼貌幽默；每章结尾留强钩子；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇）。`;
 }
 function renderAI(){
@@ -6633,7 +6633,7 @@ async function planBeatCard(opts){
   const _chars=(volId&&volId!=="none")?volScopedChars(volId,opts.chars||[]):(opts.chars||[]);
   const plotLines=_plots.map(p=>"· ["+(p.status||"todo")+"] "+p.line+"："+p.point+(p.owner?("("+p.owner+")"):"")).join("\n")||"（暂无 tracked 线索）";
   const charList=_chars.slice(0,12).map(c=>"· "+c.name+"("+c.house+")："+(c.traits||"").slice(0,60)).join("\n")||"（暂无人物卡）";
-  const sys="你是资深小说剧情策划。基于前文分析与线索，为下一章生成3套**完全差异化**的节拍骨架。每套只写剧情节拍（场景级），绝不写正文。3套必须走不同情感基调/冲突重心。";
+  const sys="你是资深小说剧情策划。基于前文分析与线索，为下一章生成3套**完全差异化**的节拍骨架。每套只写剧情节拍（场景级），绝不写正文；每套4-6个节拍，只推进1-2个核心新场景，所有节拍服务同一条贯穿主线，互不相关的支线不得混剪。3套必须走不同情感基调/冲突重心。";
   let user="为第"+opts.num+"章《"+opts.title+"》生成3套差异化节拍骨架。\n\n";
   if(opts.volSec) user+="【本分卷专属设定】\n"+opts.volSec+"\n\n";
   user+="【续写前必读分析】\n"+(opts.analysis||"").slice(0,4000)+"\n\n";
@@ -6642,9 +6642,10 @@ async function planBeatCard(opts){
   if(opts.body.trim()) user+="【本章已有开头/骨架】\n"+opts.body.slice(0,1000)+"\n\n";
   if(opts.brief) user+="【本章专属指令】\n"+opts.brief+"\n\n";
   user+="【输出格式】严格按以下格式输出3套，用 ⟦方案一⟧ ⟦方案二⟧ ⟦方案三⟧ 标记分隔：\n";
-  user+="⟦方案一⟧（基调：xxx）\n1. [场景] ...\n2. [场景] ...\n3. [场景] ...\n（5-8个节拍）\n\n";
+  user+="⟦方案一⟧（基调：xxx）\n1. [场景] ...\n2. [场景] ...\n3. [场景] ...\n4. [场景] ...\n（4-6个节拍）\n\n";
   user+="⟦方案二⟧（基调：xxx）\n...\n\n⟦方案三⟧（基调：xxx）\n...\n\n";
-  user+="每套5-8个节拍，每个节拍一句话描述场景与冲突推进。3套的基调/重心必须明显不同。";
+  user+="每套严格4-6个节拍，每个节拍一句话描述场景与冲突推进。\n";
+  user+="【场景预算铁律】① 每套只推进 1-2 个核心新场景/新事件，不得堆砌互不相关的支线；② 所有节拍必须服务同一条贯穿主线（一个核心冲突/情感推进），禁止把无关桥段剪进同一章；③ 物理母题（同一意象如鞋带/雨/信）每章最多出现 2 次，且须有推进作用，不得为装饰而重复；④ 3套的基调/重心必须明显不同（例如：暗涌试探 / 温情松动 / 危机逼近）。";
   const raw=await callAI({sys, user, temperature:1.0, max_tokens:2000, modelOverride: ai.model});
   if(!raw||!raw.trim()) return null;
   /* 解析3套方案 */
@@ -6996,7 +6997,7 @@ async function aiDeepGen(){
        v79 重构：约束/上下文在前，写指令放最后一条（消除 lost-in-the-middle）；
        原 ~20 条「禁止/严禁」负向约束合并为 1 条正向【写作要求】，
        模型注意力聚焦「写好」而非「避雷」，文笔立刻松绑。 */
-    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 每段至少含一个具体感官细节（视/听/触/嗅/味之一），杜绝空泛概括。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利、金句频出。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。`;
+    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 每段至少含一个具体感官细节（视/听/触/嗅/味之一），杜绝空泛概括。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利、金句频出。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。`;
     let ctx="";
     if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
     if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
@@ -7034,20 +7035,69 @@ async function aiDeepGen(){
     try{ autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
-    ta.value=body.trim()? (body.trim()+"\n\n"+out) : out;
+    const rawDraft=body.trim()? (body.trim()+"\n\n"+out) : out;
+    let finalOut=out;   /* 后置校验展示用：默认首稿；自动精修成功则替换为精修稿 */
+    ta.value=rawDraft;
     afterAiWrite(ta);
+    /* M2 自动精修闭环 · 第1步：同步把【原始首稿】压入历史版本 + 落盘章节库，确保可回滚（不依赖700ms自动保存去抖） */
+    try{
+      let _ch=load("chapters",[]);
+      const _cid=document.getElementById("chId").value;
+      let _i=_ch.findIndex(x=>x.id===_cid);
+      if(_i<0){ const _nc={id:uid(),num:Number(num)||0,title:title||"未命名草稿",body:rawDraft,status:"draft",vol:(curVol||"none"),demo:false}; _ch.push(_nc); _i=_ch.length-1; document.getElementById("chId").value=_nc.id; }
+      else { _ch[_i].body=rawDraft; _ch[_i].demo=false; }
+      const _h=_ch[_i].history=_ch[_i].history||[];
+      const _now=Date.now();
+      if(!(_h[0]&&_now-_h[0].t<120000)){ _h.unshift({t:_now,body:rawDraft}); if(_h.length>5)_h.length=5; }
+      save("chapters",_ch);
+    }catch(e){ console.warn("首稿历史快照:",e.message); }
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
-    toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章（深度续写模型："+_genModel+"；保存本章时会自动并入"+(writeMode==="vol"?"本卷":"全书")+"档案）");
+    toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章，正在自动精修…（深度续写模型："+_genModel+"）");
+    /* M2 自动精修闭环 · 第2步：首稿生成后自动跑一次整章精修（做减法），默认即精修版水平，原始首稿已入历史可回滚 */
+    try{
+      btn.textContent="自动精修中…";
+      const _refBody=rawDraft.trim();
+      const _dRef=getDigest();
+      const _volText=(_dRef.volumes[(curVol||"none")]&&_dRef.volumes[(curVol||"none")].text)||"";
+      const _globalText=_dRef.global||"";
+      let _rUser="下面是第"+num+"章《"+title+"》的草稿。请作为「首席编辑」深度审读，先内部分析其内容质量与逻辑结构（不要输出分析报告），然后直接输出【优化后的完整正文】。\n\n"+
+        "【优化要求】\n"+
+        "① 修正逻辑断裂、时间线/因果错误、动机缺失\n"+
+        "② 强化人物动机与情感递进，让人物行为符合其性格与前文依据\n"+
+        "③ 统一文风：语言节奏、比喻系统、幽默感与前后章节保持一致\n"+
+        "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写；做减法——删去重复、拖沓、解释过度的段落，让节奏更紧凑\n"+
+        "⑤ 人物年龄/年级/亲属称谓严格符合分卷专属设定与 HP 原著考据；严禁成人化抒情、现代网络用语\n"+
+        "⑥ 保持第一人称「主动观察式记录」视角，避免被动承受式句式\n"+
+        "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n\n";
+      _rUser+="【文风一致性·最高优先级】严格延续前文既定语气、比喻系统与用词密度，不得出现风格跳脱；保持第一人称主动观察式视角。\n";
+      _rUser+="【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n";
+      if(volSec) _rUser+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
+      if(_volText) _rUser+="【当前分卷档案（人物/伏笔/事件依据）】\n"+_volText.slice(0,4000)+"\n\n";
+      if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText.slice(0,3000)+"\n\n";
+      _rUser+="【草稿原文】\n"+_refBody;
+      const _refined=await callAI({sys:bookMemSys(), user:_rUser, temperature:0.7, max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+      if(_refined&&_refined.trim()){
+        const _ta2=document.getElementById("chBody");
+        _aiBeforeResult=_ta2.value||"";
+        _ta2.value=_refined.trim();
+        afterAiWrite(_ta2);
+        finalOut=_refined.trim();
+        showAiResult(_refined.trim(), "AI 深度续写结果（第"+num+"章 · 已自动精修）", true);
+        toast("✅ 第"+num+"章已生成并自动精修完成（原始首稿已存入历史版本，可回滚）");
+      } else {
+        toast("首稿已生成，自动精修返回空，保留原始首稿");
+      }
+    }catch(e){ console.warn("自动精修失败(非致命,保留首稿):",e.message); toast("首稿已生成；自动精修跳过："+e.message); }
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
-      postGenCheck(out, "第"+num+"章《"+title+"》").then(function(risks){
+      postGenCheck(finalOut, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){
         const resText=document.getElementById("aiResText");
         const resCount=document.getElementById("aiResCount");
         if(risks.indexOf("未检测到")<0){
-          if(resCount) resCount.textContent="本段生成字数："+out.length+"  |  ⚠️ 后置校验发现风险（见下方）";
-          if(resText) resText.value=out+"\n\n──────────────────\n【后置校验报告】\n"+risks;
+          if(resCount) resCount.textContent="本段生成字数："+finalOut.length+"  |  ⚠️ 后置校验发现风险（见下方）";
+          if(resText) resText.value=finalOut+"\n\n──────────────────\n【后置校验报告】\n"+risks;
         } else {
-          if(resCount) resCount.textContent="本段生成字数："+out.length+"  |  ✅ 后置校验通过";
+          if(resCount) resCount.textContent="本段生成字数："+finalOut.length+"  |  ✅ 后置校验通过";
         }
       }
       }).catch(function(e){ console.warn("后置校验失败(非致命):",e.message); });
