@@ -1865,7 +1865,7 @@
     </div>
     <div style="font-size:12px;color:var(--sub);margin:-4px 0 10px;" data-page-node-id="aS3H5r0jDgA3302ndVfSlB">可选分卷，把这批章节归到某一卷；预览里还可逐章改分卷。没有合适的就「＋ 新建分卷…」。</div>
     <div class="opt" data-page-node-id="ENSXCR9i2Mr9xmfATR7RCb">
-      <label class="opt-row" data-page-node-id="1nyzKvbvoIar6ZjQD8P89c"><input type="radio" name="imMode" value="merge" checked data-page-node-id="qTNsQcU8NR7Il7Qpr5scFs"> 合并（按序号去重合并：同序号覆盖，其余追加）</label>
+      <label class="opt-row" data-page-node-id="1nyzKvbvoIar6ZjQD8P89c"><input type="radio" name="imMode" value="merge" checked data-page-node-id="qTNsQcU8NR7Il7Qpr5scFs"> 合并（同一分卷内按序号去重：同卷同序号覆盖，跨卷互不干扰）</label>
       <label class="opt-row" data-page-node-id="8Sb2M4qRevqB3LlDebyyXA"><input type="radio" name="imMode" value="replace" data-page-node-id="dGIEB2l2evp8nsrn5vzEr1"> 替换（先清空现有章节，再导入）</label>
     </div>
     <div class="opt" style="border-top:1px solid var(--line);padding-top:12px;margin-top:2px;" data-page-node-id="GQSU89rwLnGF9bpKtGnJ8S">
@@ -5612,8 +5612,9 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v88";
+const APP_VERSION="v89";
 const APP_CHANGELOG=[
+  ["v89","导入小说·合并模式修正：去重键从「全局章号」改为「分卷+章号」。各卷章号本就各自独立编号，旧逻辑导入詹姆斯篇第1章时会去匹配西里斯篇第1章——要么把它覆盖掉（丢稿），要么因「已完稿」保护而整章跳过（导入不全）。现在同卷同序号才合并，跨卷互不干扰"],
   ["v88","新版本自动更新更安全：检测到新版后台重载前，先强制落盘保存当前编辑中的章节（不再打断 700ms 自动保存），且若此刻正在生成 AI 内容会等它跑完再刷新（最长 2 分钟），杜绝「更新把稿子/生成结果冲掉」"],
   ["v87","章节分卷改为「按标题归卷」：每卷一个标题关键词（默认卷名），标题含关键词即自动归卷，对不上的章逐章手动指定；彻底移除按章号区间/均分的错误识别"],
   ["v86","一键智能分卷（按章号区间或按章数均分，番外自动建卷并归拢）· 前文档案为空时在上下文面板直接给出「去消化」入口并高亮定位到按钮"],
@@ -8573,7 +8574,10 @@ function simulateImport(existing,filtered,mode,protectArr){
     out=existing.map(x=>({...x}));
     filtered.forEach(nc=>{
       if(nc.num){
-        const i=out.findIndex(x=>x.num===nc.num);
+        /* v89：只在「同一分卷内」按序号去重。各卷（西里斯篇/詹姆斯篇…）章号是各自独立编号的，
+           早先按全局序号匹配，会导致导入詹姆斯篇第1章时把西里斯篇第1章覆盖掉（或被状态保护整章跳过）。 */
+        const nv=nc.vol||"none";
+        const i=out.findIndex(x=>x.num===nc.num && (x.vol||"none")===nv);
         if(i>=0){
           if(protectArr.includes(out[i].status)){ skipped++; list.push({num:nc.num,title:out[i].title,action:"受保护·跳过"}); return; }
           out[i]={...out[i],title:nc.title||out[i].title,body:nc.body||out[i].body,hook:nc.hook||out[i].hook,vol:nc.vol||out[i].vol||"none"};
