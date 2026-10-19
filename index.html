@@ -2290,7 +2290,6 @@ let _sbFilter="all";
 function openSidebar(){document.body.classList.remove("sb-collapsed");document.getElementById("chSidebar").classList.add("open");document.getElementById("sbMask").classList.add("on");}
 function closeSidebar(){document.getElementById("chSidebar").classList.remove("open");document.getElementById("sbMask").classList.remove("on");}
 function toggleSidebarCollapse(){if(window.innerWidth>=768){document.body.classList.toggle("sb-collapsed");}else{closeSidebar();}}
-function togglePhoneTip(){var b=document.getElementById("phoneBody");var t=document.getElementById("phToggle");if(!b||!t)return;var c=b.style.display==="none";b.style.display=c?"":"none";t.textContent=c?"收起 ▾":"展开 ▸";}
 function setSbFilter(f,el){_sbFilter=f;document.querySelectorAll("#sbFilters button").forEach(b=>b.classList.remove("on"));if(el)el.classList.add("on");renderChSidebar();}
 let _collapsedVols=(function(){ try{ return new Set((load("_sbCollapsed","")||"").split(",").filter(Boolean)); }catch(e){ return new Set(); } })();
 function _saveCollapsed(){ try{ save("_sbCollapsed",Array.from(_collapsedVols).join(",")); }catch(e){} }
@@ -2800,8 +2799,6 @@ function applyDisplay(){
   root.style.setProperty("--reader-fs",(DISPLAY.fs||16)+"px");
   root.style.setProperty("--reader-lh",(DISPLAY.lh||1.7));
   document.body.classList.toggle("eye",!!DISPLAY.eye);
-  const tb=document.getElementById("themeBtn");
-  if(tb){ tb.style.background=dark?"rgba(213,154,90,.25)":""; }
   const dp=document.getElementById("dispPreview");
   if(dp) dp.style.fontSize=(DISPLAY.fs||16)+"px";
 }
