@@ -971,6 +971,32 @@
   .gs-tool > svg{width:19px;height:19px;flex:none;color:var(--brand);}
   .gs-tool > span{display:flex;flex-direction:column;gap:2px;font-size:13.5px;line-height:1.35;}
   .gs-tool > span b{font-size:12px;font-weight:400;color:var(--sub);}
+  /* 一键智能分卷 */
+  .av-row{margin-top:10px;}
+  .av-row label{display:block;margin-bottom:5px;font-size:12.5px;color:var(--sub);}
+  .av-vol{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .av-vol-name{flex:none;min-width:84px;font-size:13px;color:var(--ink);}
+  .av-vol input[type=number]{width:76px !important;min-height:38px;text-align:center;flex:none;}
+  .av-vol-sep{flex:none;color:var(--sub);font-size:12.5px;}
+  .av-vol-count{margin-left:auto;font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums;}
+  .av-preview{
+    margin-top:12px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.7;
+    border:1px dashed var(--line);color:var(--sub);max-height:220px;overflow:auto;
+  }
+  .av-preview b{color:var(--ink);}
+  .av-preview .av-w{color:var(--red);}
+  /* 上下文来源里的消化引导 */
+  .ctxsrc-cta{
+    display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 11px;border-radius:9px;
+    border:1px solid var(--brand);background:transparent;
+  }
+  .ctxsrc-cta-txt{flex:1;font-size:12.5px;line-height:1.6;color:var(--sub);}
+  .ctxsrc-cta-txt b{color:var(--ink);}
+  .ctxsrc-cta button{flex:none;min-height:38px;padding:0 14px;font-size:13px;}
+  /* 引导到消化按钮时高亮一下，避免用户找不到 */
+  .dg-flash{animation:dgflash 1.1s ease-in-out 3;}
+  @keyframes dgflash{0%,100%{box-shadow:0 0 0 0 rgba(142,124,195,0);}50%{box-shadow:0 0 0 4px rgba(142,124,195,.45);}}
+  @media (prefers-reduced-motion:reduce){.dg-flash{animation:none;}}
   /* 版本信息面板 */
   .vlog-head{font-size:14.5px;color:var(--ink);letter-spacing:.3px;}
   .vlog-stat{margin-top:6px;font-size:12.5px;color:var(--sub);font-variant-numeric:tabular-nums;}
@@ -1412,6 +1438,7 @@
 
     <div class="card collapsible collapsed">
       <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节列表 <span class="pill" id="chTotal"></span>
+        <button class="h2btn" onclick="event.stopPropagation();openAutoVol()">智能分卷</button>
         <button class="h2btn" onclick="event.stopPropagation();openVolMgr()">管理分卷</button>
         <span class="caret">▼</span>
       </h2>
@@ -1737,6 +1764,34 @@
 </div>
 
 <!-- 数据与备份面板（顶栏云图标入口） -->
+<div class="modal-mask" id="autoVolPanel" onclick="if(event.target===this)closeAutoVol()">
+  <div class="modal" style="max-width:560px;">
+    <h3>一键智能分卷</h3>
+    <p class="meta">按章号区间把章节批量归入分卷。分卷是防止跨线串味的核心机制——同一卷内的章节才会互相作为前文。</p>
+    <div class="av-row">
+      <label>分卷方式</label>
+      <select id="avMode" onchange="renderAutoVolPreview()">
+        <option value="range">按章号区间（下面逐卷填写）</option>
+        <option value="even">按章数均分</option>
+      </select>
+    </div>
+    <div class="av-row" id="avEvenRow" style="display:none;">
+      <label>每卷约多少章</label>
+      <input type="number" id="avPer" min="2" max="99" value="13" oninput="renderAutoVolPreview()">
+    </div>
+    <div id="avRanges"></div>
+    <label style="margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <input type="checkbox" id="avSplitExtra" onchange="renderAutoVolPreview()">
+      <span>把「番外 / 尾声 / 后记」单独归入「番外」卷</span>
+    </label>
+    <div class="av-preview" id="avPreview"></div>
+    <div class="mbtn" style="margin-top:14px;">
+      <button class="primary" onclick="applyAutoVol()">应用分卷</button>
+      <button onclick="closeAutoVol()">关闭</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-mask" id="versionPanel" onclick="if(event.target===this)closeVersion()">
   <div class="modal" style="max-width:520px;">
     <h3>版本信息</h3>
@@ -5422,9 +5477,179 @@ function renderSamplingPreview(){
 /* 兼容旧调用点 */
 function renderCreaHint(){ renderSamplingPreview(); }
 
+/* ===== v86 一键智能分卷 ===== */
+const EXTRA_RE=/番外|尾声|后记|特别篇|外传/;
+function openAutoVol(){
+  const m=document.getElementById("autoVolPanel"); if(!m) return;
+  renderAutoVolRanges(); renderAutoVolPreview(); m.classList.add("on");
+}
+function closeAutoVol(){ const m=document.getElementById("autoVolPanel"); if(m) m.classList.remove("on"); }
+/* 参与归卷的章节（按章号升序；无章号的排最后且不可按区间分配） */
+function avChapterList(){
+  return (load("chapters",[])||[]).slice().sort(function(a,b){
+    const na=Number(a.num), nb=Number(b.num);
+    const fa=isFinite(na), fb=isFinite(nb);
+    if(fa&&fb) return na-nb;
+    if(fa) return -1; if(fb) return 1;
+    return (a.order||0)-(b.order||0);
+  });
+}
+function renderAutoVolRanges(){
+  const box=document.getElementById("avRanges"); if(!box) return;
+  const b=curBook();
+  const vols=(b&&b.volumes||[]).filter(function(v){return v.id!=="none";});
+  if(!vols.length){ box.innerHTML='<div class="meta" style="margin-top:8px;">还没有任何分卷。请先用标题栏的「管理分卷」新建分卷（如西里斯篇 / 詹姆斯篇），再回来一键归卷。</div>'; return; }
+  const chs=avChapterList();
+  const nums=chs.map(function(c){return Number(c.num);}).filter(isFinite);
+  const min=nums.length?Math.min.apply(null,nums):1;
+  const max=nums.length?Math.max.apply(null,nums):1;
+  const span=Math.max(1,max-min+1);
+  const per=Math.ceil(span/Math.max(1,vols.length));
+  let html='<div style="margin-top:12px;"><label>各卷章号区间</label></div>';
+  vols.forEach(function(v,i){
+    const s=min+i*per, e=(i===vols.length-1)?max:Math.min(max, s+per-1);
+    html+='<div class="av-vol">'+
+      '<span class="av-vol-name">'+esc(v.name)+'</span>'+
+      '<input type="number" class="av-s" data-v="'+esc(v.id)+'" value="'+s+'" oninput="renderAutoVolPreview()">'+
+      '<span class="av-vol-sep">—</span>'+
+      '<input type="number" class="av-e" data-v="'+esc(v.id)+'" value="'+e+'" oninput="renderAutoVolPreview()">'+
+      '<span class="av-vol-count" data-cnt="'+esc(v.id)+'"></span>'+
+    '</div>';
+  });
+  box.innerHTML=html;
+}
+/* 计算分配方案：返回 {vid: [chapterId...]} 与统计 */
+function avPlan(){
+  const b=curBook();
+  const vols=(b&&b.volumes||[]).filter(function(v){return v.id!=="none";});
+  const mode=(document.getElementById("avMode")||{}).value||"range";
+  const split=!!((document.getElementById("avSplitExtra")||{}).checked);
+  const chs=avChapterList();
+  const plan={}; vols.forEach(function(v){plan[v.id]=[];});
+  let extraVol=vols.find(function(v){return /番外/.test(v.name);})||null;
+  let extraCount=0, unassigned=0, extras=[];
+  if(mode==="even"){
+    const per=Math.max(2, parseInt((document.getElementById("avPer")||{}).value,10)||13);
+    let idx=0, vi=0;
+    chs.forEach(function(c){
+      if(split && EXTRA_RE.test((c.title||""))){ extras.push(c.id); return; }
+      /* v86：卷数不够分时，余数并入最后一卷，绝不把章节丢在「未分卷」 */
+      const target = (vi>=vols.length) ? vols.length-1 : vi;
+      if(target<0){ unassigned++; return; }
+      plan[vols[target].id].push(c.id); idx++;
+      if(vi<vols.length && idx>=per){ idx=0; vi++; }
+    });
+  } else {
+    const range={};
+    vols.forEach(function(v){
+      const s=document.querySelector('.av-s[data-v="'+v.id+'"]');
+      const e=document.querySelector('.av-e[data-v="'+v.id+'"]');
+      range[v.id]=[s?parseInt(s.value,10):0, e?parseInt(e.value,10):0];
+    });
+    chs.forEach(function(c){
+      const n=Number(c.num);
+      if(split && EXTRA_RE.test((c.title||""))){ extras.push(c.id); return; }
+      if(!isFinite(n)){ unassigned++; return; }
+      let hit=null;
+      vols.forEach(function(v){ if(hit) return; const r=range[v.id]; if(n>=r[0]&&n<=r[1]) hit=v.id; });
+      if(hit) plan[hit].push(c.id); else unassigned++;
+    });
+  }
+  /* 番外：有「番外」卷就归入，没有则标记为待新建（applyAutoVol 会自动建卷），绝不丢弃 */
+  if(extras.length){
+    if(extraVol){ plan[extraVol.id]=plan[extraVol.id].concat(extras); extraCount=extras.length; }
+    else { extraCount=extras.length; }
+  }
+  return {vols:vols, plan:plan, extras:extras, extraVol:extraVol, extraCount:extraCount,
+          needExtraVol:(extras.length>0 && !extraVol), unassigned:unassigned, total:chs.length};
+}
+function renderAutoVolPreview(){
+  const box=document.getElementById("avPreview"); if(!box) return;
+  const mode=(document.getElementById("avMode")||{}).value||"range";
+  const evRow=document.getElementById("avEvenRow");
+  const rgRow=document.getElementById("avRanges");
+  if(evRow) evRow.style.display=(mode==="even")?"":"none";
+  if(rgRow) rgRow.style.display=(mode==="even")?"none":"";
+  let p; try{ p=avPlan(); }catch(e){ box.innerHTML='<div class="av-w">预览计算失败：'+esc(e.message)+'</div>'; return; }
+  let html='<div>共 <b>'+p.total+'</b> 章，分配如下：</div>';
+  p.vols.forEach(function(v){
+    const ids=p.plan[v.id]||[];
+    const cnt=document.querySelector('.av-vol-count[data-cnt="'+v.id+'"]');
+    if(cnt) cnt.textContent=ids.length+" 章";
+    html+='<div>· <b>'+esc(v.name)+'</b>：'+ids.length+' 章'+(ids.length?'（第'+(function(){
+      const ns=ids.map(function(id){const c=(load("chapters",[])||[]).find(function(x){return x.id===id;});return c?c.num:"?";});
+      return ns.length>1?(ns[0]+"–"+ns[ns.length-1]):ns[0];
+    })()+'章）':'')+'</div>';
+  });
+  if(p.extraCount){
+    html+='<div>· 番外类（'+p.extraCount+' 章）'+(p.needExtraVol?'<b>将自动新建「番外」卷</b>':'归入「'+(p.extraVol?esc(p.extraVol.name):'')+'」卷')+'</div>';
+  }
+  if(p.unassigned) html+='<div class="av-w">· 未分配到任何卷：<b>'+p.unassigned+'</b> 章（区间有缺口或章号缺失，可调整区间）</div>';
+  else html+='<div>· 全部章节已覆盖 ✓</div>';
+  box.innerHTML=html;
+}
+function applyAutoVol(){
+  let p; try{ p=avPlan(); }catch(e){ toastErr("计算失败："+e.message); return; }
+  if(!p.vols.length){ toastErr("请先新建分卷"); return; }
+  const covered=p.vols.reduce(function(s,v){return s+(p.plan[v.id]||[]).length;},0)+(p.needExtraVol?0:p.extraCount);
+  const extraNote=p.needExtraVol?("\n并将新建「番外」卷容纳 "+p.extraCount+" 章番外类章节。"):"";
+  if(!confirm("将把 "+covered+" 章归入 "+p.vols.length+" 个分卷。"+extraNote+"\n\n未覆盖的 "+p.unassigned+" 章保持「未分卷」。\n\n只会改章节所属分卷，不动任何正文。确定继续？")) return;
+  const bk=curBook();
+  let extraVid=null;
+  if(p.needExtraVol){
+    extraVid="extra_"+Date.now().toString(36);
+    if(!bk.volumes) bk.volumes=[{id:"none",name:"未分卷"}];
+    bk.volumes.push({id:extraVid,name:"番外"});
+    save("volumes",bk.volumes);
+  }
+  const chs=load("chapters",[])||[];
+  const map={};
+  p.vols.forEach(function(v){ (p.plan[v.id]||[]).forEach(function(id){ map[id]=v.id; }); });
+  if(extraVid) (p.extras||[]).forEach(function(id){ map[id]=extraVid; });
+  chs.forEach(function(c){ if(map[c.id]) c.vol=map[c.id]; });
+  save("chapters",chs);
+  /* v86：归卷后如果编辑器仍停在「未分卷」（现在已空），自动切到当前章所属的新卷，
+     否则用户会看到「尚无前文」，误以为归卷把数据弄丢了 */
+  const volSel=document.getElementById("chVol");
+  const curIdEl=document.getElementById("chId");
+  if(volSel && (volSel.value==="none" || !volSel.value)){
+    let target="";
+    if(curIdEl&&curIdEl.value){ const cc=chs.find(function(x){return x.id===curIdEl.value;}); if(cc&&cc.vol) target=cc.vol; }
+    if(!target){ const first=chs.find(function(c){return c.vol&&c.vol!=="none";}); if(first) target=first.vol; }
+    if(target){ volSel.value=target; }
+  }
+  toast("已归卷："+(covered+(extraVid?p.extraCount:0))+" 章");
+  closeAutoVol();
+  try{ popVolSelect&&popVolSelect(); }catch(e){}
+  try{ allRender&&allRender(); }catch(e){}
+  try{ renderCtxSource(); }catch(e){}
+}
+/* v86：档案为空时，在上下文面板里直接给出消化入口（原本藏在折叠卡片深处） */
+function digestFromCtx(btn){
+  const el=document.getElementById("aiDeepBtn");
+  /* 展开「前文理解档案」卡片并把页面滚过去，用户点一下按钮即可 */
+  const card=Array.from(document.querySelectorAll(".card.collapsible")).find(function(c){
+    return /前文理解档案/.test((c.querySelector("h2")||{}).innerText||"");
+  });
+  if(card){
+    card.classList.remove("collapsed");
+    const h2=card.querySelector("h2"); if(h2) h2.setAttribute("aria-expanded","true");
+    try{ renderDigest&&renderDigest(); }catch(e){}
+    card.scrollIntoView({behavior:"smooth",block:"center"});
+    setTimeout(function(){
+      const b=card.querySelector(".dg-vol-btns .primary");
+      if(b){ b.classList.add("dg-flash"); b.focus(); }
+    },420);
+    toast("已展开「前文理解档案」——点「立即消化全部前文」即可开始");
+  } else {
+    toast("请先展开章节页的「前文理解档案」卡片");
+  }
+}
+
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v85";
+const APP_VERSION="v86";
 const APP_CHANGELOG=[
+  ["v86","一键智能分卷（按章号区间或按章数均分，番外自动建卷并归拢）· 前文档案为空时在上下文面板直接给出「去消化」入口并高亮定位到按钮"],
   ["v85","模型分工界面重做（续写 flash / 分析 pro 一目了然）· 上下文来源可观测 · 合并重复入口 · 图标统一为 SVG · 预留区改为可用的数据工具"],
   ["v84","temperature / top_p 独立可调（0–2 / 0.05–1，可精确到 0.01）· 思考模式开关（否则 V4 会忽略温度）"],
   ["v83","折叠标题栏重构 · 一键收起全部 · 顶部栏滚动自动收起 · 移动端触控与排版收敛"],
@@ -5542,6 +5767,13 @@ function renderCtxSource(){
         '占 DeepSeek V4 的 <b>1M</b> 上下文约 <b>'+pct.toFixed(1)+'%</b>。'+
         '范围：'+(s.all?'<b>全书</b>':'<b>本分卷</b>（'+s.volName+'）')+'，'+(s.eco?'省算力模式已开（正文预算 12,000 字）':'省算力已关（正文预算 24,000 字）')+'。<br>'+
         '全书体量远小于上下文上限，因此这里采用<b>分层全量读取</b>而不是向量检索——既不丢信息，也无需任何外部服务。</div>';
+  /* v86：档案为空 = 长程伏笔与人物状态 AI 全都看不到，这里直接给入口 */
+  if(!s.digestChars){
+    html+='<div class="ctxsrc-cta">'+
+      '<span class="ctxsrc-cta-txt"><b>前文档案还是空的</b>——目前只能靠最近 '+s.fullN+' 章正文，长程伏笔与人物状态 AI 看不到。</span>'+
+      '<button class="primary" onclick="digestFromCtx(this)">去消化</button>'+
+    '</div>';
+  }
   body.innerHTML=html;
 }
 
