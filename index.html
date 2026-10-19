@@ -969,6 +969,12 @@
       <textarea id="aiSys" style="min-height:100px;"></textarea>
       <label>🎭 文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
       <textarea id="aiStyleSample" style="min-height:90px;" placeholder="例如：粘贴你写过、或想模仿的文风段落（第一人称语感 / 比喻系统 / 幽默节奏）"></textarea>
+      <label style="margin-top:10px;">🎚 创造力（temperature / top_p 中枢）</label>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="range" id="aiCreativity" min="0" max="100" step="5" value="65" style="flex:1;min-width:120px;" oninput="renderCreaHint()">
+        <span id="creaVal" style="min-width:132px;text-align:right;font-size:13px;color:var(--sub);"></span>
+      </div>
+      <div class="meta">向左＝稳妥连贯（日常章、收尾）；向右＝大胆出格（转折章、卡剧情时）。<b>默认 65</b>：正文生成 temperature 0.82 / top_p 0.95，并启用 presence_penalty 抑制「同一意象反复刷屏」。<b>只作用于正文生成与精修，消化/分析固定低温</b>以保证档案结构稳定。</div>
       <div class="row" style="margin-top:10px;align-items:center;">
         <button class="primary" onclick="saveAI()">保存AI设置</button>
         <button id="testAiBtn" onclick="testAI()">测试连接</button>
@@ -1427,6 +1433,7 @@
       <button onclick="document.getElementById('imp').click()">导入恢复</button>
       <button onclick="openExportMenu()">导出小说</button>
       <button onclick="document.getElementById('impMd').click()">导入小说</button>
+      <button onclick="openDocMode()" title="整篇文档一键读取、自动识别章节并拆分">📄 文档模式</button>
       <button onclick="openPaste()">粘贴拆分</button>
       <button onclick="closeDataPanel();openSync()" title="同步书稿正文以及AI消化档案进度，多设备共享消化成果，避免重复消耗算力">同步云端</button>
     </div>
@@ -1535,6 +1542,33 @@
     <div class="mbtn" style="margin-top:14px;">
       <button onclick="closePaste()">取消</button>
       <button class="primary" onclick="runPaste()">开始拆分</button>
+    </div>
+  </div>
+</div>
+
+<!-- v81 文档模式：一键读取整篇文档 → 自动识别章节 → 拆分预览 → 一键写入 -->
+<div class="modal-mask" id="docMask">
+  <div class="modal">
+    <h3>📄 文档模式</h3>
+    <p class="meta">整篇文档丢进来，自动识别章节标题并拆分。支持「第X章 / Chapter 1 / 序章 / 番外 / 数字编号」等写法；UTF-8 与 GBK 的 txt、md 都能读。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <button class="primary" onclick="docReadClipboard()">📋 一键读取剪贴板</button>
+      <button onclick="document.getElementById('docFile').click()">📁 选择文件</button>
+      <button onclick="docDemoFill()" title="填入示例格式，便于确认识别规则">❓ 示例格式</button>
+    </div>
+    <input type="file" id="docFile" accept=".txt,.md,.markdown,text/plain" style="display:none;" onchange="docOnFile(event)">
+    <textarea id="docArea" oninput="docDetect()" ondragover="event.preventDefault();" ondrop="docOnDrop(event)" style="width:100%;min-height:170px;font-size:14px;border:1px solid var(--line);border-radius:10px;padding:10px;resize:vertical;box-sizing:border-box;" placeholder="把整篇文档粘贴到这里，或直接把 .txt / .md 文件拖进这个框，也可点上方「一键读取剪贴板」&#10;&#10;例如：&#10;第1章 雨里的黑鹭&#10;正文……&#10;&#10;第2章 有人在用别人的声音&#10;正文……"></textarea>
+    <div id="docStat" class="meta" style="margin-top:8px;">尚未读取内容。</div>
+    <div id="docList" style="max-height:230px;overflow:auto;margin-top:8px;font-size:13px;"></div>
+    <div class="opt" style="margin:10px 0 0;">
+      <label class="opt-row"><input type="checkbox" id="docMergeShort" onchange="docDetect()"> 合并过短片段：少于 <input type="number" id="docMinLen" value="200" min="0" style="width:64px;margin:0 6px;"> 字的段落并入上一章（防止小标题被误判成章）</label>
+      <label class="opt-row"><input type="radio" name="docMode" value="append" checked> 直接追加到末尾（不清空、不覆盖）</label>
+      <label class="opt-row"><input type="radio" name="docMode" value="menu"> 进入导入确认（可合并/替换，可保护已完稿章节）</label>
+    </div>
+    <div class="mbtn" style="margin-top:14px;">
+      <button onclick="closeDocMode()">取消</button>
+      <button onclick="docDetect()">重新识别</button>
+      <button class="primary" onclick="docWrite()">一键写入</button>
     </div>
   </div>
 </div>
@@ -4916,7 +4950,16 @@ function buildSysPrompt(){
   const cs=load("chars",[]).map(c=>`· ${c.name}（${c.house||""}）：${c.traits||""}`).join("\n");
   const st=load("style",[]).map((s,i)=>`${i+1}. ${s}`).join("\n");
   const tb="1.禁止「他(v.)了，很轻，像是怕惊扰了什么」\n2.禁止「不是…而是…」结构\n3.禁止「语气像是在说『今天天气很好』」及类似平淡语气形容\n4.比喻词不可通篇只有「像」，需多样化（仿佛/如同/堪比/犹如…）\n5.禁止「放下，拿起来，又放下」类重复动作\n6.禁止「也许/更像是别的什么东西」模糊表达\n7.禁止两三个连续形容词用顿号隔开\n8.禁止频繁用破折号做解释说明\n9.禁止莫名分段写小短句制造「节奏感」\n10.禁止「语气很平」「嗓音很哑」缺主语的断裂形容\n11.禁止「他(v.)了很久，久到XX以为他……」模板化时间描写\n12.转折词不可通篇只有「但」，需多样化（然而/可/只是/只不过）\n13.禁止现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等），叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏";
-  return `你是《HP轻世代即刻心动》的AI协作写作助手，严格以薇拉·奎克第一人称视角创作。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、金句频出、用词犀利但保持英式礼貌幽默；每章结尾留强钩子；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇）。`;
+  return `你是《HP轻世代即刻心动》的AI协作写作助手，严格以薇拉·奎克第一人称视角创作。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、用词犀利但保持英式礼貌幽默，金句宁缺毋滥（禁止为凑金句打断刚建立的情绪）；每章结尾留强钩子；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇），但用喻吝啬——全文精当数处即可，禁止通篇比喻与连续两段明喻。`;
+}
+/* v81 创造力滑杆：把档位换算成实际采样参数显示出来，避免"调了却不知道调到哪" */
+function renderCreaHint(){
+  const el=document.getElementById("aiCreativity");
+  const v=(el&&el.value!=="")?parseInt(el.value,10):65;
+  const out=document.getElementById("creaVal");
+  if(!out) return;
+  const g=creaParams("gen");   /* 以正文生成为准展示 */
+  out.textContent=v+" · T"+g.temperature.toFixed(2)+" / top_p "+g.top_p;
 }
 function renderAI(){
   const ai=load("ai",{});
@@ -4928,12 +4971,16 @@ function renderAI(){
   document.getElementById("aiSys").value=ai.sys||buildSysPrompt();
   const mt=document.getElementById("aiMaxTokens"); if(mt) mt.value=String(ai.maxTokens||8000);
   const eco=document.getElementById("aiEco"); if(eco) eco.checked=ai.eco!==false; /* 默认开启省算力 */
+  const cr=document.getElementById("aiCreativity");
+  if(cr) cr.value=String(typeof ai.creativity==="number"?ai.creativity:65);
+  try{ renderCreaHint(); }catch(e){}
   renderModelChips();
 }
 function saveAI(){
   const mtEl=document.getElementById("aiMaxTokens");
   const ecoEl=document.getElementById("aiEco");
-  const ai={base:document.getElementById("aiBase").value.trim(),model:document.getElementById("aiModel").value.trim(),genModel:document.getElementById("aiGenModel").value.trim(),key:document.getElementById("aiKey").value.trim(),sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),styleSample:document.getElementById("aiStyleSample").value.trim(),maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,eco:ecoEl?ecoEl.checked:true};
+  const crEl=document.getElementById("aiCreativity");
+  const ai={base:document.getElementById("aiBase").value.trim(),model:document.getElementById("aiModel").value.trim(),genModel:document.getElementById("aiGenModel").value.trim(),key:document.getElementById("aiKey").value.trim(),sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),styleSample:document.getElementById("aiStyleSample").value.trim(),maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,eco:ecoEl?ecoEl.checked:true,creativity:crEl?parseInt(crEl.value)||65:65};
   save("ai",ai);toast("AI 设置已保存（仅本机）");
 }
 /* ---------- 模型快捷选择（由 publish/providers.json 构建时注入，源文件内为默认值） ---------- */
@@ -5099,13 +5146,41 @@ function addCacheControl(ms){
   out.forEach(function(m,i){ if(m.role==="system" || i===lastUser) m.cache_control={type:"ephemeral"}; });
   return out;
 }
+/* ===== v81 生成参数中枢 =====
+   top_p 此前全代码零配置（接口默认 1.0 = 完全不裁剪概率尾部），叠加单一的低温，
+   会让模型长期停在「安全、常见、可预测」的用词区 → 剧情平庸、缺乏惊喜。
+   现按任务类型分层：正文/规划给足温度，同时用 top_p 裁掉胡话尾巴，保证「有惊喜但不胡来」；
+   精修与分析压低温度保稳定。
+   presence_penalty 专门压制「同一意象/句式反复刷存在」（如鞋带刷屏、比喻堆叠），
+   frequency_penalty 压制逐字重复；二者随「创造力」滑杆加权，惊喜感与稳定度由你自己取舍。 */
+function creaParams(kind){
+  const ai=load("ai",{});
+  const slider=(typeof ai.creativity==="number"&&!isNaN(ai.creativity))?ai.creativity:65;
+  const k=Math.max(0,Math.min(100,slider))/100;        /* 0..1，默认 0.65 */
+  const B={
+    gen:    {t:0.82, tp:0.95, pp:0.35, fp:0.25},      /* 正文生成：要惊喜，也要连贯 */
+    plan:   {t:0.95, tp:0.97, pp:0.45, fp:0.20},      /* 节拍卡/灵感推演：要差异化 */
+    polish: {t:0.62, tp:0.92, pp:0.20, fp:0.35}       /* 精修/润色：要稳、要去重复 */
+  }[kind]||{t:0.75, tp:0.95, pp:0.20, fp:0.20};
+  const t =Math.max(0.30, Math.min(1.10, B.t  + (k-0.65)*0.34));
+  const tp=Math.max(0.75, Math.min(0.99, B.tp + (k-0.65)*0.06));
+  const w =0.5+k;                                      /* 创造力越高，越鼓励换说法/换意象 */
+  return {temperature:Math.round(t*100)/100, top_p:Math.round(tp*100)/100,
+          presence_penalty:Math.round(B.pp*w*100)/100, frequency_penalty:Math.round(B.fp*w*100)/100};
+}
 /* 单次请求（返回 {content, finish_reason}），供 callAI 包装调用 */
-async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache){
+async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-v4-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
   const model = modelOverride || (onToken ? (ai.genModel||ai.model||"deepseek-v4-flash") : (ai.model||"deepseek-v4-flash"));
   const body={model:model, messages:(_noCache?messages:addCacheControl(messages)), temperature:temperature||0.8, max_tokens:max_tokens||8000, stream:!!onToken};
+  /* v81：透传采样参数。extra=null 表示该接口不认这些参数、需降级去掉 */
+  if(extra&&typeof extra==="object"){
+    if(typeof extra.top_p==="number") body.top_p=extra.top_p;
+    if(typeof extra.presence_penalty==="number") body.presence_penalty=extra.presence_penalty;
+    if(typeof extra.frequency_penalty==="number") body.frequency_penalty=extra.frequency_penalty;
+  }
   const ms = timeout || (onToken?180000:120000);
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(), ms);
@@ -5123,7 +5198,12 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
     if(resp.status===400 && !_noCache){
       console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true);
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra);
+    }
+    /* v81：仍是 400 且带了采样参数 → 该接口不认 top_p/penalty，去参重试一次（温度与文字不变，仅放弃采样微调） */
+    if(resp.status===400 && extra){
+      console.warn("[callAI] 接口返回 400，疑似不支持 top_p/penalty 采样参数，自动去除后重试一次");
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null);
     }
     throw new Error("HTTP "+resp.status+" "+t.slice(0,300));
   }
@@ -5170,10 +5250,13 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
 }
 /* 生成调用：截断自动续写（finish_reason=length 时最多自动续 5 次，拼接完整内容）；
    生成(onToken)路径按候选模型顺序尝试，单一模型故障自动降级到下一个，避免整章生成失败 */
-async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride}){
+async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
   const ai=load("ai",{});
   const mt=max_tokens||Number(ai.maxTokens)||8000;
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
+  /* v81：采样参数打包下发；未显式传入则不附加，保持旧接口兼容 */
+  const extra=(top_p!==undefined||presence_penalty!==undefined||frequency_penalty!==undefined)
+    ? {top_p:top_p, presence_penalty:presence_penalty, frequency_penalty:frequency_penalty} : null;
   /* 候选模型：生成路径优先续写模型，失败降级到分析模型/默认；鉴权/网络/超时错误不重试 */
   let cands;
   if(onToken){
@@ -5186,7 +5269,7 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride}){
     const m=cands[ci];
     let r;
     try{
-      r=await _callAIOnce(messages, temperature, mt, onToken, m);
+      r=await _callAIOnce(messages, temperature, mt, onToken, m, undefined, undefined, extra);
     }catch(e){
       lastErr=e;
       const msg=String((e&&e.message)||"");
@@ -5202,7 +5285,7 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride}){
       /* 注意：用累计输出作为 assistant 回卷，让模型接着最后的位置继续 */
       const contMsgs=messages.concat([{role:"assistant",content:out},{role:"user",content:"（系统指令）上次输出因长度限制被截断。请从上次中断的位置继续输出剩余内容，不要重复任何已输出文字，不要添加任何解释或标记。"}]);
       try{
-        r=await _callAIOnce(contMsgs, temperature, mt, onToken, m);
+        r=await _callAIOnce(contMsgs, temperature, mt, onToken, m, undefined, undefined, extra);
         out+=r.content;
       }catch(e){
         console.warn("[callAI] 续写失败，返回已生成的部分内容：",e&&e.message);
@@ -6612,7 +6695,7 @@ async function aiGen(){
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
     const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim())throw new Error("接口返回内容为空");
     ta.value=_base?(_base+"\n\n"+out):out;
     afterAiWrite(ta);
@@ -6646,7 +6729,7 @@ async function planBeatCard(opts){
   user+="⟦方案二⟧（基调：xxx）\n...\n\n⟦方案三⟧（基调：xxx）\n...\n\n";
   user+="每套严格4-6个节拍，每个节拍一句话描述场景与冲突推进。\n";
   user+="【场景预算铁律】① 每套只推进 1-2 个核心新场景/新事件，不得堆砌互不相关的支线；② 所有节拍必须服务同一条贯穿主线（一个核心冲突/情感推进），禁止把无关桥段剪进同一章；③ 物理母题（同一意象如鞋带/雨/信）每章最多出现 2 次，且须有推进作用，不得为装饰而重复；④ 3套的基调/重心必须明显不同（例如：暗涌试探 / 温情松动 / 危机逼近）。";
-  const raw=await callAI({sys, user, temperature:1.0, max_tokens:2000, modelOverride: ai.model});
+  const raw=await callAI({sys, user, ...creaParams("plan"), max_tokens:2000, modelOverride: ai.model});
   if(!raw||!raw.trim()) return null;
   /* 解析3套方案 */
   const plans=parseBeatPlans(raw);
@@ -6777,7 +6860,7 @@ async function genDeductions(btn){
   var user="【世界观】\n"+(world||"（未填）")+"\n\n【全书章节梗概】\n"+(syn||"（无）")+"\n\n【最近若干章正文】\n"+(recent||"（无）")+"\n\n【当前线索】\n"+plotLines+"\n\n【出场人物】\n"+chars+"\n\n【AI 前文理解档案】\n"+(digest||"（空）");
   var _ot=btn?btn.textContent:""; if(btn){btn.disabled=true;btn.textContent="推演中…";}
   try{
-    var out=await callAI({sys:sys,user:user,temperature:1.0,max_tokens:3000,modelOverride:ai.model});
+    var out=await callAI({sys:sys,user:user,...creaParams("plan"),max_tokens:3000,modelOverride:ai.model});
     var plans=parseBeatPlans(out||"");
     if(!plans.length){ toast("AI 返回格式异常，可重试"); return; }
     save("deductions",{plans:plans,at:Date.now()});
@@ -6997,7 +7080,7 @@ async function aiDeepGen(){
        v79 重构：约束/上下文在前，写指令放最后一条（消除 lost-in-the-middle）；
        原 ~20 条「禁止/严禁」负向约束合并为 1 条正向【写作要求】，
        模型注意力聚焦「写好」而非「避雷」，文笔立刻松绑。 */
-    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 每段至少含一个具体感官细节（视/听/触/嗅/味之一），杜绝空泛概括。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利、金句频出。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。`;
+    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利但分寸得当——宁可少一句俏皮话，也不要为凑金句戳破刚建立的情绪。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。⑧ 禁止 info-dump：世界观/年代/典故只通过物件、他人反应与人物行动侧面透露，严禁借角色之口大段解释背景（如长篇交代某年事件、机构沿革）。⑨ 同一意象/比喻母题一章最多出现 2 次，重复即视为失控。⑩ 本章正文控制在 2500–3500 字，聚焦深写 1–2 个场景，宁深勿广。⑪ 惊喜感优先：要「意外但必然」的转折——读者回头看会觉得早有伏笔，而不是按套路直线推进；避免第一眼就能猜到的走向，以及「该发生就发生了」的惰性剧情。`;
     let ctx="";
     if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
     if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
@@ -7029,7 +7112,7 @@ async function aiDeepGen(){
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
     const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, temperature:0.7, max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim()) throw new Error("生成返回为空");
     /* 自动生成人物情感线（从分析结果提取，写入人物栏） */
     try{ autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
@@ -7075,7 +7158,7 @@ async function aiDeepGen(){
       if(_volText) _rUser+="【当前分卷档案（人物/伏笔/事件依据）】\n"+_volText.slice(0,4000)+"\n\n";
       if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText.slice(0,3000)+"\n\n";
       _rUser+="【草稿原文】\n"+_refBody;
-      const _refined=await callAI({sys:bookMemSys(), user:_rUser, temperature:0.7, max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+      const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
       if(_refined&&_refined.trim()){
         const _ta2=document.getElementById("chBody");
         _aiBeforeResult=_ta2.value||"";
@@ -7142,7 +7225,7 @@ async function aiOptimize(){
     /* 整章精修 = 轻量优化：保留剧情与好句子，只优化文笔/节奏/逻辑；
        跑「续写模型」(快，遵守成本铁律，绝不占用分析模型/Pro)；按草稿长度提额防截断 */
     const optMax=Math.min(12000, Math.max(4000, Math.ceil(body.length*1.3)));
-    const out=await callAI({sys:bookMemSys(), user:userMsg, temperature:0.7, max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+    const out=await callAI({sys:bookMemSys(), user:userMsg, ...creaParams("polish"), max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
     if(!out.trim()) throw new Error("精修返回为空");
     /* 非破坏性：先预览，用户点「替换」才覆盖原稿（原稿自动入历史版本，可回滚） */
     try{ autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
@@ -7230,7 +7313,7 @@ ${src}`;
   acts.style.display="none"; statusEl.textContent="AI 处理中…";
   try{
     /* 润色/扩写/缩写属正文类：走续写模型 flash（成本铁律），不再误占分析模型/Pro */
-    const out=(await callAI({sys, user:userMsg, temperature:0.7, max_tokens:Number(ai.maxTokens)||8000, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")})).trim();
+    const out=(await callAI({sys, user:userMsg, ...creaParams("polish"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")})).trim();
     if(!out)throw new Error("接口返回内容为空");
     document.getElementById("aiEditResult").value=out;
     document.getElementById("aiEditResultBox").style.display="";
@@ -7438,12 +7521,25 @@ function cnToNum(s){
   }
   return total+section+num;
 }
+/* v81 章节标题判定：比「行内出现关键词就算」更严格。
+   否则正文里恰好以「番外 / 尾声」开头的句子会被当成章标题，把章节切成 0 字的空章。
+   规则：编号类标题（第N章 / N章 / Chapter N）只限长度；
+   纯关键词类（序章 / 番外 / 尾声…）还必须是短句、且不以句末标点收尾——真标题不会以句号或省略号结尾。 */
+function isChTitle(ln){
+  const s=String(ln||"").replace(/^\s*#{1,6}\s*/,"").trim();
+  if(!s) return false;
+  const N="[0-9"+_CN_NUM+"]+";
+  const numbered=new RegExp("^(第\\s*"+N+"\\s*[章卷节篇回]|"+N+"\\s*[章卷节篇回]|[Cc]hapter\\s*\\d+)");
+  if(numbered.test(s)) return s.length<=80;
+  if(!/^(序章|楔子|番外|外传|终章|后记|尾声|附录|引子)/.test(s)) return false;
+  if(s.length>30) return false;
+  return !/[。！？!?，,；;：:…]$/.test(s);
+}
 function parseNovel(text){
   text=String(text||"").replace(/^\uFEFF/,"");
   const lines=text.split(/\r?\n/);
-  const chRe=new RegExp("^\\s*(#{1,6}\\s*)?(第\\s*[0-9"+_CN_NUM+"]+\\s*[章卷节篇回]|[0-9]+\\s*[章卷节篇回]|["+_CN_NUM+"]+\\s*[章卷节篇回]|[Cc]hapter\\s*\\d+|序章|楔子|番外|外传|终章|后记|尾声|附录|引子)");
   const idx=[];
-  lines.forEach((ln,i)=>{ if(chRe.test(ln)) idx.push(i); });
+  lines.forEach((ln,i)=>{ if(isChTitle(ln)) idx.push(i); });
   if(!idx.length) return null;
   let noNum=-1;
   const chs=[];
@@ -7623,6 +7719,110 @@ function runPaste(){
     return;
   }
   document.getElementById("pasteMask").classList.remove("on");
+  openImportMenu(chs, null);
+}
+/* ============== v81 文档模式 ==============
+   一键读取（剪贴板 / 文件 / 拖拽）→ 自动识别章节 → 可勾选拆分预览 → 一键写入。
+   识别复用 parseNovel、写入复用导入管线，避免两套逻辑各写各的、日后对不上。 */
+let docChs=null;
+function openDocMode(){
+  const m=document.getElementById("docMask"); if(!m){ alert("文档模式面板未就绪，请刷新页面重试。"); return; }
+  const ta=document.getElementById("docArea"); if(ta) ta.value="";
+  const st=document.getElementById("docStat"); if(st) st.textContent="尚未读取内容。";
+  const ls=document.getElementById("docList"); if(ls) ls.innerHTML="";
+  docChs=null;
+  m.classList.add("on");
+}
+function closeDocMode(){ const m=document.getElementById("docMask"); if(m) m.classList.remove("on"); }
+function docSetText(t){
+  const ta=document.getElementById("docArea"); if(!ta) return;
+  ta.value=String(t||"");
+  docDetect();
+}
+function docReadClipboard(){
+  if(!navigator.clipboard||!navigator.clipboard.readText){
+    alert("当前浏览器不支持一键读取剪贴板。请点进下方输入框后按 Ctrl+V 粘贴。"); return;
+  }
+  navigator.clipboard.readText().then(function(t){
+    if(!t||!t.trim()){ toast("剪贴板里没有文本内容"); return; }
+    docSetText(t); toast("已读取剪贴板 "+t.length+" 字 ✅");
+  }).catch(function(e){
+    alert("读取剪贴板失败："+((e&&e.message)?e.message:e)+"\n\n请点下方输入框后按 Ctrl+V 手动粘贴（浏览器通常只在用户主动授权、且页面为 https 时才允许读取）。");
+  });
+}
+function docOnFile(e){
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  readFileText(f).then(function(t){ docSetText(t); toast("已读取文件 "+f.name+"（"+t.length+" 字）"); })
+    .catch(function(err){ alert("读取文件失败："+((err&&err.message)?err.message:err)); });
+  e.target.value="";
+}
+function docOnDrop(e){
+  if(e&&e.preventDefault) e.preventDefault();
+  const f=e&&e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(!f) return;
+  readFileText(f).then(function(t){ docSetText(t); toast("已读取拖入的文件 "+f.name+"（"+t.length+" 字）"); })
+    .catch(function(err){ alert("读取文件失败："+((err&&err.message)?err.message:err)); });
+}
+function docDemoFill(){
+  docSetText("第1章 雨里的黑鹭\n正文示例……\n\n第2章 有人在用别人的声音\n正文示例……\n\n番外 圣诞劫局\n正文示例……");
+}
+/* 识别 + 预览：把识别结果摊开给用户看，而不是闷头写进去 */
+function docDetect(){
+  const ta=document.getElementById("docArea");
+  const st=document.getElementById("docStat");
+  const ls=document.getElementById("docList");
+  docChs=null;
+  const raw=ta?ta.value:"";
+  if(!raw.trim()){ if(st) st.textContent="尚未读取内容。"; if(ls) ls.innerHTML=""; return; }
+  let chs=parseNovel(raw);
+  if(!chs||!chs.length){
+    if(st) st.textContent="⚠️ 未识别到章节标题（共 "+raw.length+" 字）。请确认章节标题独占一行，例如「第1章 标题」。";
+    if(ls) ls.innerHTML="";
+    return;
+  }
+  /* 合并过短片段：字数不足阈值的章并进上一章，避免小标题/分隔语被误判成章 */
+  const mg=document.getElementById("docMergeShort");
+  const minEl=document.getElementById("docMinLen");
+  if(mg&&mg.checked){
+    const min=parseInt(minEl&&minEl.value)||200;
+    const out=[];
+    chs.forEach(function(c){
+      if(out.length && ((c.body||"").length<min)){
+        const p=out[out.length-1];
+        p.body=(p.body||"")+"\n\n"+(c.title?("【"+c.title+"】\n"):"")+(c.body||"");
+      } else out.push(c);
+    });
+    chs=out;
+  }
+  docChs=chs;
+  const total=chs.reduce(function(s,c){ return s+((c.body||"").length); },0);
+  if(st) st.textContent="✅ 识别到 "+chs.length+" 章，正文合计 "+total+" 字。默认全选，可取消勾选不要的章。";
+  if(ls){
+    ls.innerHTML=chs.map(function(c,i){
+      const label=(c.num>0?("第"+c.num+"章"):"特殊章");
+      return '<label style="display:flex;gap:8px;align-items:flex-start;padding:7px 4px;border-bottom:1px solid var(--line);cursor:pointer;">'
+        +'<input type="checkbox" class="docPick" data-i="'+i+'" checked style="margin-top:3px;">'
+        +'<span style="flex:1;"><b>'+esc(label)+'</b> '+esc(c.title||"（无标题）")
+        +'<span style="color:var(--sub);font-size:12px;"> · '+((c.body||"").length)+' 字</span></span></label>';
+    }).join("");
+  }
+}
+function docWrite(){
+  if(!docChs||!docChs.length){ alert("请先读取并识别出章节。"); return; }
+  const picks=Array.prototype.slice.call(document.querySelectorAll(".docPick")).filter(function(x){return x.checked;});
+  if(!picks.length){ alert("至少要勾选一章。"); return; }
+  const chs=picks.map(function(x){ return docChs[parseInt(x.getAttribute("data-i"),10)]; }).filter(Boolean);
+  const mEl=document.querySelector('input[name="docMode"]:checked');
+  const mode=mEl?mEl.value:"append";
+  if(mode==="append"){
+    const existing=load("chapters",[]);
+    chs.forEach(function(nc){ existing.push(nc); });
+    save("chapters",existing); refreshChapterViews(); queueDigestUpdate();
+    closeDocMode();
+    try{ switchTab('p1',document.querySelector('#tabs button[data-p="p1"]')); }catch(e){}
+    toast("✅ 文档模式已写入 "+chs.length+" 章（追加到末尾）");
+    return;
+  }
+  closeDocMode();
   openImportMenu(chs, null);
 }
 function clearAll(){openModal("确认清空全部数据","将删除【当前书本】所有章节、人物、情节、灵感与设定，且无法恢复。建议先导出备份。此操作需二次确认。",true);}
