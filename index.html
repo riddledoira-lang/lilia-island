@@ -793,6 +793,83 @@
   #ptrIndicator{position:fixed;top:0;left:0;right:0;z-index:9998;display:flex;align-items:center;justify-content:center;gap:8px;height:48px;background:var(--brand);color:#fff;font-size:13px;opacity:0;transform:translateY(-120%);transition:transform .2s,opacity .2s;pointer-events:none;}
   .ptr-spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;animation:ptrspin .8s linear infinite;}
   @keyframes ptrspin{to{transform:rotate(360deg);}}
+
+  /* ==================== v83 视觉一致性 & 移动端适配（独立覆盖层，便于回滚） ==================== */
+  /* 1) 可折叠卡片标题栏：整行可点、高度≥52px、图标与 chevron 统一为线性语言 */
+  .card.collapsible > h2{
+    min-height:52px;margin:0;padding:12px 14px;
+    display:flex;align-items:center;gap:10px;
+    font-size:16px;line-height:1.35;
+    border-radius:calc(var(--radius) - 2px);
+    transition:background .15s ease;
+  }
+  .card.collapsible > h2 .ic{width:19px;height:19px;flex:none;color:var(--brand);}
+  /* chevron：用 CSS 边框绘制，替换原来的 ▼ 字符 */
+  .card.collapsible > h2 .caret{
+    margin-left:auto;flex:none;width:28px;height:28px;font-size:0;position:relative;color:var(--sub);
+  }
+  .card.collapsible > h2 .caret::before{
+    content:"";position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-5px 0 0 -4px;
+    border-right:1.9px solid currentColor;border-bottom:1.9px solid currentColor;
+    transform:rotate(45deg);transition:transform .18s ease;
+  }
+  .card.collapsible.collapsed > h2 .caret::before{transform:rotate(-45deg);}
+  .card.collapsible > h2:active{background:var(--soft);}
+  .card.collapsible > h2:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;}
+  .card.collapsible > h2 .pill{flex:none;white-space:nowrap;}
+  /* 标题栏内嵌按钮：不抢箭头位置、不会误触发折叠 */
+  .card.collapsible > h2 .h2btn{
+    margin-left:auto;flex:none;min-height:30px;padding:0 11px;font-size:12px;line-height:1;
+    border-radius:999px;border:1px solid var(--line);background:var(--soft);color:var(--sub);
+    cursor:pointer;transition:background .15s ease,color .15s ease;
+  }
+  .card.collapsible > h2 .h2btn:hover{background:var(--brand);border-color:var(--brand);color:#fff;}
+  @media (max-width:640px){
+    .card.collapsible > h2 .h2btn{min-height:34px;padding:0 12px;}
+  }
+
+  /* 2) 排版节奏：说明文字统一档位，避免同一屏出现 4 种字号 */
+  .meta{font-size:12.5px;line-height:1.62;}
+  .card > h2{letter-spacing:.2px;}
+  /* 消灭 11px 级「蚂蚁字」：标签/角标/辅助说明统一到 12px 档 */
+  .tag{font-size:12px;padding:3px 9px;}
+  .glabel,.hs,.sb-vol-cnt,.badge.today,.rel-zoomlabel,.fring-txt,.dg-caret,.sb-caret,
+  .chips .glabel,.char-card .hs,.char-chip .hs{font-size:12px;}
+  .ghost.sm,button.ghost.sm{font-size:12.5px;}
+
+  /* 3) 顶部栏滚动自动收起（仅在向下滚动且已离开顶部时触发，向上滚即恢复） */
+  .appbar{transition:transform .22s ease,opacity .22s ease;will-change:transform;}
+  body.ui-scrollhide .appbar{transform:translateY(-102%);opacity:0;pointer-events:none;}
+
+  /* 4) 移动端：加一点呼吸感，同时保证触控目标 ≥44px、字号不低于 12px */
+  @media (max-width:640px){
+    .wrap{padding-left:12px;padding-right:12px;}
+    .card{padding:13px 14px;border-radius:14px;margin-bottom:12px;}
+    .card.collapsible > h2{min-height:54px;font-size:15.5px;gap:9px;padding:13px 14px;}
+    .card.collapsible > h2 .ic{width:18px;height:18px;}
+    .appbar .appt{padding-left:12px;}
+    .appbar .appt .bt{font-size:17px;}
+    .appbar .appt::before{width:6px;height:6px;}
+    .meta{font-size:12.5px;}
+    .pill{font-size:12px;padding:3px 9px;}
+    button,.btn,.am-item,.mbtn button,.row button{min-height:44px;}
+    .iconbtn{min-width:44px;min-height:44px;}
+    /* 色块/开关类小控件放大到可稳定点中 */
+    .sw{width:34px;height:34px;}
+    .appbar .appt{min-height:44px;display:flex;align-items:center;}
+    .tag{padding:4px 10px;}
+    /* 表单字号 ≥16px 可避免 iOS Safari 聚焦时自动放大页面 */
+    input,select,textarea{font-size:16px;}
+    select{height:44px;}
+    /* 小屏收紧纵向留白，首屏能多看到一张卡片 */
+    .card + .card{margin-top:12px;}
+  }
+  /* 5) 说明型裸文本收成「提示面板」，不再散落在卡片之间打断节奏 */
+  #p1 > .meta,.wrap > p.meta{
+    display:block;margin:0 0 12px;padding:11px 13px;
+    background:var(--soft);border:1px solid var(--line);border-left:3px solid var(--brand);
+    border-radius:10px;color:var(--sub);
+  }
 </style>
 </head>
 <body>
@@ -817,6 +894,7 @@
   <button class="am-item" onclick="closeAppMenu();openDataPanel()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 18a4 4 0 110-8 5 5 0 019.6-1.5A4 4 0 1117 18H7z"/></svg>数据与备份</button>
   <button class="am-item" onclick="closeAppMenu();syncRefresh()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5"/></svg>同步刷新</button>
   <button class="am-item" onclick="closeAppMenu();openDisplay()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>显示 / 排版</button>
+  <button class="am-item" id="amCollapse" onclick="closeAppMenu();toggleAllCards()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h16M4 16h16"/><path d="M9 5l-3 3 3 3M15 13l3 3-3 3"/></svg><span id="amCollapseTxt">收起全部面板</span></button>
   <button class="am-item" id="appMenuInstall" onclick="closeAppMenu();installApp()" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 21h14"/></svg>安装到手机</button>
 </div>
 
@@ -1015,7 +1093,7 @@
     <!-- AI 生成设置已移至「⚙ 全局设置」弹窗（子标题分组，id=gsAiGroup），章节页顶部不再显示，避免挤占写作区 -->
 
     <div class="card collapsible collapsed">
-      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>📚 前文理解档案（AI 持续消化）<span class="caret">▼</span></h2>
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>前文理解档案<span class="pill">AI 持续消化</span><span class="caret">▼</span></h2>
       <div id="digestPanel" class="dg-panel"></div>
     </div>
 
@@ -1087,14 +1165,15 @@
     </div>
 
     <div class="card collapsible collapsed">
-      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"/><path d="M12 3l8 4v6c0 4-3 7-8 8-5-1-8-4-8-8V7z"/></svg>✅ 已完稿章节 <span class="pill" id="doneCount">0</span><span class="caret">▼</span></h2>
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l2 2 4-4"/><path d="M12 3l8 4v6c0 4-3 7-8 8-5-1-8-4-8-8V7z"/></svg>已完稿章节 <span class="pill" id="doneCount">0</span><span class="caret">▼</span></h2>
       <div class="meta" style="margin-bottom:8px;">这里汇集所有「已完稿」的章节——也就是你已经写好、导入或定稿的内容。想让某章进这里，把状态设为「已完稿」即可。</div>
       <div class="done-grid" id="doneBoard"></div>
     </div>
 
     <div class="card collapsible collapsed">
-      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节列表 <span class="pill" id="chTotal"></span><span class="caret">▼</span>
-        <button class="primary" style="margin-left:auto;min-height:32px;padding:0 10px;font-size:12px;" onclick="openVolMgr()">管理分卷</button>
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>章节列表 <span class="pill" id="chTotal"></span>
+        <button class="h2btn" onclick="event.stopPropagation();openVolMgr()">管理分卷</button>
+        <span class="caret">▼</span>
       </h2>
       <div class="vols" id="volChips"></div>
       <div class="item-list" id="chapterList"></div>
@@ -1274,7 +1353,7 @@
       <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A2 2 0 0 1 5 15V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><path d="M9 17l3 3 3-3M12 12v8"/></svg>AI 深度规划剧情大纲 <span class="pill">分卷 / 学期</span></h2>
       <div class="meta">选定一个分卷（如「六年级上学期」），AI 综合<b>该卷已完稿梗概 + 你的线索/伏笔 + 人物设定 + 分卷剧情设置 + 世界观</b>，产出带<b>章节节拍 + 脑洞发散 + 伏笔回收</b>的深度大纲。先生成，再在下方填写你的脑洞，让 AI 据此深度修订。</div>
       <div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;">
-        <select id="oppVol"><option value="all">📚 全书总览</option></select>
+        <select id="oppVol"><option value="all">全书总览</option></select>
         <button class="primary" id="oppGenBtn" onclick="planOutlineVol(null)">🧭 生成大纲</button>
         <button onclick="planOutlineLoad()">载入已存</button>
       </div>
@@ -2865,7 +2944,7 @@ function oppPopulateVols(){
   const sel=document.getElementById("oppVol"); if(!sel)return;
   const cur=sel.value;
   const b=curBook(); const vols=(b&&b.volumes)||[];
-  let html='<option value="all">📚 全书总览</option>';
+  let html='<option value="all">全书总览</option>';
   html+=vols.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join("");
   sel.innerHTML=html;
   if(cur) sel.value=cur;
@@ -4348,7 +4427,77 @@ function toggleFocus(){
 }
 function exitFocus(){ document.body.classList.remove("focus"); }
 /* 折叠/展开辅助卡片（写作优先：点击卡片标题切换，正文区不被前文内容挤占） */
-function toggleCard(h2){ var c=h2.closest(".card"); if(c) c.classList.toggle("collapsed"); }
+/* v83 折叠：① 点击标题栏内的按钮/输入框不触发折叠；② 支持键盘操作；③ 一键收起/展开全部 */
+function toggleCard(h2,ev){
+  var e = ev || (typeof window!=="undefined" ? window.event : null);
+  if(e && e.target && e.target!==h2){
+    var t=e.target;
+    if(t.closest && t.closest("button,input,select,textarea,a,label")) return;
+  }
+  var c=h2.closest(".card"); if(!c) return;
+  var collapsed=c.classList.toggle("collapsed");
+  h2.setAttribute("aria-expanded", collapsed?"false":"true");
+  syncCollapseMenuLabel();
+}
+/* 可折叠标题支持回车/空格 */
+document.addEventListener("keydown",function(e){
+  if(e.key!=="Enter" && e.key!==" " && e.key!=="Spacebar") return;
+  var h=document.activeElement;
+  if(!h || h.tagName!=="H2" || !h.closest(".card.collapsible")) return;
+  e.preventDefault(); toggleCard(h,{target:h});
+});
+document.addEventListener("DOMContentLoaded",function(){
+  var hs=document.querySelectorAll(".card.collapsible > h2");
+  for(var i=0;i<hs.length;i++){
+    hs[i].setAttribute("role","button");
+    hs[i].setAttribute("tabindex","0");
+    hs[i].setAttribute("aria-expanded", hs[i].closest(".card").classList.contains("collapsed")?"false":"true");
+  }
+  syncCollapseMenuLabel();
+});
+/* 一键收起 / 展开全部（仅作用于当前可见面板内的可折叠卡片） */
+function toggleAllCards(force){
+  var cs=document.querySelectorAll(".card.collapsible");
+  var vis=[],open=0;
+  for(var i=0;i<cs.length;i++){
+    if(cs[i].offsetParent===null) continue;
+    vis.push(cs[i]);
+    if(!cs[i].classList.contains("collapsed")) open++;
+  }
+  var collapse = (typeof force==="boolean") ? force : (open > vis.length/2);
+  for(var j=0;j<vis.length;j++){
+    vis[j].classList.toggle("collapsed",collapse);
+    var h=vis[j].querySelector(":scope > h2");
+    if(h) h.setAttribute("aria-expanded", collapse?"false":"true");
+  }
+  syncCollapseMenuLabel();
+  try{ toast(collapse?"已收起全部面板":"已展开全部面板"); }catch(_){}
+}
+function syncCollapseMenuLabel(){
+  var t=document.getElementById("amCollapseTxt"); if(!t) return;
+  var cs=document.querySelectorAll(".card.collapsible"), vis=0, open=0;
+  for(var i=0;i<cs.length;i++){
+    if(cs[i].offsetParent===null) continue;
+    vis++; if(!cs[i].classList.contains("collapsed")) open++;
+  }
+  t.textContent = (open > vis/2) ? "收起全部面板" : "展开全部面板";
+}
+/* 顶部栏：向下滚动自动收起，向上滚/回到顶部立即恢复（移动端尤其省屏） */
+(function(){
+  var lastY=0, ticking=false;
+  function onScroll(){
+    var y=window.pageYOffset||document.documentElement.scrollTop||0;
+    var b=document.body;
+    if(y<=80){ b.classList.remove("ui-scrollhide"); }
+    else if(y>lastY+6 && y>160){ b.classList.add("ui-scrollhide"); }
+    else if(y<lastY-6){ b.classList.remove("ui-scrollhide"); }
+    lastY=y; ticking=false;
+  }
+  window.addEventListener("scroll",function(){
+    if(ticking) return; ticking=true;
+    window.requestAnimationFrame ? window.requestAnimationFrame(onScroll) : setTimeout(onScroll,16);
+  },{passive:true});
+})();
 /* 底部「写作」直达：默认直接进入专注全屏写作（手机端自动聚焦正文） */
 function gotoWrite(){
   const tp=document.querySelector('.tabs button[data-p="p1"]');
@@ -7091,7 +7240,7 @@ async function aiDeepGen(){
         const ragQ=((title||"")+" "+(brief||"")+" "+(analysis||"").slice(0,300)).replace(/\n/g," ");
         const rag=ragRetrieve(ragQ,6, buildRagIndex(writeMode==="vol"?(curVol||"none"):null));
         if(rag.length){
-          ctx += "\n\n【📚 相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
+          ctx += "\n\n【相关上下文检索（锁人设/伏笔，自动召回 top-"+rag.length+"）】\n"+
             rag.map(function(it){return "· ["+it.type+"] "+it.title+"："+it.text.slice(0,300);}).join("\n");
         }
       }catch(e){ console.warn("RAG检索失败(非致命):",e.message); }
