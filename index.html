@@ -913,10 +913,99 @@
   .smp-preview b{color:var(--ink);font-variant-numeric:tabular-nums;}
   .smp-preview .warn{color:var(--red);font-weight:600;}
   .smp-adv{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+  /* ===== v85 模型分工 ===== */
+  .mrole-wrap{margin-top:14px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--soft);}
+  .mrole-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .mrole-title{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:.3px;}
+  .mrole-auto{
+    margin-left:auto;min-height:34px;padding:0 12px;font-size:12.5px;cursor:pointer;
+    border-radius:999px;border:1px solid var(--brand);background:transparent;color:var(--brand);
+  }
+  .mrole-auto:hover{background:var(--brand);color:#fff;}
+  .mrole{padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);}
+  .mrole + .mrole{margin-top:10px;}
+  .mrole-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .mrole-badge{
+    display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;
+    font-size:12.5px;font-weight:600;letter-spacing:.3px;
+  }
+  .mrole-badge svg{width:14px;height:14px;}
+  .mrole-badge.gen{background:var(--brand);color:#fff;}
+  .mrole-badge.ana{background:transparent;color:var(--brand);border:1px solid var(--brand);}
+  .mrole-who{font-size:12px;color:var(--sub);}
+  .mrole input[type=text]{margin-top:8px;}
+  .mrole-why{margin-top:6px;font-size:12px;line-height:1.6;color:var(--sub);}
+  .mrole-why b{color:var(--ink);}
+  .mrole-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .mrole-chips .chip{font-size:12px;min-height:32px;padding:0 10px;}
+  .mrole-summary{
+    margin-top:10px;padding:9px 11px;border-radius:9px;font-size:12.5px;line-height:1.7;
+    border:1px dashed var(--line);color:var(--sub);
+  }
+  .mrole-summary b{color:var(--ink);}
+  .mrole-warn{
+    margin-top:8px;padding:9px 11px;border-radius:9px;font-size:12.5px;line-height:1.65;
+    border:1px solid var(--red);color:var(--red);background:transparent;
+  }
+  @media (max-width:640px){
+    .mrole-auto{min-height:40px;font-size:13px;}
+    .mrole-chips .chip{min-height:38px;font-size:12.5px;}
+  }
   .smp-adv > summary{cursor:pointer;font-size:13px;color:var(--brand);list-style:none;padding:4px 0;}
   .smp-adv > summary::-webkit-details-marker{display:none;}
   .smp-adv > summary::before{content:"▸ ";display:inline-block;transition:transform .15s ease;}
   .smp-adv[open] > summary::before{content:"▾ ";}
+  /* ===== v85 数据与工具 / 更多面板图标 ===== */
+  .mi{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;color:var(--brand);}
+  .mi svg{width:18px;height:18px;}
+  /* 按钮内图标：与文字基线对齐，统一 15px */
+  .btn-ic{width:15px;height:15px;flex:none;vertical-align:-2px;margin-right:5px;opacity:.9;}
+  .gs-tool-row{display:flex;flex-direction:column;gap:8px;}
+  .gs-tool{
+    display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:9px 12px;
+    text-align:left;cursor:pointer;border-radius:10px;
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    transition:border-color .15s ease,background .15s ease;
+  }
+  .gs-tool:hover{border-color:var(--brand);background:var(--soft);}
+  .gs-tool > svg{width:19px;height:19px;flex:none;color:var(--brand);}
+  .gs-tool > span{display:flex;flex-direction:column;gap:2px;font-size:13.5px;line-height:1.35;}
+  .gs-tool > span b{font-size:12px;font-weight:400;color:var(--sub);}
+  /* 版本信息面板 */
+  .vlog-head{font-size:14.5px;color:var(--ink);letter-spacing:.3px;}
+  .vlog-stat{margin-top:6px;font-size:12.5px;color:var(--sub);font-variant-numeric:tabular-nums;}
+  .vlog-note{margin-top:8px;font-size:12px;line-height:1.65;color:var(--sub);}
+  .vlog-title{margin-top:14px;font-size:13px;font-weight:600;color:var(--ink);}
+  .vlog-row{display:flex;gap:10px;padding:8px 0;border-top:1px dashed var(--line);}
+  .vlog-v{flex:none;width:38px;font-size:12.5px;font-weight:600;color:var(--brand);font-variant-numeric:tabular-nums;}
+  .vlog-t{font-size:12.5px;line-height:1.6;color:var(--sub);}
+  /* ===== v85 上下文来源可观测 ===== */
+  .ctxsrc{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--soft);overflow:hidden;}
+  .ctxsrc-head{
+    display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;
+    font-size:13px;color:var(--ink);min-height:44px;
+  }
+  .ctxsrc-ic{width:16px;height:16px;flex:none;color:var(--brand);}
+  .ctxsrc-title{font-weight:600;flex:none;}
+  .ctxsrc-sum{margin-left:auto;font-size:12px;color:var(--sub);text-align:right;}
+  .ctxsrc-caret{
+    flex:none;width:18px;height:18px;position:relative;color:var(--sub);
+  }
+  .ctxsrc-caret::before{
+    content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-5px 0 0 -3px;
+    border-right:1.8px solid currentColor;border-bottom:1.8px solid currentColor;
+    transform:rotate(45deg);transition:transform .18s ease;
+  }
+  .ctxsrc.collapsed .ctxsrc-caret::before{transform:rotate(-45deg);}
+  .ctxsrc.collapsed .ctxsrc-body{display:none;}
+  .ctxsrc-body{padding:0 12px 11px;}
+  .ctxsrc-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-size:12.5px;line-height:1.5;}
+  .ctxsrc-row + .ctxsrc-row{border-top:1px dashed var(--line);}
+  .ctxsrc-k{color:var(--ink);flex:none;}
+  .ctxsrc-v{margin-left:auto;color:var(--sub);font-variant-numeric:tabular-nums;text-align:right;}
+  .ctxsrc-note{margin-top:8px;font-size:12px;line-height:1.65;color:var(--sub);}
+  .ctxsrc-note b{color:var(--ink);}
+  .ctxsrc-empty{padding:2px 0 6px;font-size:12px;color:var(--sub);}
   @media (max-width:640px){
     .smp-p{flex:1 1 calc(50% - 6px);min-height:44px;}
     .smp-num{width:88px !important;min-height:40px;font-size:16px !important;}
@@ -1035,15 +1124,23 @@
       </div>
     </div>
 
-    <!-- 分组二：数据与工具（预留扩展区域） -->
-    <div class="gs-group">
+    <!-- 分组二：数据与工具 -->
+    <div class="gs-group" id="gsDataGroup">
       <h4 class="gs-gtitle">数据与工具</h4>
-      <p class="meta" style="margin:0 0 8px;">（预留扩展区域，后续将放置以下功能：）</p>
-      <ul class="gs-reserve">
-        <li>全部书籍备份导出</li>
-        <li>清除本地缓存</li>
-        <li>版本信息</li>
-      </ul>
+      <div class="gs-tool-row">
+        <button class="gs-tool" onclick="exportJSON()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 21h14"/></svg>
+          <span>全部书籍备份导出<b>含所有书与设置，建议定期做</b></span>
+        </button>
+        <button class="gs-tool" onclick="gsClearCache()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+          <span>清除本地缓存<b>只清 AI 档案与临时项，不动章节</b></span>
+        </button>
+        <button class="gs-tool" onclick="showVersion()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M11 12h1v4h1"/></svg>
+          <span>版本信息<b>查看当前版本与更新内容</b></span>
+        </button>
+      </div>
     </div>
 
     <!-- 分组三：AI 生成设置（每本书独立） -->
@@ -1069,12 +1166,41 @@
         <div><label>API Base URL（OpenAI 兼容）</label><input type="text" id="aiBase" placeholder="https://api.xxx.com/v1">
           <div class="meta">选模型时自动带出对应端点，可手动改成你自己的代理/中转地址（自定义地址不会被覆盖）。</div>
         </div>
-        <div><label>模型名</label><input type="text" id="aiModel" placeholder="deepseek-v4-flash / gpt-4o / 本地模型名" oninput="renderModelChips()">
-          <div class="chips" id="modelChips"></div>
+      </div>
+
+      <!-- v85：模型分工一目了然——两个角色分开，各自带推荐与警告 -->
+      <div class="mrole-wrap">
+        <div class="mrole-head">
+          <span class="mrole-title">模型分工</span>
+          <button type="button" class="mrole-auto" onclick="applyRecommendedModels()">一键按推荐配置</button>
         </div>
-        <div><label>⚡ 续写模型（速度优先，默认 deepseek-v4-flash）</label><input type="text" id="aiGenModel" placeholder="deepseek-v4-flash / 同模型名" oninput="renderModelChips()">
-          <div class="meta">续写 / 深度续写都走它，速度最快。<code>deepseek-v4-pro</code> 会先「思考」再写，单章常超 1 分钟。留空则复用上方「模型名」。</div>
+
+        <div class="mrole" id="mroleGen">
+          <div class="mrole-top">
+            <span class="mrole-badge gen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>续写模型</span>
+            <span class="mrole-who">写正文 · 深度续写 · 改写</span>
+          </div>
+          <input type="text" id="aiGenModel" placeholder="deepseek-v4-flash" oninput="renderModelChips();renderModelRoles()">
+          <div class="mrole-why">只负责落笔。要的是<b>快 + 敢写</b>，创意由上面的 temperature 决定，与模型强弱无关。</div>
         </div>
+
+        <div class="mrole" id="mroleAna">
+          <div class="mrole-top">
+            <span class="mrole-badge ana"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/><path d="M11 8v6M8 11h6"/></svg>分析模型</span>
+            <span class="mrole-who">消化前文 · 大纲 · 人物分析 · 精修</span>
+          </div>
+          <input type="text" id="aiModel" placeholder="deepseek-v4-pro" oninput="renderModelChips();renderModelRoles()">
+          <div class="mrole-chips">
+            <button type="button" class="chip" data-m="deepseek-v4-flash" onclick="pickModel('aiGenModel','deepseek-v4-flash',this)">续写用 flash</button>
+            <button type="button" class="chip" data-m="deepseek-v4-pro" onclick="pickModel('aiModel','deepseek-v4-pro',this)">分析用 pro</button>
+            <button type="button" class="chip" data-m="deepseek-v4-flash" onclick="pickModel('aiModel','deepseek-v4-flash',this)">分析也用 flash（省钱）</button>
+          </div>
+          <div class="mrole-why">只在「想清楚再输出」的地方用。推理过程不吃正文 token 预算——因为它根本不写正文。</div>
+        </div>
+
+        <div class="mrole-summary" id="mroleSummary"></div>
+        <div class="mrole-warn" id="mroleWarn" style="display:none;"></div>
+        <div class="chips" id="modelChips"></div>
       </div>
       <label>API Key（<b>必填才能用 AI</b> · 在 DeepSeek / 月之暗面后台复制 <code>sk-…</code> 粘贴到这里）</label>
       <input type="password" id="aiKey" placeholder="sk-...">
@@ -1098,9 +1224,9 @@
       </label>
       <label>系统提示词（已预填你的设定，可改）</label>
       <textarea id="aiSys" style="min-height:100px;"></textarea>
-      <label>🎭 文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
+      <label><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18v12H3z"/><path d="M8 6c0 3 8 3 8 6s-8 3-8 6"/></svg>文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
       <textarea id="aiStyleSample" style="min-height:90px;" placeholder="例如：粘贴你写过、或想模仿的文风段落（第一人称语感 / 比喻系统 / 幽默节奏）"></textarea>
-      <label style="margin-top:10px;">🎚 采样参数（temperature / top_p 独立可调 · 正文生成）</label>
+      <label style="margin-top:10px;"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v16M18 4v16M3 8h6M15 8h6M3 16h6M15 16h6"/><circle cx="6" cy="8" r="2"/><circle cx="18" cy="16" r="2"/></svg>采样参数（temperature / top_p 独立可调 · 正文生成）</label>
       <div class="smp-presets">
         <button type="button" class="smp-p" data-p="safe"     onclick="applySmpPreset('safe',this)">稳妥 <b>1.0/0.90</b></button>
         <button type="button" class="smp-p" data-p="balanced" onclick="applySmpPreset('balanced',this)">均衡 <b>1.20/0.95</b></button>
@@ -1231,14 +1357,24 @@
       <label class="corr-label">人物行为纠偏（你对 AI 人物行为偏差的意见，一行一条；点「AI 续写 / 深度续写 / 保存章节」时自动录入，之后每次生成都会规避，直到沉淀进人设）</label>
       <textarea id="chCorrect" class="corr-box" style="min-height:60px;" placeholder="例：詹姆斯不会主动低声下气道歉，他只会用行动弥补&#10;例：薇拉在公共场合不会大哭，她只会躲起来"></textarea>
       <div class="gen-group">
-        <div class="gen-legend">✍️ 写这一章有三个不重叠的入口：<b>⚡ 接着写</b>＝文末追加续写；<b>🧠 深度续写</b>＝先分析再写新章；<b>✨ 整章精修</b>＝优化已有草稿文笔（预览后替换）；<b>🖋 润色</b>＝改框选段落。深度选项与「消化 / 查找 / 专注」收进「更多操作」。</div>
+        <div class="gen-legend">✍️ 写这一章有三个不重叠的入口：<b><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>接着写</b>＝文末追加续写；<b><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5a3 3 0 00-3 3 3 3 0 00-1 5.8V16a2 2 0 002 2h4a2 2 0 002-2v-2.2A3 3 0 0015 8a3 3 0 00-3-3z"/><path d="M12 5v16"/></svg>深度续写</b>＝先分析再写新章；<b><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18 16l.9 2.3L21 19l-2.1.7L18 22l-.9-2.3L15 19l2.1-.7z"/></svg>整章精修</b>＝优化已有草稿文笔（预览后替换）；<b><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>润色</b>＝改框选段落。深度选项与「消化 / 查找 / 专注」收进「更多操作」。</div>
         <div class="gen-main">
           <button class="primary" onclick="saveChapter()">保存章节</button>
-          <button id="aiBtn" class="btn-quick" title="接着写：基于最近前文 + 全书档案，在文末追加续写当前章的新内容" onclick="aiGen()">⚡ 接着写</button>
-          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()">🧠 深度续写</button>
-          <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）">✨ 整章精修</button>
-          <button onclick="openAiEdit()">🖋 润色</button>
-          <label class="deep-pro-toggle" title="开启后：深度续写的『分析阶段』改用 V4-Pro 并解除省算力限制（上下文与输出翻倍），人物心理/伏笔/续写方向更透彻；正文生成仍走最快的 Flash。仅在卡剧情或要标杆级分析时开启——更慢更贵。"><input type="checkbox" id="deepProMode"> 🔥超深度·Pro</label>
+          <button id="aiBtn" class="btn-quick" title="接着写：基于最近前文 + 全书档案，在文末追加续写当前章的新内容" onclick="aiGen()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>接着写</button>
+          <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5a3 3 0 00-3 3 3 3 0 00-1 5.8V16a2 2 0 002 2h4a2 2 0 002-2v-2.2A3 3 0 0015 8a3 3 0 00-3-3z"/><path d="M12 5v16"/></svg>深度续写</button>
+          <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18 16l.9 2.3L21 19l-2.1.7L18 22l-.9-2.3L15 19l2.1-.7z"/></svg>整章精修</button>
+          <button onclick="openAiEdit()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>润色</button>
+          <label class="deep-pro-toggle" title="开启后：深度续写的『分析阶段』改用 V4-Pro 并解除省算力限制（上下文与输出翻倍），人物心理/伏笔/续写方向更透彻；正文生成仍走最快的 Flash。仅在卡剧情或要标杆级分析时开启——更慢更贵。"><input type="checkbox" id="deepProMode"> <svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3s5 4 5 9a5 5 0 01-10 0c0-2 1-3 1-3s1 1 1 2a3 3 0 006 0c0-3-3-6-3-8z"/></svg>超深度·Pro</label>
+        </div>
+        <!-- v85：上下文来源可观测——点开就知道这一章 AI 到底读了哪些东西 -->
+        <div class="ctxsrc collapsed" id="ctxSrc">
+          <div class="ctxsrc-head" onclick="toggleCtxSrc()" role="button" tabindex="0">
+            <svg class="ctxsrc-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15l3-4 3 3 4-6"/></svg>
+            <span class="ctxsrc-title">这一章会读到什么</span>
+            <span class="ctxsrc-sum" id="ctxSrcSum"></span>
+            <span class="ctxsrc-caret"></span>
+          </div>
+          <div class="ctxsrc-body" id="ctxSrcBody"></div>
         </div>
         <button class="gen-toggle" onclick="toggleGenMore(this)">⋯ 更多操作（消化 / 查找替换 / 专注 / 清空 / 深度选项）▾</button>
         <div class="gen-more" id="genMore">
@@ -1601,6 +1737,14 @@
 </div>
 
 <!-- 数据与备份面板（顶栏云图标入口） -->
+<div class="modal-mask" id="versionPanel" onclick="if(event.target===this)closeVersion()">
+  <div class="modal" style="max-width:520px;">
+    <h3>版本信息</h3>
+    <div class="vlog" id="versionBody"></div>
+    <div class="mbtn" style="margin-top:14px;"><button class="primary" onclick="closeVersion()">关闭</button></div>
+  </div>
+</div>
+
 <div class="modal-mask" id="dataPanel" onclick="if(event.target===this)closeDataPanel()">
   <div class="modal">
     <h3>数据与备份</h3>
@@ -1642,9 +1786,9 @@
     <div class="more-sec">
       <div class="more-sec-h">设置</div>
       <div class="more-actions">
-        <button class="more-action" onclick="closeMore();openGlobalSettings();setTimeout(function(){var el=document.getElementById('gsAiGroup');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},90)"><span class="mi">⚙</span> AI 生成设置</button>
-        <button class="more-action" onclick="closeMore();openGlobalSettings()"><span class="mi">⚙</span> 全局设置</button>
-        <button class="more-action" onclick="closeMore();openDisplay()"><span class="mi">📐</span> 写作排版（字号/行距/护眼）</button>
+        <button class="more-action" onclick="closeMore();openGlobalSettings();setTimeout(function(){var el=document.getElementById('gsAiGroup');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},90)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></span> AI 生成设置（模型 / 温度）</button>
+        <button class="more-action" onclick="closeMore();openGlobalSettings();setTimeout(function(){var el=document.getElementById('gsDataGroup');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},90)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span> 数据与备份</button>
+        <button class="more-action" onclick="closeMore();showVersion()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M11 12h1v4h1"/></svg></span> 版本信息</button>
       </div>
     </div>
     <div class="mbtn" style="margin-top:14px;"><button onclick="closeMore()">关闭</button></div>
@@ -2442,6 +2586,7 @@ function renderToday(){
 function renderChapters(){
   const ch=curChapterView();
   document.getElementById("chTotal").textContent="共 "+ch.length+" 章";
+  try{ renderCtxSource(); }catch(e){}   /* v85：同步刷新「这一章会读到什么」 */
   const box=document.getElementById("chapterList");
   if(!ch.length){box.innerHTML='<div class="meta">还没有章节，先在上方添加吧。</div>';renderChSidebar();renderDoneBoard();return;}
   box.innerHTML=ch.map(c=>{
@@ -2728,6 +2873,7 @@ function editChapter(id){
   document.getElementById("chCount").textContent="字数："+(c.body||"").length;
   window.scrollTo({top:0,behavior:"smooth"});
   renderChSidebar();
+  try{ renderCtxSource(); }catch(e){}   /* v85：切章后立即刷新上下文来源统计 */
 }
 function delChapter(id){
   if(!confirm("确认删除这章？此操作不可撤销。"))return;
@@ -5271,10 +5417,183 @@ function renderSamplingPreview(){
     '将发送 → <b>temperature='+tg.toFixed(2)+'</b> · <b>top_p='+tp.toFixed(2)+'</b><br>'+
     '正文生成 <b>'+tg.toFixed(2)+'</b> ｜ 规划 <b>'+pl.toFixed(2)+'</b> ｜ 精修 <b>'+po.toFixed(2)+'</b><br>'+
     '思考模式：'+thinkTxt+'<br>'+
-    '<span style="opacity:.8;">模型：'+model+'（生成走「续写模型」，留空则用上面的模型）</span>';
+    '<span style="opacity:.8;">本次作用于「续写模型」：'+model+'（分析链路固定低温，不受此处影响）</span>';
 }
 /* 兼容旧调用点 */
 function renderCreaHint(){ renderSamplingPreview(); }
+
+/* ===== v85 数据与工具 ===== */
+const APP_VERSION="v85";
+const APP_CHANGELOG=[
+  ["v85","模型分工界面重做（续写 flash / 分析 pro 一目了然）· 上下文来源可观测 · 合并重复入口 · 图标统一为 SVG · 预留区改为可用的数据工具"],
+  ["v84","temperature / top_p 独立可调（0–2 / 0.05–1，可精确到 0.01）· 思考模式开关（否则 V4 会忽略温度）"],
+  ["v83","折叠标题栏重构 · 一键收起全部 · 顶部栏滚动自动收起 · 移动端触控与排版收敛"],
+  ["v82","清理历史死代码（悬空 DOM 引用归零）"],
+  ["v81","生成参数中枢 · top_p 透传 · 创造力滑杆 · 文档模式（自动识别章节拆分）"]
+];
+function showVersion(){
+  const box=document.getElementById("versionBody");
+  const mask=document.getElementById("versionPanel");
+  if(!box||!mask) return;
+  const chs=load("chapters",[])||[];
+  const chars=(chs.reduce(function(s,c){return s+((c.body||"").length||0);},0));
+  const d=getDigest();
+  let digested=0;
+  try{ Object.keys((d&&d.volumes)||{}).forEach(function(v){const o=d.volumes[v]||{};digested+=Object.keys(o.chapters||{}).length;}); }catch(e){}
+  const body=APP_CHANGELOG.map(function(r){
+    return '<div class="vlog-row"><span class="vlog-v">'+r[0]+'</span><span class="vlog-t">'+r[1]+'</span></div>';
+  }).join("");
+  box.innerHTML=
+    '<div class="vlog-head"><b>莉莉娅的写作岛</b> · '+APP_VERSION+'</div>'+
+    '<div class="vlog-stat">章节 '+chs.length+' 篇 · 累计 '+chars.toLocaleString()+' 字 · 已消化 '+digested+' 章</div>'+
+    '<div class="vlog-note">全部数据只存在你这台设备的浏览器里，不会上传任何服务器；换设备或清缓存前请先「全部书籍备份导出」。</div>'+
+    '<div class="vlog-title">近期更新</div>'+ body;
+  mask.classList.add("on");
+}
+function closeVersion(){ const m=document.getElementById("versionPanel"); if(m) m.classList.remove("on"); }
+/* 只清 AI 衍生缓存（档案/队列/临时索引），章节、人物、设定一律不动 */
+function gsClearCache(){
+  if(!confirm("将清除 AI 前文档案、消化队列与临时缓存。\n\n你的章节正文、人物、设定、情节均不受影响。\n下次续写前重新消化即可。\n\n确认继续？")) return;
+  try{
+    save("aiDigest",{global:"",volumes:{},globalSig:{},globalDirty:false,queue:{running:false,paused:false},digest_update_at:0});
+    ["_searchIdx","_dgCache","_aiCache"].forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+    toast("已清除 AI 缓存（章节与设定未受影响）");
+    try{ allRender&&allRender(); }catch(e){}
+  }catch(e){
+    toastErr("清除失败："+(e&&e.message?e.message:"未知错误"));
+  }
+}
+
+/* ===== v85 上下文来源可观测 =====
+   借鉴 OpenViking 最有价值的一点「检索轨迹可观测」：让用户看见本次生成到底读了哪些内容、
+   各占多少字，而不是把上下文当黑盒。本应用体量（全书约 20 万字）远小于 V4 的 1M 上下文，
+   因此采用「按层级全量读取」而非向量检索——既不丢信息，也不需要任何外部服务。 */
+function toggleCtxSrc(){
+  const el=document.getElementById("ctxSrc"); if(!el) return;
+  el.classList.toggle("collapsed");
+}
+/* 估算：中文按 1 字 ≈ 0.7 token 粗算（仅供量级判断，不用于计费） */
+function _ctxTok(chars){ return Math.round(chars*0.7); }
+function ctxSourceStat(){
+  const ai=load("ai",{});
+  const eco=ai.eco!==false;
+  const chs=load("chapters",[])||[];
+  const volEl=document.getElementById("chVol");
+  const vol=volEl?volEl.value:"none";
+  const numEl=document.getElementById("chNum");
+  const curNum=parseInt(numEl&&numEl.value,10);
+  const n=isFinite(curNum)?curNum:Infinity;   /* 新章未填序号 → 视为读全部 */
+  const all=(document.querySelector('input[name="deepWriteMode"]:checked')||{}).value==="book";
+  const pool=chs.filter(c=>all?true:((c.vol||"none")===vol));
+  const prior=pool.filter(c=>(c.num||0)<n).sort((a,b)=>(a.num||0)-(b.num||0));
+  const cap=eco?12000:24000;
+  /* 最近若干章完整正文（L2 原文层） */
+  const full=[];
+  let used=0;
+  for(let i=prior.length-1;i>=0&&used<cap;i--){
+    const c=prior[i]; const b=(c.body||"").trim(); if(!b) continue;
+    const take=Math.min(b.length,12000);
+    if(used+take>cap && full.length) break;
+    full.push(c); used+=take;
+  }
+  full.reverse();
+  /* 全部前文梗概（L0 摘要层） */
+  const synChars=prior.reduce((s,c)=>s+((c.synopsis||"").length||0),0);
+  /* 分卷档案（L1 概览层） */
+  const d=getDigest();
+  const vd=all?((d&&d.global)||""):(((d&&d.volumes&&d.volumes[vol])||{}).text||"");
+  const digestChars=Math.min((vd||"").length,8000);
+  const styleChars=((ai.styleSample||"").length)||0;
+  const charsAll=load("chars",[])||[];
+  const corrEl=document.getElementById("chCorrect");
+  const corrN=corrEl?String(corrEl.value||"").split("\n").filter(x=>x.trim()).length:0;
+  const total=used+synChars+digestChars+styleChars;
+  return {
+    vol:vol, volName:(typeof volName==="function"?volName(vol):vol), all:all,
+    priorCount:prior.length,
+    fullN:full.length,
+    fullFrom:full.length?(full[0].num||"?"):null,
+    fullTo:full.length?(full[full.length-1].num||"?"):null,
+    fullChars:used, synChars:synChars, digestChars:digestChars,
+    styleChars:styleChars, charN:charsAll.length, corrN:corrN,
+    total:total, eco:eco
+  };
+}
+function renderCtxSource(){
+  const sum=document.getElementById("ctxSrcSum");
+  const body=document.getElementById("ctxSrcBody");
+  if(!body) return;
+  let s;
+  try{ s=ctxSourceStat(); }catch(e){ if(sum) sum.textContent=""; body.innerHTML='<div class="ctxsrc-empty">暂无法统计</div>'; return; }
+  const tok=_ctxTok(s.total);
+  const pct=Math.max(0.1, Math.min(100, tok/1000000*100));
+  if(sum){
+    sum.textContent = s.total? ("约 "+s.total.toLocaleString()+" 字 · 占上下文 "+pct.toFixed(1)+"%") : "尚无前文";
+  }
+  const row=(k,v)=>'<div class="ctxsrc-row"><span class="ctxsrc-k">'+k+'</span><span class="ctxsrc-v">'+v+'</span></div>';
+  let html="";
+  html+=row('分卷档案（L1 概览）', s.digestChars?s.digestChars.toLocaleString()+" 字":"<span style='opacity:.6'>尚未消化</span>");
+  html+=row('最近完整正文（L2 原文）', s.fullN?("第"+s.fullFrom+"–"+s.fullTo+"章 · "+s.fullN+" 章 · "+s.fullChars.toLocaleString()+" 字"):"<span style='opacity:.6'>无</span>");
+  html+=row('前文梗概（L0 摘要）', s.synChars?(s.priorCount+" 章 · "+s.synChars.toLocaleString()+" 字"):"<span style='opacity:.6'>无</span>");
+  html+=row('文风样本', s.styleChars?s.styleChars.toLocaleString()+" 字":"<span style='opacity:.6'>未填（建议填，效果最高杠杆）</span>");
+  html+=row('人物卡', s.charN?s.charN+" 个":"<span style='opacity:.6'>无</span>");
+  html+=row('行为纠偏', s.corrN?s.corrN+" 条":"<span style='opacity:.6'>无</span>");
+  html+='<div class="ctxsrc-note">合计 <b>'+s.total.toLocaleString()+'</b> 字 ≈ <b>'+tok.toLocaleString()+'</b> token，'+
+        '占 DeepSeek V4 的 <b>1M</b> 上下文约 <b>'+pct.toFixed(1)+'%</b>。'+
+        '范围：'+(s.all?'<b>全书</b>':'<b>本分卷</b>（'+s.volName+'）')+'，'+(s.eco?'省算力模式已开（正文预算 12,000 字）':'省算力已关（正文预算 24,000 字）')+'。<br>'+
+        '全书体量远小于上下文上限，因此这里采用<b>分层全量读取</b>而不是向量检索——既不丢信息，也无需任何外部服务。</div>';
+  body.innerHTML=html;
+}
+
+/* ===== v85 模型分工：让「续写用 flash / 分析用 pro」一眼看懂并给出警告 ===== */
+const MODEL_RECOMMEND={gen:"deepseek-v4-flash",ana:"deepseek-v4-pro"};
+/* 识别推理/思考型模型（写正文慢、易吃满 token 预算导致正文为空） */
+function isReasoningModel(name){
+  const s=String(name||"").toLowerCase();
+  return /(-pro\b|_pro\b|pro-|\breason(er|ing)\b|-r1\b|\bo[1-9]\b|-thinking\b)/.test(s);
+}
+function pickModel(inputId, modelName, btn){
+  const el=document.getElementById(inputId); if(!el) return;
+  el.value=modelName;
+  try{ renderModelChips(); }catch(e){}
+  renderModelRoles();
+  try{ toast("已设置："+modelName); }catch(e){}
+}
+function applyRecommendedModels(){
+  const g=document.getElementById("aiGenModel"), a=document.getElementById("aiModel");
+  if(g) g.value=MODEL_RECOMMEND.gen;
+  if(a) a.value=MODEL_RECOMMEND.ana;
+  try{ renderModelChips(); }catch(e){}
+  renderModelRoles();
+  try{ toast("已按推荐配置：续写 "+MODEL_RECOMMEND.gen+" ｜ 分析 "+MODEL_RECOMMEND.ana+"（记得点保存）"); }catch(e){}
+}
+function renderModelRoles(){
+  const gEl=document.getElementById("aiGenModel"), aEl=document.getElementById("aiModel");
+  const sum=document.getElementById("mroleSummary"), warn=document.getElementById("mroleWarn");
+  if(!sum) return;
+  const g=(gEl?gEl.value:"").trim(), a=(aEl?aEl.value:"").trim();
+  const gen = g || a || MODEL_RECOMMEND.gen;     /* 续写留空则复用分析模型 */
+  const ana = a || gen;
+  const genIsPro = isReasoningModel(gen);
+  sum.innerHTML =
+    '当前分工 —— 写正文：<b>'+(gen||"（未填）")+'</b>'+(g?'':'（留空，复用分析模型）')+
+    '<br>当前分工 —— 想清楚：<b>'+(ana||"（未填）")+'</b>'+(a?'':'（留空，复用续写模型）')+
+    '<br>温度 <b>'+creaParams("gen").temperature.toFixed(2)+'</b> 只对「写正文」这条链路生效；分析链路固定低温，保证档案结构稳定。';
+  if(!warn) return;
+  let msg="";
+  if(genIsPro){
+    msg='续写模型填的是 <b>'+gen+'</b>（推理型）。它会先「思考」再落笔：单章常超 1 分钟，且 token 预算容易被思考过程吃光，导致<b>正文返回为空</b>。'+
+        '写正文请换成 <b>'+MODEL_RECOMMEND.gen+'</b>——创意靠上面的 temperature，不靠模型强弱。pro 留给「分析模型」用。';
+  } else if(!g && !a){
+    msg='两个模型都没填，将默认走 '+MODEL_RECOMMEND.gen+'。点右上角「一键按推荐配置」可自动填好。';
+  }
+  if(msg){
+    warn.innerHTML=msg;
+    warn.style.display="";
+  } else {
+    warn.innerHTML=""; warn.style.display="none";
+  }
+}
 function renderAI(){
   const ai=load("ai",{});
   document.getElementById("aiBase").value=ai.base||"";
@@ -5302,7 +5621,7 @@ function renderAI(){
     tmSel.value=tm;
     tmSel.onchange=function(){ renderSamplingPreview(); };
   }
-  try{ smpSyncPreset(); renderSamplingPreview(); }catch(e){}
+  try{ smpSyncPreset(); renderSamplingPreview(); renderModelRoles(); }catch(e){}
   renderModelChips();
 }
 function saveAI(){
