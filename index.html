@@ -870,6 +870,59 @@
     background:var(--soft);border:1px solid var(--line);border-left:3px solid var(--brand);
     border-radius:10px;color:var(--sub);
   }
+  /* ===== v84 采样参数面板（temperature / top_p 独立可调） ===== */
+  .smp-presets{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px;}
+  .smp-p{
+    flex:1 1 auto;min-width:78px;min-height:38px;padding:6px 10px;cursor:pointer;
+    border-radius:9px;border:1px solid var(--input-bd);background:var(--input-bg);color:var(--sub);
+    font-size:12.5px;line-height:1.25;transition:background .15s ease,border-color .15s ease,color .15s ease;
+  }
+  .smp-p b{display:block;font-size:11.5px;font-weight:600;opacity:.75;margin-top:2px;letter-spacing:.2px;}
+  .smp-p:hover{border-color:var(--brand);color:var(--ink);}
+  .smp-p.on{background:var(--brand);border-color:var(--brand);color:#fff;}
+  .smp-p.on b{opacity:.9;}
+  .smp-row{
+    margin-top:12px;padding:10px 12px;border-radius:10px;
+    border:1px solid var(--line);background:var(--soft);
+  }
+  .smp-head{display:flex;align-items:baseline;gap:8px;}
+  .smp-name{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:.3px;}
+  .smp-desc{font-size:12px;color:var(--sub);}
+  .smp-num{
+    margin-left:auto;width:76px !important;min-height:32px;padding:2px 8px;text-align:right;
+    font-size:13.5px !important;font-variant-numeric:tabular-nums;
+    border-radius:8px;border:1px solid var(--input-bd);background:var(--input-bg);color:var(--ink);
+  }
+  .smp-range{
+    -webkit-appearance:none;appearance:none;width:100%;height:26px;margin-top:4px;
+    background:transparent;cursor:pointer;
+  }
+  .smp-range::-webkit-slider-runnable-track{height:6px;border-radius:99px;background:var(--input-bd);}
+  .smp-range::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:18px;height:18px;margin-top:-6px;border-radius:50%;
+    background:var(--brand);border:2px solid var(--card);box-shadow:0 0 0 1px var(--brand);
+  }
+  .smp-range::-moz-range-track{height:6px;border-radius:99px;background:var(--input-bd);}
+  .smp-range::-moz-range-thumb{width:16px;height:16px;border:2px solid var(--card);border-radius:50%;background:var(--brand);}
+  .smp-range:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:6px;}
+  .smp-scale{display:flex;justify-content:space-between;font-size:12px;color:var(--sub);opacity:.85;margin-top:-2px;}
+  .smp-preview{
+    margin-top:12px;padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.7;
+    border:1px dashed var(--brand);background:transparent;color:var(--sub);
+  }
+  .smp-preview b{color:var(--ink);font-variant-numeric:tabular-nums;}
+  .smp-preview .warn{color:var(--red);font-weight:600;}
+  .smp-adv{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;}
+  .smp-adv > summary{cursor:pointer;font-size:13px;color:var(--brand);list-style:none;padding:4px 0;}
+  .smp-adv > summary::-webkit-details-marker{display:none;}
+  .smp-adv > summary::before{content:"▸ ";display:inline-block;transition:transform .15s ease;}
+  .smp-adv[open] > summary::before{content:"▾ ";}
+  @media (max-width:640px){
+    .smp-p{flex:1 1 calc(50% - 6px);min-height:44px;}
+    .smp-num{width:88px !important;min-height:40px;font-size:16px !important;}
+    .smp-range{height:34px;}
+    .smp-range::-webkit-slider-thumb{width:22px;height:22px;margin-top:-8px;}
+  }
 </style>
 </head>
 <body>
@@ -1047,12 +1100,63 @@
       <textarea id="aiSys" style="min-height:100px;"></textarea>
       <label>🎭 文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
       <textarea id="aiStyleSample" style="min-height:90px;" placeholder="例如：粘贴你写过、或想模仿的文风段落（第一人称语感 / 比喻系统 / 幽默节奏）"></textarea>
-      <label style="margin-top:10px;">🎚 创造力（temperature / top_p 中枢）</label>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <input type="range" id="aiCreativity" min="0" max="100" step="5" value="65" style="flex:1;min-width:120px;" oninput="renderCreaHint()">
-        <span id="creaVal" style="min-width:132px;text-align:right;font-size:13px;color:var(--sub);"></span>
+      <label style="margin-top:10px;">🎚 采样参数（temperature / top_p 独立可调 · 正文生成）</label>
+      <div class="smp-presets">
+        <button type="button" class="smp-p" data-p="safe"     onclick="applySmpPreset('safe',this)">稳妥 <b>1.0/0.90</b></button>
+        <button type="button" class="smp-p" data-p="balanced" onclick="applySmpPreset('balanced',this)">均衡 <b>1.20/0.95</b></button>
+        <button type="button" class="smp-p" data-p="creative" onclick="applySmpPreset('creative',this)">创意 <b>1.35/1.00</b></button>
+        <button type="button" class="smp-p" data-p="wild"     onclick="applySmpPreset('wild',this)">狂放 <b>1.50/1.00</b></button>
       </div>
-      <div class="meta">向左＝稳妥连贯（日常章、收尾）；向右＝大胆出格（转折章、卡剧情时）。<b>默认 65</b>：正文生成 temperature 0.82 / top_p 0.95，并启用 presence_penalty 抑制「同一意象反复刷屏」。<b>只作用于正文生成与精修，消化/分析固定低温</b>以保证档案结构稳定。</div>
+
+      <div class="smp-row">
+        <div class="smp-head"><span class="smp-name">Temperature</span><span class="smp-desc">随机性</span>
+          <input type="number" class="smp-num" id="smpTempNum" min="0" max="2" step="0.01" value="1.35" onchange="smpNumToRange('temp')" oninput="smpNumToRange('temp')">
+        </div>
+        <input type="range" class="smp-range" id="smpTemp" min="0" max="2" step="0.01" value="1.35" oninput="smpRangeToNum('temp')">
+        <div class="smp-scale"><span>0 死板</span><span>1.0</span><span>1.5 创意</span><span>2 放飞</span></div>
+      </div>
+
+      <div class="smp-row">
+        <div class="smp-head"><span class="smp-name">Top P</span><span class="smp-desc">候选词范围</span>
+          <input type="number" class="smp-num" id="smpTopPNum" min="0.05" max="1" step="0.01" value="1.00" onchange="smpNumToRange('topp')" oninput="smpNumToRange('topp')">
+        </div>
+        <input type="range" class="smp-range" id="smpTopP" min="0.05" max="1" step="0.01" value="1" oninput="smpRangeToNum('topp')">
+        <div class="smp-scale"><span>0.5 保守</span><span>0.95</span><span>1.0 不裁剪</span></div>
+      </div>
+
+      <div class="smp-row" style="margin-top:2px;">
+        <div class="smp-head"><span class="smp-name">思考模式</span><span class="smp-desc">DeepSeek V4 默认开启</span></div>
+        <select id="aiThinkMode" style="margin-top:6px;">
+          <option value="disabled">disabled — 关闭（推荐：否则温度不生效）</option>
+          <option value="enabled">enabled — 开启（推理更稳，温度被忽略）</option>
+          <option value="omit">不发送该参数（非 DeepSeek 接口用）</option>
+        </select>
+      </div>
+
+      <div class="smp-preview" id="smpPreview"></div>
+
+      <div class="meta" style="margin-top:6px;">
+        <b>DeepSeek 官方 temperature 指引</b>：0.0 代码/数学 · 1.0 数据分析 · 1.3 通用对话 · <b>1.5 创意写作与诗歌</b>（范围 0–2）。top_p 范围 0–1，上限 1.0。<br>
+        ⚠️ <b>最容易踩的坑</b>：V4 系模型默认开启思考模式，此时 temperature / top_p / presence_penalty <b>会被静默忽略</b>（传了不报错，但完全没效果）。要让温度真正起作用，上面「思考模式」必须选 <b>disabled</b>。<br>
+        💡 官方建议 temperature 与 top_p <b>只调一个</b>；两者同调时以 temperature 为主、top_p 保持 1.0 最稳。
+      </div>
+
+      <details class="smp-adv">
+        <summary>高级：规划 / 精修 的独立温度</summary>
+        <div class="smp-row">
+          <div class="smp-head"><span class="smp-name">规划温度</span><span class="smp-desc">节拍卡 / 灵感推演</span>
+            <input type="number" class="smp-num" id="smpPlanNum" min="0" max="2" step="0.01" value="1.50" onchange="smpNumToRange('plan')" oninput="smpNumToRange('plan')">
+          </div>
+          <input type="range" class="smp-range" id="smpPlan" min="0" max="2" step="0.01" value="1.5" oninput="smpRangeToNum('plan')">
+        </div>
+        <div class="smp-row">
+          <div class="smp-head"><span class="smp-name">精修温度</span><span class="smp-desc">润色 / 改写 / 去重</span>
+            <input type="number" class="smp-num" id="smpPolishNum" min="0" max="2" step="0.01" value="0.70" onchange="smpNumToRange('polish')" oninput="smpNumToRange('polish')">
+          </div>
+          <input type="range" class="smp-range" id="smpPolish" min="0" max="2" step="0.01" value="0.7" oninput="smpRangeToNum('polish')">
+        </div>
+        <div class="meta">精修要稳（建议 0.5–0.8）；规划要发散（建议 1.3–1.6）。top_p 三类共用上面那一个值。</div>
+      </details>
       <div class="row" style="margin-top:10px;align-items:center;">
         <button class="primary" onclick="saveAI()">保存AI设置</button>
         <button id="testAiBtn" onclick="testAI()">测试连接</button>
@@ -5098,15 +5202,79 @@ function buildSysPrompt(){
   const tb="1.禁止「他(v.)了，很轻，像是怕惊扰了什么」\n2.禁止「不是…而是…」结构\n3.禁止「语气像是在说『今天天气很好』」及类似平淡语气形容\n4.比喻词不可通篇只有「像」，需多样化（仿佛/如同/堪比/犹如…）\n5.禁止「放下，拿起来，又放下」类重复动作\n6.禁止「也许/更像是别的什么东西」模糊表达\n7.禁止两三个连续形容词用顿号隔开\n8.禁止频繁用破折号做解释说明\n9.禁止莫名分段写小短句制造「节奏感」\n10.禁止「语气很平」「嗓音很哑」缺主语的断裂形容\n11.禁止「他(v.)了很久，久到XX以为他……」模板化时间描写\n12.转折词不可通篇只有「但」，需多样化（然而/可/只是/只不过）\n13.禁止现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等），叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏";
   return `你是《HP轻世代即刻心动》的AI协作写作助手，严格以薇拉·奎克第一人称视角创作。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、用词犀利但保持英式礼貌幽默，金句宁缺毋滥（禁止为凑金句打断刚建立的情绪）；每章结尾留强钩子；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇），但用喻吝啬——全文精当数处即可，禁止通篇比喻与连续两段明喻。`;
 }
-/* v81 创造力滑杆：把档位换算成实际采样参数显示出来，避免"调了却不知道调到哪" */
-function renderCreaHint(){
-  const el=document.getElementById("aiCreativity");
-  const v=(el&&el.value!=="")?parseInt(el.value,10):65;
-  const out=document.getElementById("creaVal");
-  if(!out) return;
-  const g=creaParams("gen");   /* 以正文生成为准展示 */
-  out.textContent=v+" · T"+g.temperature.toFixed(2)+" / top_p "+g.top_p;
+/* ===== v84 采样参数 UI ===== */
+const SMP_PRESETS={
+  safe:     {tempGen:1.00, topPGen:0.90},
+  balanced: {tempGen:1.20, topPGen:0.95},
+  creative: {tempGen:1.35, topPGen:1.00},
+  wild:     {tempGen:1.50, topPGen:1.00}
+};
+function _smpSet(id,val){
+  const r=document.getElementById(id); if(r) r.value=String(val);
+  const n=document.getElementById(id+"Num"); if(n) n.value=(Math.round(val*100)/100).toFixed(2);
 }
+function _smpGet(id,def){
+  const n=document.getElementById(id+"Num");
+  if(n && n.value!=="") { const v=parseFloat(n.value); if(isFinite(v)) return v; }
+  const r=document.getElementById(id);
+  if(r && r.value!=="") { const v=parseFloat(r.value); if(isFinite(v)) return v; }
+  return def;
+}
+function smpRangeToNum(kind){
+  const id={temp:"smpTemp",topp:"smpTopP",plan:"smpPlan",polish:"smpPolish"}[kind];
+  const r=document.getElementById(id); if(!r) return;
+  const n=document.getElementById(id+"Num");
+  if(n) n.value=parseFloat(r.value).toFixed(2);
+  smpSyncPreset(); renderSamplingPreview();
+}
+function smpNumToRange(kind){
+  const id={temp:"smpTemp",topp:"smpTopP",plan:"smpPlan",polish:"smpPolish"}[kind];
+  const n=document.getElementById(id+"Num"), r=document.getElementById(id);
+  if(!n||!r) return;
+  let v=parseFloat(n.value);
+  if(!isFinite(v)) return;
+  const lo=parseFloat(r.min), hi=parseFloat(r.max);
+  v=Math.max(lo, Math.min(hi, v));
+  r.value=String(v);
+  smpSyncPreset(); renderSamplingPreview();
+}
+function smpSyncPreset(){
+  const t=_smpGet("smpTemp",SMP_DEF.tempGen), p=_smpGet("smpTopP",SMP_DEF.topPGen);
+  document.querySelectorAll(".smp-p").forEach(b=>{
+    const pr=SMP_PRESETS[b.dataset.p];
+    const hit=pr && Math.abs(pr.tempGen-t)<0.005 && Math.abs(pr.topPGen-p)<0.005;
+    b.classList.toggle("on", !!hit);
+  });
+}
+function applySmpPreset(name,el){
+  const pr=SMP_PRESETS[name]; if(!pr) return;
+  _smpSet("smpTemp", pr.tempGen);
+  _smpSet("smpTopP", pr.topPGen);
+  smpSyncPreset(); renderSamplingPreview();
+  try{ toast("已套用「"+el.textContent.trim().split(" ")[0]+"」：T "+pr.tempGen.toFixed(2)+" / top_p "+pr.topPGen.toFixed(2)+"（记得点「保存AI设置」）"); }catch(e){}
+}
+/* 实时预览：把「实际会发出去的 body」算出来给用户看，避免调了不知道有没有生效 */
+function renderSamplingPreview(){
+  const out=document.getElementById("smpPreview");
+  if(!out) return;
+  const tg=_smpGet("smpTemp",SMP_DEF.tempGen);
+  const tp=_smpGet("smpTopP",SMP_DEF.topPGen);
+  const pl=_smpGet("smpPlan",SMP_DEF.tempPlan);
+  const po=_smpGet("smpPolish",SMP_DEF.tempPolish);
+  const tmEl=document.getElementById("aiThinkMode");
+  const tm=tmEl?tmEl.value:SMP_DEF.thinkMode;
+  const model=(document.getElementById("aiGenModel")||{}).value || (document.getElementById("aiModel")||{}).value || "—";
+  const thinkTxt = tm==="disabled" ? '<b>thinking: disabled</b>（温度生效 ✓）'
+                  : tm==="enabled"  ? '<span class="warn">thinking: enabled —— 温度与 top_p 将被忽略！</span>'
+                  : '不发送 thinking 参数';
+  out.innerHTML=
+    '将发送 → <b>temperature='+tg.toFixed(2)+'</b> · <b>top_p='+tp.toFixed(2)+'</b><br>'+
+    '正文生成 <b>'+tg.toFixed(2)+'</b> ｜ 规划 <b>'+pl.toFixed(2)+'</b> ｜ 精修 <b>'+po.toFixed(2)+'</b><br>'+
+    '思考模式：'+thinkTxt+'<br>'+
+    '<span style="opacity:.8;">模型：'+model+'（生成走「续写模型」，留空则用上面的模型）</span>';
+}
+/* 兼容旧调用点 */
+function renderCreaHint(){ renderSamplingPreview(); }
 function renderAI(){
   const ai=load("ai",{});
   document.getElementById("aiBase").value=ai.base||"";
@@ -5117,17 +5285,50 @@ function renderAI(){
   document.getElementById("aiSys").value=ai.sys||buildSysPrompt();
   const mt=document.getElementById("aiMaxTokens"); if(mt) mt.value=String(ai.maxTokens||8000);
   const eco=document.getElementById("aiEco"); if(eco) eco.checked=ai.eco!==false; /* 默认开启省算力 */
-  const cr=document.getElementById("aiCreativity");
-  if(cr) cr.value=String(typeof ai.creativity==="number"?ai.creativity:65);
-  try{ renderCreaHint(); }catch(e){}
+  /* v84：temperature / top_p / 思考模式 独立回填 */
+  const leg=_smpLegacy(ai);
+  _smpSet("smpTemp",   _smpNum(ai.tempGen,    leg?leg.tempGen:SMP_DEF.tempGen, 0, 2));
+  _smpSet("smpTopP",   _smpNum(ai.topPGen,    leg?leg.topPGen:SMP_DEF.topPGen, 0.05, 1));
+  _smpSet("smpPlan",   _smpNum(ai.tempPlan,   SMP_DEF.tempPlan, 0, 2));
+  _smpSet("smpPolish", _smpNum(ai.tempPolish, SMP_DEF.tempPolish, 0, 2));
+  const tmSel=document.getElementById("aiThinkMode");
+  if(tmSel){
+    let tm=ai.thinkMode;
+    /* 首次使用且是 DeepSeek：默认帮用户关掉思考模式，否则温度根本不生效 */
+    if(!tm){
+      const hay=((ai.base||"")+" "+(ai.model||"")+" "+(ai.genModel||"")).toLowerCase();
+      tm = /deepseek/.test(hay) ? "disabled" : "omit";
+    }
+    tmSel.value=tm;
+    tmSel.onchange=function(){ renderSamplingPreview(); };
+  }
+  try{ smpSyncPreset(); renderSamplingPreview(); }catch(e){}
   renderModelChips();
 }
 function saveAI(){
   const mtEl=document.getElementById("aiMaxTokens");
   const ecoEl=document.getElementById("aiEco");
-  const crEl=document.getElementById("aiCreativity");
-  const ai={base:document.getElementById("aiBase").value.trim(),model:document.getElementById("aiModel").value.trim(),genModel:document.getElementById("aiGenModel").value.trim(),key:document.getElementById("aiKey").value.trim(),sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),styleSample:document.getElementById("aiStyleSample").value.trim(),maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,eco:ecoEl?ecoEl.checked:true,creativity:crEl?parseInt(crEl.value)||65:65};
-  save("ai",ai);toast("AI 设置已保存（仅本机）");
+  const tmEl=document.getElementById("aiThinkMode");
+  const ai={
+    base:document.getElementById("aiBase").value.trim(),
+    model:document.getElementById("aiModel").value.trim(),
+    genModel:document.getElementById("aiGenModel").value.trim(),
+    key:document.getElementById("aiKey").value.trim(),
+    sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),
+    styleSample:document.getElementById("aiStyleSample").value.trim(),
+    maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,
+    eco:ecoEl?ecoEl.checked:true,
+    /* v84 采样参数：temperature / top_p 独立存，不再走单一创造力滑杆 */
+    tempGen:_smpNum(_smpGet("smpTemp",  SMP_DEF.tempGen),   SMP_DEF.tempGen,   0, 2),
+    topPGen:_smpNum(_smpGet("smpTopP",  SMP_DEF.topPGen),   SMP_DEF.topPGen,   0.05, 1),
+    tempPlan:_smpNum(_smpGet("smpPlan", SMP_DEF.tempPlan),  SMP_DEF.tempPlan,  0, 2),
+    tempPolish:_smpNum(_smpGet("smpPolish", SMP_DEF.tempPolish), SMP_DEF.tempPolish, 0, 2),
+    thinkMode:tmEl?tmEl.value:SMP_DEF.thinkMode
+  };
+  save("ai",ai);
+  const g=creaParams("gen");
+  toast("已保存：temperature "+g.temperature.toFixed(2)+" / top_p "+g.top_p.toFixed(2)+
+        "，思考模式 "+ai.thinkMode+"（仅本机）");
 }
 /* ---------- 模型快捷选择（由 publish/providers.json 构建时注入，源文件内为默认值） ---------- */
 /* >>PROVIDERS_START */
@@ -5188,15 +5389,38 @@ function toastErr(msg){
 }
 function toggleAIHelp(){const b=document.getElementById("aiHelpBody");const t=document.querySelector(".ai-help-t");if(!b)return;const open=b.style.display!=="none";b.style.display=open?"none":"block";if(t)t.textContent=open?"展开 ▾":"收起 ▴";}
 function safeOpen(u){try{window.open(u,"_blank","noopener");}catch(e){location.href=u;}}
+/* v84：测试连接同时验证采样参数能否被该接口接受。
+   走与正式生成相同的 body 结构（temperature / top_p / thinking），
+   若接口不认这些字段会返回 400，这里会明确告出来，而不是让用户以为"调了有效"。 */
 async function testAI(){
   const ai=load("ai",{});
   if(!ai.base||!ai.key){toastErr("请先填好 Base URL 和 Key 再测试");return;}
   const btn=document.getElementById("testAiBtn");const old=btn?btn.textContent:"";if(btn){btn.disabled=true;btn.textContent="测试中…";}
+  /* 用界面上当前的值测，测完再保存也能先验证 */
+  const tv=_smpGet("smpTemp",SMP_DEF.tempGen);
+  const pv=_smpGet("smpTopP",SMP_DEF.topPGen);
+  const tmEl=document.getElementById("aiThinkMode");
+  const tm=tmEl?tmEl.value:SMP_DEF.thinkMode;
+  const model=(document.getElementById("aiModel")||{}).value||ai.model||"deepseek-v4-flash";
+  const body={model:model,
+    messages:[{role:"system",content:"你是测试助手"},{role:"user",content:"用中文说：连接成功"}],
+    temperature:Math.max(0,Math.min(2,Math.round(tv*100)/100)),
+    top_p:Math.max(0.01,Math.min(1,Math.round(pv*100)/100)),
+    max_tokens:16};
+  if(tm==="disabled") body.thinking={type:"disabled"};
+  else if(tm==="enabled") body.thinking={type:"enabled"};
+  const sent="temperature="+body.temperature+" · top_p="+body.top_p+" · thinking="+(body.thinking?body.thinking.type:"不发送");
   try{
-    const r=await fetch(ai.base.replace(/\/+$/,'')+"/chat/completions",{method:"POST",headers:aiHeaders(ai),body:JSON.stringify({model:ai.model||"deepseek-v4-flash",messages:[{role:"system",content:"你是测试助手"},{role:"user",content:"用中文说：连接成功"}],max_tokens:12})});
+    const r=await fetch(ai.base.replace(/\/+$/,'')+"/chat/completions",{method:"POST",headers:aiHeaders(ai),body:JSON.stringify(body)});
+    if(r.status===400){
+      const t=await r.text();
+      toastErr("接口拒绝了采样参数（HTTP 400）。已发送："+sent+"。多半是该接口不认 thinking 或 top_p，请把「思考模式」改成「不发送该参数」再试。原始返回："+t.slice(0,120));
+      return;
+    }
     if(!r.ok){const t=await r.text();throw new Error("HTTP "+r.status+" "+t.slice(0,160));}
-    const j=await r.json();const ok=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||"";
-    toast("✅ 连接成功！Key 有效，可以生成了（"+ok.replace(/\n/g,"").slice(0,20)+"）");
+    const j=await r.json();
+    const ok=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||"";
+    toast("✅ 连接成功｜参数已被接受 —— "+sent+"（返回："+ok.replace(/\n/g,"").slice(0,16)+"）");
   }catch(e){ aiFail("连接测试",e); }
   finally{ if(btn){btn.disabled=false;btn.textContent=old;} }
 }
@@ -5292,27 +5516,52 @@ function addCacheControl(ms){
   out.forEach(function(m,i){ if(m.role==="system" || i===lastUser) m.cache_control={type:"ephemeral"}; });
   return out;
 }
-/* ===== v81 生成参数中枢 =====
-   top_p 此前全代码零配置（接口默认 1.0 = 完全不裁剪概率尾部），叠加单一的低温，
-   会让模型长期停在「安全、常见、可预测」的用词区 → 剧情平庸、缺乏惊喜。
-   现按任务类型分层：正文/规划给足温度，同时用 top_p 裁掉胡话尾巴，保证「有惊喜但不胡来」；
-   精修与分析压低温度保稳定。
-   presence_penalty 专门压制「同一意象/句式反复刷存在」（如鞋带刷屏、比喻堆叠），
-   frequency_penalty 压制逐字重复；二者随「创造力」滑杆加权，惊喜感与稳定度由你自己取舍。 */
+/* ===== v84 生成参数中枢（temperature / top_p 完全独立可调） =====
+   v81 的问题：只有一个「创造力」滑杆，内部写死 T0.82/top_p0.95 的映射，
+   用户无法把 temperature 设到 DeepSeek 官方给创意写作建议的 1.5，也摸不到 top_p=1.0，
+   等于创意被锁死。v84 起改为：
+     · ai.tempGen / ai.topPGen  —— 正文生成，独立滑杆 + 数字框，可精确到 0.01
+     · ai.tempPlan              —— 规划（节拍卡/灵感推演）独立温度
+     · ai.tempPolish            —— 精修（润色/改写）独立温度
+     · ai.thinkMode             —— disabled/enabled/omit，控制是否发 thinking 参数
+   落库缺省时回退到 DeepSeek 官方创意写作推荐档（1.35 / 1.0），并兼容旧的 ai.creativity。 */
+const SMP_DEF={tempGen:1.35,topPGen:1.00,tempPlan:1.50,tempPolish:0.70,thinkMode:"disabled"};
+function _smpNum(v,d,lo,hi){
+  const n=parseFloat(v);
+  if(!isFinite(n)) return d;
+  return Math.max(lo, Math.min(hi, n));
+}
+/* 旧数据迁移：只有 creativity、没有 tempGen 时，用 v81 的原始公式换算（保住老用户手感） */
+function _smpLegacy(ai){
+  if(typeof ai.tempGen==="number" && isFinite(ai.tempGen)) return null;
+  if(typeof ai.creativity!=="number" || !isFinite(ai.creativity)) return null;
+  const k=Math.max(0,Math.min(100,ai.creativity))/100;
+  return {
+    tempGen:Math.max(0.30, Math.min(1.10, 0.82+(k-0.65)*0.34)),
+    topPGen:Math.max(0.75, Math.min(0.99, 0.95+(k-0.65)*0.06))
+  };
+}
 function creaParams(kind){
   const ai=load("ai",{});
-  const slider=(typeof ai.creativity==="number"&&!isNaN(ai.creativity))?ai.creativity:65;
-  const k=Math.max(0,Math.min(100,slider))/100;        /* 0..1，默认 0.65 */
-  const B={
-    gen:    {t:0.82, tp:0.95, pp:0.35, fp:0.25},      /* 正文生成：要惊喜，也要连贯 */
-    plan:   {t:0.95, tp:0.97, pp:0.45, fp:0.20},      /* 节拍卡/灵感推演：要差异化 */
-    polish: {t:0.62, tp:0.92, pp:0.20, fp:0.35}       /* 精修/润色：要稳、要去重复 */
-  }[kind]||{t:0.75, tp:0.95, pp:0.20, fp:0.20};
-  const t =Math.max(0.30, Math.min(1.10, B.t  + (k-0.65)*0.34));
-  const tp=Math.max(0.75, Math.min(0.99, B.tp + (k-0.65)*0.06));
-  const w =0.5+k;                                      /* 创造力越高，越鼓励换说法/换意象 */
-  return {temperature:Math.round(t*100)/100, top_p:Math.round(tp*100)/100,
-          presence_penalty:Math.round(B.pp*w*100)/100, frequency_penalty:Math.round(B.fp*w*100)/100};
+  const leg=_smpLegacy(ai);
+  /* v84：显式值 > 旧滑杆换算 > 官方创意写作推荐档 */
+  let tg=_smpNum(ai.tempGen, NaN, 0, 2);
+  let tp=_smpNum(ai.topPGen, NaN, 0.05, 1);
+  if(!isFinite(tg)) tg = leg ? leg.tempGen : SMP_DEF.tempGen;
+  if(!isFinite(tp)) tp = leg ? leg.topPGen : SMP_DEF.topPGen;
+  const tPlan =_smpNum(ai.tempPlan,   Math.min(2, tg+0.15), 0, 2);
+  const tPol  =_smpNum(ai.tempPolish, SMP_DEF.tempPolish,   0, 2);
+  const pp    =_smpNum(ai.pp, 0, 0, 2);
+  const R={
+    gen:    {temperature:tg,    top_p:tp, presence_penalty:pp},  /* 正文生成：按用户设定 */
+    plan:   {temperature:tPlan, top_p:tp, presence_penalty:pp},  /* 规划：更发散 */
+    polish: {temperature:tPol,  top_p:tp, presence_penalty:pp}   /* 精修：更稳 */
+  };
+  const o=Object.assign({}, R[kind]||R.gen);
+  o.temperature=Math.round(o.temperature*100)/100;
+  o.top_p=Math.round(o.top_p*100)/100;
+  if(typeof o.presence_penalty==="number") o.presence_penalty=Math.round(o.presence_penalty*100)/100;
+  return o;
 }
 /* 单次请求（返回 {content, finish_reason}），供 callAI 包装调用 */
 async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra){
@@ -5320,12 +5569,31 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-v4-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
   const model = modelOverride || (onToken ? (ai.genModel||ai.model||"deepseek-v4-flash") : (ai.model||"deepseek-v4-flash"));
-  const body={model:model, messages:(_noCache?messages:addCacheControl(messages)), temperature:temperature||0.8, max_tokens:max_tokens||8000, stream:!!onToken};
-  /* v81：透传采样参数。extra=null 表示该接口不认这些参数、需降级去掉 */
+  /* v84：temperature 允许 0–2（DeepSeek 官方范围，创意写作建议 1.5）。
+     旧代码 `temperature||0.8` 会把用户显式设的 0 误判成 falsy → 强行变 0.8，已修正为类型判断。 */
+  const _t = (typeof temperature==="number" && isFinite(temperature)) ? temperature : 0.8;
+  const body={model:model, messages:(_noCache?messages:addCacheControl(messages)),
+              temperature:Math.max(0, Math.min(2, Math.round(_t*100)/100)),
+              max_tokens:max_tokens||8000, stream:!!onToken};
+  /* v84：透传采样参数 + 思考模式。extra=null 表示该接口不认这些参数、需整体降级去掉 */
   if(extra&&typeof extra==="object"){
-    if(typeof extra.top_p==="number") body.top_p=extra.top_p;
-    if(typeof extra.presence_penalty==="number") body.presence_penalty=extra.presence_penalty;
-    if(typeof extra.frequency_penalty==="number") body.frequency_penalty=extra.frequency_penalty;
+    if(typeof extra.top_p==="number")
+      body.top_p=Math.max(0.01, Math.min(1, Math.round(extra.top_p*100)/100));
+    /* DeepSeek 现行文档已把 presence_penalty / frequency_penalty 标为 deprecated（无效果），
+       仅在用户显式设了 >0 时才发，避免给不支持的厂商接口塞废字段 */
+    if(typeof extra.presence_penalty==="number" && extra.presence_penalty>0)
+      body.presence_penalty=Math.min(2, extra.presence_penalty);
+    if(typeof extra.frequency_penalty==="number" && extra.frequency_penalty>0)
+      body.frequency_penalty=Math.min(2, extra.frequency_penalty);
+    /* thinking：V4 系默认 enabled，此时 temperature/top_p 会被静默忽略——必须显式 disabled 才生效。
+       未显式设置时按厂商自动判断：DeepSeek 默认帮用户关掉（否则温度白调），其它厂商默认不发（避免 400） */
+    let tm=ai.thinkMode;
+    if(tm!=="disabled" && tm!=="enabled" && tm!=="omit"){
+      const hay=((ai.base||"")+" "+(ai.model||"")+" "+(ai.genModel||"")).toLowerCase();
+      tm = /deepseek/.test(hay) ? "disabled" : "omit";
+    }
+    if(tm==="disabled") body.thinking={type:"disabled"};
+    else if(tm==="enabled") body.thinking={type:"enabled"};
   }
   const ms = timeout || (onToken?180000:120000);
   const ctrl=new AbortController();
