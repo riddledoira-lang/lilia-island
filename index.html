@@ -6066,7 +6066,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v101";
+const APP_VERSION="v102";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7229,8 +7229,22 @@ async function rebuildGlobalDigest(){
    - 单章失败（解析/网络）→ 标记状态，不中断整体队列继续执行剩余章节
    - 降级检测：输出格式残缺/截断 → 保存全文为降级摘要，标记 degraded
    - 每章完成后立即保存进度 + 队列状态（页面刷新不丢已完成结果和失败列表） */
-const DIGEST_COOLDOWN_MS=30000;  /* 30秒冷却 */
+const DIGEST_COOLDOWN_MS=30000;  /* 默认30秒冷却 */
 const DIGEST_MAX_NET_FAIL=2;     /* 连续2次网络失败熔断 */
+const DIGEST_MAX_RETRY=3;        /* v102：单章最多尝试次数（仅网络/超时类才重试） */
+const DIGEST_RETRY_MS=[3000,8000]; /* v102：重试退避 3s / 8s */
+/* v102：冷却间隔可配置（0 / 5s / 15s / 30s）。默认仍是 30s，行为不变。 */
+function digestCooldownMs(){
+  try{
+    const c=load("digestCfg",null)||{};
+    const v=Number(c.cooldownMs);
+    if(isFinite(v)&&v>=0&&v<=120000) return v;
+  }catch(e){}
+  return DIGEST_COOLDOWN_MS;
+}
+function setDigestCooldown(ms){
+  try{ const c=load("digestCfg",null)||{}; c.cooldownMs=Number(ms)||0; save("digestCfg",c); }catch(e){}
+}
 
 async function digestSerialQueue(chapters, vid, opts){
   opts=opts||{};
@@ -7293,11 +7307,21 @@ async function digestSerialQueue(chapters, vid, opts){
         "=== 本卷章节梗概 ===\n"+(synAll||"（无）");
 
       let out=null, lastErr=null;
-      for(const m of digestModelCandidates()){
-        try{
-          out=await callAIDigest({sys:digestVolSysPrompt(vid), user, temperature:0.4, max_tokens:5000, timeout:180000, model:m});
-          if(out&&out.trim()) break;
-        }catch(e){ lastErr=e; if(isNetworkError(e)) break; }
+      /* v102：网络/超时类失败自动重试（3s / 8s 退避），解析类失败不重试以免白烧额度 */
+      for(let _att=0; _att<DIGEST_MAX_RETRY; _att++){
+        for(const m of digestModelCandidates()){
+          try{
+            out=await callAIDigest({sys:digestVolSysPrompt(vid), user, temperature:0.4, max_tokens:5000, timeout:180000, model:m});
+            if(out&&out.trim()) break;
+          }catch(e){ lastErr=e; if(isNetworkError(e)) break; }
+        }
+        if(out&&out.trim()) break;
+        if(!isNetworkError(lastErr)) break;
+        if(_att<DIGEST_RETRY_MS.length){
+          _digestStatusLabel=chLabel+" 网络波动，"+(_att===0?"3":"8")+"秒后重试…";
+          renderDigestStatus();
+          await new Promise(r=>setTimeout(r, DIGEST_RETRY_MS[_att]));
+        }
       }
       /* 零额外 API 调用：提取「本章梗概」写回章节字段（大纲视图可编辑） */
       { const _ext=extractSynopsis(out); out=_ext.text; if(c&&c.id&&_ext.synopsis) setSynopsis(c.id,_ext.synopsis); }
@@ -7359,9 +7383,10 @@ async function digestSerialQueue(chapters, vid, opts){
 
     /* 冷却间隔：30秒，不可关闭。熔断阈值内才冷却等待下一章 */
     if(i<chapters.length-1 && consecutiveNetFail<DIGEST_MAX_NET_FAIL){
-      _digestStatusLabel="冷却等待中…（"+(DIGEST_COOLDOWN_MS/1000)+"秒后处理下一章，请保持页面前台）";
+      const _cd=digestCooldownMs();
+      _digestStatusLabel=(_cd>0)?("冷却等待中…（"+(_cd/1000)+"秒后处理下一章，请保持页面前台）"):"继续下一章…";
       renderDigestStatus();
-      await new Promise(r=>setTimeout(r, DIGEST_COOLDOWN_MS));
+      if(_cd>0) await new Promise(r=>setTimeout(r, _cd));
     }
   }
 
@@ -7409,6 +7434,16 @@ async function digestVolOnly(vid, btn){
 /* 核心：消化指定分卷的章节。opts: {reset, onlyMissing, mode, onProg(done,total,curLabel)} */
 async function digestVolChapters(vid, opts){
   opts=opts||{};
+  /* v102：未配 AI 时直接返回并给出零消耗方案。
+     原先没有这层守卫时，深度续写会自动触发全卷消化，88 章逐章失败后才熔断，
+     用户只看到「转了很久然后报错」，无法判断到底哪里断了。 */
+  {
+    const _ai=load("ai",{})||{};
+    if(!_ai.base){
+      try{ toast("未配置 AI：无法消化「"+volName(vid)+"」。\n零消耗方案：数据备份 →「后端消化档案」一键装载。"); }catch(e){}
+      return {success:0,failed:0,degraded:0,failedList:[],paused:false,noAi:true};
+    }
+  }
   if(_digestBusy){ _digestPending=true; return {success:0,failed:0,degraded:0,failedList:[],paused:false}; }
   _digestBusy=true;
   try{
@@ -7421,7 +7456,9 @@ async function digestVolChapters(vid, opts){
     }
     const ch=digestChaptersByVol(vid);
     if(!ch.length){ renderDigest(); return {success:0,failed:0,degraded:0,failedList:[],paused:false}; }
-    let todo=opts.onlyMissing ? ch.filter(c=>d.volumes[vid].sig[c.id]!==chSig(c)) : ch;
+    /* v102：改用内容哈希判定。chSig 只看 num|body.length|title，
+       改字但不改长度时识别不出来，会误判成「已消化」而永远跳过。 */
+    let todo=opts.onlyMissing ? ch.filter(c=>!_digestUpToDate(c, vid)) : ch;
     if(!todo.length){
       if(d.globalDirty) await rebuildGlobalDigest();
       else renderDigest();
@@ -7450,6 +7487,13 @@ async function digestVolChapters(vid, opts){
    这是唯一允许清空全部档案的入口，必须用户手动确认 */
 async function digestAllChapters(opts){
   opts=opts||{};
+  {
+    const _ai=load("ai",{})||{};
+    if(!_ai.base){
+      try{ toast("未配置 AI：无法消化全书。\n零消耗方案：数据备份 →「后端消化档案」一键装载。"); }catch(e){}
+      return {success:0,failed:0,degraded:0,failedList:[],paused:false,noAi:true};
+    }
+  }
   if(_digestBusy){ _digestPending=true; return {success:0,failed:0,degraded:0,failedList:[],paused:false}; }
   _digestBusy=true;
   try{
@@ -7468,7 +7512,7 @@ async function digestAllChapters(opts){
       const ch=digestChaptersByVol(vid);
       if(!ch.length) continue;
       if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
-      let todo=opts.onlyMissing ? ch.filter(c=>!(d.volumes[vid].sig&&d.volumes[vid].sig[c.id]===chSig(c))) : ch;
+      let todo=opts.onlyMissing ? ch.filter(c=>!_digestUpToDate(c, vid)) : ch;
       if(!todo.length){ doneCh+=ch.length; continue; }
 
       const result=await digestSerialQueue(todo, vid, {
@@ -7768,6 +7812,185 @@ async function resumeDigestQueue(btn){
   finally{ if(btn){btn.disabled=false;btn.textContent=oldTxt;} _digestStatusLabel=""; renderDigestStatus(); }
 }
 
+
+/* ===== v102：消化状态判定 / 自检 / 范围重跑 ===== */
+/* 该章的消化结果是否仍然有效（内容未变且已消化/降级） */
+function _digestUpToDate(c, vid){
+  if(!c||!c.id) return false;
+  const st=getChDigestStatus(c.id, vid);
+  if(st.status!==DS_DIGESTED && st.status!==DS_DEGRADED) return false;
+  return shouldSkipDigestion(c, vid);
+}
+
+/* 逐章自检：返回每章的「失败环节 + 判定依据 + 建议」 */
+function digestAuditRows(vid){
+  const ai=load("ai",{})||{};
+  const hasAi=!!ai.base;
+  const d=getDigest();
+  const vols=(vid!==undefined&&vid!==null)?[vid]:allVolIds();
+  const rows=[];
+  vols.forEach(function(v){
+    const all=load("chapters",[]).filter(c=>(c.vol||"none")===v);
+    const vd=(d.volumes&&d.volumes[v])||{};
+    all.forEach(function(c){
+      const st=getChDigestStatus(c.id, v);
+      const len=(c.body||"").length;
+      let stage="", evidence="", advice="";
+      if(!(c.body||"").trim()){
+        stage="① 入库"; evidence="digestChaptersByVol 过滤空正文"; advice="补正文后再消化";
+      } else if((c.status||"draft")!=="done"){
+        stage="① 入库"; evidence="状态关卡：仅「已完稿」参与消化（当前="+(c.status||"draft")+"）"; advice="把状态改为「已完稿」";
+      } else if(!hasAi){
+        stage="② 触发"; evidence="所有消化入口 require ai.base，当前为空 → 直接 return";
+        advice="零消耗：数据备份 →「后端消化档案」一键装载";
+      } else if(st.status===DS_DIGESTED && _digestUpToDate(c,v)){
+        stage="— 正常"; evidence="status=digested 且内容哈希一致"; advice="无需处理";
+      } else if(st.status===DS_DIGESTED){
+        stage="③ 失效"; evidence="status=digested 但内容哈希已变（正文改过）"; advice="重消化本章";
+      } else if(st.status===DS_DEGRADED){
+        stage="④ 降级"; evidence=(st.error_msg||"结构化提取不完全"); advice="可单章重跑；建议拆章或换模型";
+      } else if(st.status===DS_NET_FAILED){
+        stage="⑤ 网络"; evidence=(st.error_msg||""); advice="恢复队列 / 单章重试（v102 起自动重试 2 次）";
+      } else if(st.status===DS_TIMEOUT){
+        stage="⑤ 超时"; evidence=(st.error_msg||""); advice="换更快模型，或减少单章字数";
+      } else if(st.status===DS_PARSE_FAILED){
+        stage="⑥ 解析"; evidence=(st.error_msg||""); advice="检查返回格式；必要时拆分长章";
+      } else {
+        stage="② 未消化"; evidence="digest 里查无此章记录"; advice="执行消化（或用后端档案装载）";
+      }
+      const trunc = len>12000 ? ("正文 "+len+" 字 > 12000，消化时会被截断 "+(len-12000)+" 字") : "";
+      if(trunc){ advice=(advice?advice+"；":"")+"建议拆分该章"; }
+      rows.push({vol:v, volName:volName(v), num:c.num||"?", title:c.title||"", chars:len,
+                 status:st.status||DS_UNDIGESTED, stage:stage, evidence:evidence, advice:advice, trunc:trunc});
+    });
+  });
+  rows.sort(function(a,b){ return (Number(a.num)||0)-(Number(b.num)||0); });
+  return rows;
+}
+
+/* 渲染自检结果 */
+function renderDigestAudit(vid){
+  const box=document.getElementById("dgAudit");
+  if(!box) return;
+  const rows=digestAuditRows(vid);
+  const cnt={};
+  rows.forEach(function(r){ cnt[r.stage]=(cnt[r.stage]||0)+1; });
+  let h='<div class="dg-summary '+(cnt["— 正常"]===rows.length?"ok":"warn")+'">';
+  h+='🔍 消化自检：共 '+rows.length+' 章。';
+  h+=Object.keys(cnt).map(function(k){ return k+' '+cnt[k]; }).join(' · ');
+  h+='</div>';
+  h+='<div style="max-height:320px;overflow:auto;border:1px solid var(--input-bd);border-radius:8px;">';
+  h+='<table style="width:100%;font-size:11.5px;border-collapse:collapse;">';
+  h+='<tr style="background:var(--soft);position:sticky;top:0;"><th>卷</th><th>章</th><th class="num">字数</th><th>失败环节</th><th>判定依据</th><th>建议</th></tr>';
+  rows.forEach(function(r){
+    h+='<tr style="border-bottom:1px solid var(--line);">';
+    h+='<td>'+esc(r.volName)+'</td><td>'+esc(String(r.num))+'</td>';
+    h+='<td style="text-align:right;">'+r.chars+'</td>';
+    h+='<td>'+esc(r.stage)+'</td>';
+    h+='<td style="color:var(--sub);">'+esc(r.evidence)+'</td>';
+    h+='<td style="color:var(--sub);">'+esc(r.advice)+'</td></tr>';
+  });
+  h+='</table></div>';
+  h+='<div class="dg-vol-btns" style="margin-top:6px;">';
+  h+='<button onclick="exportDigestAudit()">导出自检清单</button>';
+  h+='<button onclick="document.getElementById(\'dgAudit\').innerHTML=\'\'">收起</button>';
+  h+='</div>';
+  box.innerHTML=h;
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+/* 导出自检清单（CSV，Excel 可直接打开） */
+function exportDigestAudit(){
+  const rows=digestAuditRows();
+  const q=function(x){ return '"'+String(x==null?"":x).replace(/"/g,'""')+'"'; };
+  const lines=[["分卷","章号","标题","字数","状态","失败环节","判定依据","建议"].map(q).join(",")];
+  rows.forEach(function(r){
+    lines.push([r.volName,r.num,r.title,r.chars,r.status,r.stage,r.evidence,r.advice].map(q).join(","));
+  });
+  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="消化自检清单_"+new Date().toISOString().slice(0,10)+".csv";
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },1500);
+  toast("已导出 "+rows.length+" 章自检清单");
+}
+
+/* 按章号范围重跑（可安全重复执行：已消化且内容未变的章自动跳过） */
+async function digestRangeUI(vid){
+  const a=prompt("起始章号（留空=从第1章）");
+  if(a===null) return;
+  const b=prompt("结束章号（留空=到最后一章）");
+  if(b===null) return;
+  const from=a?Number(a):-Infinity, to=b?Number(b):Infinity;
+  if(!isFinite(from)&&a){ toast("起始章号无效"); return; }
+  if(!isFinite(to)&&b){ toast("结束章号无效"); return; }
+  await digestRangeChapters(vid, from, to, null);
+}
+async function digestRangeChapters(vid, from, to, btn){
+  const ai=load("ai",{})||{};
+  if(!ai.base){ toast("未配置 AI：无法消化。零消耗方案：数据备份 →「后端消化档案」一键装载。"); return; }
+  const all=digestChaptersByVol(vid);
+  const sel=all.filter(function(c){ const n=Number(c.num)||0; return n>=from&&n<=to; });
+  if(!sel.length){ toast("该范围内没有可消化的章节（需正文非空且状态为「已完稿」）"); return; }
+  const todo=sel.filter(function(c){ return !_digestUpToDate(c, vid); });
+  if(!todo.length){ toast("该范围 "+sel.length+" 章全部已是最新消化结果，无需重跑。"); return; }
+  if(!confirm("将在「"+volName(vid)+"」消化第"+from+"–"+to+"章范围内 "+todo.length+" 章"+
+      "（已消化且内容未变的 "+(sel.length-todo.length)+" 章会自动跳过）。确定继续？")) return;
+  const oldTxt=btn?btn.textContent:"";
+  if(btn){ btn.disabled=true; btn.textContent="消化中…"; }
+  try{
+    const r=await digestSerialQueue(todo, vid, {total:todo.length, startDone:0, mode:'range',
+      onProg:function(d0,t,l){ if(btn) btn.textContent=(l||("消化中("+d0+"/"+t+")"))+"…"; _digestStatusLabel=l||""; renderDigestStatus(); }});
+    let msg="范围消化完成：成功 "+r.success+" 章";
+    if(r.degraded>0) msg+="，降级 "+r.degraded;
+    if(r.failed>0) msg+="，失败 "+r.failed;
+    if(r.paused) msg+="，队列已暂停";
+    (r.failed>0||r.paused||r.degraded>0)?toastErr(msg):toast(msg);
+    try{ await rebuildGlobalDigest(); }catch(e){}
+    renderDigest();
+  }catch(e){ toastErr("范围消化失败："+friendlyDigestError(e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=oldTxt; } _digestStatusLabel=""; renderDigestStatus(); }
+}
+
+/* 重试本卷所有「失败 / 超时 / 降级」章节 */
+async function digestRetryFailed(vid, btn){
+  const ai=load("ai",{})||{};
+  if(!ai.base){ toast("未配置 AI：无法消化。零消耗方案：数据备份 →「后端消化档案」一键装载。"); return; }
+  const all=digestChaptersByVol(vid);
+  const todo=all.filter(function(c){
+    const st=getChDigestStatus(c.id, vid).status;
+    return st===DS_NET_FAILED||st===DS_TIMEOUT||st===DS_PARSE_FAILED||st===DS_DEGRADED||st===DS_UNDIGESTED;
+  });
+  if(!todo.length){ toast("「"+volName(vid)+"」没有需要重试的章节。"); return; }
+  if(!confirm("将重试「"+volName(vid)+"」的 "+todo.length+" 章（失败/超时/降级/未消化）。确定继续？")) return;
+  const oldTxt=btn?btn.textContent:"";
+  if(btn){ btn.disabled=true; btn.textContent="重试中…"; }
+  try{
+    const r=await digestSerialQueue(todo, vid, {total:todo.length, startDone:0, mode:'retry',
+      onProg:function(d0,t,l){ if(btn) btn.textContent=(l||("重试中("+d0+"/"+t+")"))+"…"; _digestStatusLabel=l||""; renderDigestStatus(); }});
+    let msg="重试完成：成功 "+r.success+" 章";
+    if(r.degraded>0) msg+="，降级 "+r.degraded;
+    if(r.failed>0) msg+="，失败 "+r.failed;
+    if(r.paused) msg+="，队列已暂停";
+    (r.failed>0||r.paused||r.degraded>0)?toastErr(msg):toast(msg);
+    try{ await rebuildGlobalDigest(); }catch(e){}
+    renderDigest();
+  }catch(e){ toastErr("重试失败："+friendlyDigestError(e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=oldTxt; } _digestStatusLabel=""; renderDigestStatus(); }
+}
+
+/* 切换批量冷却间隔 */
+function cycleDigestCooldown(btn){
+  const opts=[30000,15000,5000,0];
+  const cur=digestCooldownMs();
+  const next=opts[(opts.indexOf(cur)+1)%opts.length];
+  setDigestCooldown(next);
+  if(btn) btn.textContent="冷却 "+(next?((next/1000)+"s"):"关");
+  toast("批量消化冷却已设为 "+(next?((next/1000)+" 秒"):"关闭（连续消化，限流风险自负）"));
+  renderDigest();
+}
+
 /* ============ 渲染：分卷分区消化面板（v2：状态标签+降级+恢复队列） ============ */
 let _dgCollapsedGlobal=true, _dgCollapsedVols={};
 
@@ -7858,9 +8081,11 @@ function renderDigest(){
     html+='<textarea readonly class="dg-vol-text" style="min-height:120px;">'+esc(d.global)+'</textarea>';
   }
   html+='<div class="dg-vol-btns">';
-  html+='<button class="primary" onclick="rebuildDigestUI(this)">立即消化全部前文</button>';
+  html+='<button onclick="rebuildDigestUI(this)">立即消化全部前文</button>';
   html+='<button onclick="rebuildDigestFull(this)">重新完整消化全书</button>';
   html+='<button onclick="exportDigestAll()">导出全书档案</button>';
+  html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
+  html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='</div>';
   html+='</div></div>';
 
@@ -7917,6 +8142,9 @@ function renderDigest(){
     html+='<div class="dg-vol-btns">';
     html+='<button onclick=\'digestVolOnly("'+vid+'",this)\'>仅重新消化本卷</button>';
     html+='<button onclick=\'exportDigestVol("'+vid+'")\'>导出本卷档案</button>';
+    html+='<button onclick=\'digestRangeUI("'+vid+'")\'>按章号范围重跑…</button>';
+    html+='<button onclick=\'digestRetryFailed("'+vid+'",this)\'>重试失败/降级章</button>';
+    html+='<button onclick=\'renderDigestAudit("'+vid+'")\'>🔍 自检本卷</button>';
     html+='</div>';
     html+='</div></div>';
   });
@@ -7928,6 +8156,7 @@ function renderDigest(){
   if(sc.failed>0) statusTxt+="，失败 "+sc.failed;
   statusTxt+="。";
   html+='<div class="dg-status'+(_digestStatusLabel?" busy":"")+'" id="digestStatus">'+esc(statusTxt)+'</div>';
+  html+='<div id="dgAudit"></div>';
 
   panel.innerHTML=html;
 }
@@ -8291,8 +8520,10 @@ function buildRagIndex(volId){
     if(volId&&volId!=="none") return (c.vol||"none")===volId && (c.body||"").trim();
     return (c.body||"").trim();
   }).forEach(function(c){
+    /* v102：4000→8000。原先 34/88 章的尾部（累计 3.8 万字）根本进不了检索索引。 */
     var t=(c.title||("第"+(c.num||"?")+"章"))+"。 "+(c.body||"");
-    idx.push({type:"章节",title:c.title||("第"+(c.num||"?")+"章"),text:t.slice(0,4000),tok:_ragTok(t.slice(0,4000))});
+    var cut=t.slice(0,8000);
+    idx.push({type:"章节",title:c.title||("第"+(c.num||"?")+"章"),text:cut,tok:_ragTok(cut)});
   });
   /* v101：消化档案纳入全书检索。此前 buildRagIndex 只索引人物/线索/章节/世界观，
      消化档案（aiDigest）缺席，AI 生成时读不到已消化好的前文档案。 */
@@ -8303,7 +8534,18 @@ function buildRagIndex(volId){
         if(volId&&volId!=="none"&&vid!==volId) return;
         var _t=((_dg.volumes[vid]||{}).text||"").trim();
         if(!_t) return;
-        idx.push({type:"消化档案",title:"消化档案 · "+volName(vid),text:_t,tok:_ragTok(_t)});
+        /* v102：整卷一大坨进索引时，注入上下文只取得到前 300 字，等于档案白建。
+           改为按「---」分块入索引，每块单独可召回，检索精度显著提升。 */
+        var _blocks=_t.split(/\n\s*-{3,}\s*\n/).map(function(x){return x.trim();}).filter(Boolean);
+        if(_blocks.length<=1){
+          idx.push({type:"消化档案",title:"消化档案 · "+volName(vid),text:_t,tok:_ragTok(_t)});
+          return;
+        }
+        _blocks.slice(0,40).forEach(function(b,i){
+          var _m=b.match(/###\s*第\s*(\S+?)\s*章\s*[《]?([^》\n]*)》?/);
+          var _ttl=_m?("消化档案 · "+volName(vid)+" 第"+_m[1]+"章"):("消化档案 · "+volName(vid)+"（"+(i+1)+"/"+_blocks.length+"）");
+          idx.push({type:"消化档案",title:_ttl,text:b,tok:_ragTok(b)});
+        });
       });
       if(!(volId&&volId!=="none")){
         var _g=((_dg.global)||"").trim();
@@ -8319,10 +8561,20 @@ function ragRetrieve(query, k, idx){
   if(!idx.length) return [];
   var q=_ragTok(query), keys=Object.keys(q);
   if(!keys.length) return [];
-  return idx.map(function(it){
+  k=k||6;
+  /* v102：同类型最多占一半。消化档案按块入索引后条目变多，
+     若不加限制会把「人物卡 / 线索」全挤掉——那正是锁人设与伏笔的关键来源。 */
+  var cap=Math.max(2, Math.ceil(k/2)), used={}, out=[];
+  idx.map(function(it){
     var sc=0; for(var key in q){ if(it.tok[key]) sc+=Math.min(q[key],it.tok[key]); }
     return {it:it,sc:sc};
-  }).filter(function(x){return x.sc>0;}).sort(function(a,b){return b.sc-a.sc;}).slice(0,k||6).map(function(x){return x.it;});
+  }).filter(function(x){return x.sc>0;}).sort(function(a,b){return b.sc-a.sc;}).forEach(function(x){
+    if(out.length>=k) return;
+    used[x.it.type]=(used[x.it.type]||0)+1;
+    if(used[x.it.type]>cap) return;
+    out.push(x.it);
+  });
+  return out;
 }
 
 /* ============== #1 剧情灵感推演（读全本+线索→3套差异化多章大纲） ============== */
