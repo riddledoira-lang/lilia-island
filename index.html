@@ -5691,8 +5691,8 @@ function buildSysPrompt(){
 const SMP_PRESETS={
   safe:     {tempGen:1.00, topPGen:0.90},
   balanced: {tempGen:1.20, topPGen:0.95},
-  creative: {tempGen:1.35, topPGen:1.00},
-  wild:     {tempGen:1.50, topPGen:1.00}
+  creative: {tempGen:1.35, topPGen:0.96},
+  wild:     {tempGen:1.50, topPGen:0.92}
 };
 function _smpSet(id,val){
   const r=document.getElementById(id); if(r) r.value=String(val);
@@ -5756,6 +5756,7 @@ function renderSamplingPreview(){
     '将发送 → <b>temperature='+tg.toFixed(2)+'</b> · <b>top_p='+tp.toFixed(2)+'</b><br>'+
     '正文生成 <b>'+tg.toFixed(2)+'</b> ｜ 规划 <b>'+pl.toFixed(2)+'</b> ｜ 精修 <b>'+po.toFixed(2)+'</b><br>'+
     '思考模式：'+thinkTxt+'<br>'+
+    (tp>=0.98? '<span class="warn">top_p 接近 1.00 时几乎不裁剪概率尾部，等于这个参数没有生效；搭配高温度容易出现生硬用词。建议 0.90–0.96。</span><br>' : '')+
     '<span style="opacity:.8;">本次作用于「续写模型」：'+model+'（分析链路固定低温，不受此处影响）</span>';
 }
 /* 兼容旧调用点 */
@@ -5910,7 +5911,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v98";
+const APP_VERSION="v99";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6356,7 +6357,10 @@ function addCacheControl(ms){
      · ai.tempPolish            —— 精修（润色/改写）独立温度
      · ai.thinkMode             —— disabled/enabled/omit，控制是否发 thinking 参数
    落库缺省时回退到 DeepSeek 官方创意写作推荐档（1.35 / 1.0），并兼容旧的 ai.creativity。 */
-const SMP_DEF={tempGen:1.35,topPGen:1.00,tempPlan:1.50,tempPolish:0.70,thinkMode:"disabled"};
+/* v99：top_p 原先默认 1.00 —— 1.00 等于「不裁剪概率尾部」，参数名在但根本不参与采样，
+   等于白占一个旋钮。改成 0.96：温度负责发散，top_p 负责砍掉离谱长尾，两个参数才真正配合。
+   已保存过显式值的用户不受影响（creaParams 里显式值优先），想要回 1.00 把滑杆推到底即可。 */
+const SMP_DEF={tempGen:1.35,topPGen:0.96,tempPlan:1.50,tempPolish:0.70,thinkMode:"disabled"};
 function _smpNum(v,d,lo,hi){
   const n=parseFloat(v);
   if(!isFinite(n)) return d;
@@ -6497,6 +6501,10 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
    生成(onToken)路径按候选模型顺序尝试，单一模型故障自动降级到下一个，避免整章生成失败 */
 async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
   const ai=load("ai",{});
+  /* v99：统一守卫。此前只有 aiGen / 体检台自己判空，其余十余个调用点在未配置 AI 时会
+     去请求一个空地址，报「网络异常，无法连接 AI 接口」——用户看不出是没配置还是坏了。
+     放在这里一次覆盖所有调用点（含以后新增的），报错文案统一且可操作。 */
+  if(!ai.base || !String(ai.base).trim()) throw new Error("还没配置 AI：请到「AI 生成设置」填写 Base URL 与 Key 后再用这个功能。");
   const mt=max_tokens||Number(ai.maxTokens)||8000;
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
   /* v81：采样参数打包下发；未显式传入则不附加，保持旧接口兼容 */
@@ -7973,6 +7981,13 @@ async function planBeatCard(opts){
   /* opts: {analysis, plot, chars, num, title, body, brief, volSec, volName, volId}
      volId 非空=分卷模式：只保留本卷相关人物/线索，避免把其它分卷角色(如沙菲克)串进本卷节拍卡 */
   const ai=load("ai",{});
+  /* v99：opts 缺字段时原来会直接在 opts.body.trim() 抛 TypeError（未配置 AI 时必现）。
+     这里做缺省兜底，配合 callAI 的统一守卫，未配置时给出可读提示而不是抛错。 */
+  opts=opts||{};
+  if(!ai.base || !String(ai.base).trim()){
+    toast("还没配置 AI：请到「AI 生成设置」填写 Base URL 与 Key 后再生成节拍卡。");
+    return;
+  }
   const volId=opts.volId;
   const _plots=(volId&&volId!=="none")?volScopedPlots(volId,opts.plot||[]):(opts.plot||[]);
   const _chars=(volId&&volId!=="none")?volScopedChars(volId,opts.chars||[]):(opts.chars||[]);
@@ -7984,7 +7999,7 @@ async function planBeatCard(opts){
   user+="【续写前必读分析】\n"+(opts.analysis||"").slice(0,4000)+"\n\n";
   user+="【当前线索】\n"+plotLines+"\n\n";
   user+="【出场人物】\n"+charList+"\n\n";
-  if(opts.body.trim()) user+="【本章已有开头/骨架】\n"+opts.body.slice(0,1000)+"\n\n";
+  if((opts.body||"").trim()) user+="【本章已有开头/骨架】\n"+String(opts.body).slice(0,1000)+"\n\n";
   if(opts.brief) user+="【本章专属指令】\n"+opts.brief+"\n\n";
   user+="【输出格式】严格按以下格式输出3套，用 ⟦方案一⟧ ⟦方案二⟧ ⟦方案三⟧ 标记分隔：\n";
   user+="⟦方案一⟧（基调：xxx）\n1. [场景] ...\n2. [场景] ...\n3. [场景] ...\n4. [场景] ...\n（4-6个节拍）\n\n";
