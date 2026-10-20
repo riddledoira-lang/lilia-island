@@ -735,6 +735,13 @@
   .ai-help-b ol{margin:8px 0;padding-left:2px;list-style:decimal;}
   .ai-help-b li{margin:7px 0;font-size:13px;line-height:1.55;color:var(--ink);}
   .ai-help-b code{background:rgba(0,0,0,.25);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--brand);}
+  /* v107 AI 用量账本 */
+  .ai-usage{border:1px dashed var(--line);border-radius:10px;background:var(--soft);margin:2px 0 12px;padding:10px 12px;}
+  .ai-usage-h{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+  .ai-usage-b{font-size:12.5px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-all;}
+  .ai-usage-tip{display:inline-block;margin-top:6px;font-size:11.5px;line-height:1.6;color:var(--sub);white-space:normal;}
+  .ai-usage-btn{margin-top:8px;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--sub);cursor:pointer;font-family:inherit;}
+  .ai-usage-btn:hover{color:var(--brand);border-color:var(--brand);}
   button.link{display:inline;background:none;border:none;color:var(--brand);text-decoration:underline;cursor:pointer;padding:0;font-size:13px;font-family:inherit;}
   button.link:hover{color:var(--gold);}
   #chBody{background:var(--editor-bg);border:1px solid var(--input-bd);line-height:1.85;border-radius:10px;}
@@ -1267,6 +1274,8 @@
     <div class="gs-group" id="gsAiGroup">
       <h4 class="gs-gtitle">AI 生成设置（每本书独立）</h4>
       <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「接着写 / 深度续写 / 整章精修 / 润色」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
+      <!-- v107：AI 用量账本（自查费用去向） -->
+      <div class="ai-usage" id="aiUsageBox"></div>
       <div class="ai-help">
         <div class="ai-help-h" onclick="toggleAIHelp()">
           <span>📌 没有 Key？3 步获取（推荐 DeepSeek，充 ¥10 够写很久）</span>
@@ -6095,7 +6104,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v106";
+const APP_VERSION="v107";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6164,6 +6173,85 @@ function toggleCtxSrc(){
 }
 /* 估算：中文按 1 字 ≈ 0.7 token 粗算（仅供量级判断，不用于计费） */
 function _ctxTok(chars){ return Math.round(chars*0.7); }
+
+/* ===== v107 AI 用量账本（让费用可核查）=====
+   背景（用户实测）：余额 16.91 → 14.91，只看到一章生成，钱花在哪一步完全不可见。
+   根因之一是应用此前**从不记录任何 token 用量**——既没有用量回显，也没有分步骤归集，
+   用户只能去 DeepSeek 后台看一个总数，无法反推是哪次操作烧的钱。
+   做法（纯旁路、零侵入主流程）：
+     ① 非流式调用（消化 / 分析 / 精修等最烧钱的路径）能拿到接口返回的 usage，记真实值；
+     ② 流式生成拿不到 usage（DeepSeek 需显式 stream_options 才有），按 1 汉字≈0.7 token
+        估算，且估算值单独计数，绝不和真实值混算；
+     ③ 按天 + 按模型分账，可一键清零，便于和官方账单对账。
+   全程 try/catch：账本任何异常都不影响生成、消化、保存。 */
+function aiUsageGet(){
+  const empty={calls:0,inTok:0,outTok:0,estIn:0,estOut:0,byDay:{},byModel:{},since:0};
+  try{
+    const s=rawLoad("aiUsage",null);
+    return (s&&typeof s==="object")?s:empty;
+  }catch(e){ return empty; }
+}
+function _aiUsageDay(ts){
+  const d=new Date(ts||Date.now());
+  return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);
+}
+function aiUsageAdd(o){
+  try{
+    const s=aiUsageGet();
+    const iTok=Number(o&&o.inTok)||0, oTok=Number(o&&o.outTok)||0;
+    const iEst=Number(o&&o.estIn)||0, oEst=Number(o&&o.estOut)||0;
+    const m=String((o&&o.model)||"?");
+    const day=_aiUsageDay();
+    s.calls=(s.calls||0)+1;
+    s.inTok=(s.inTok||0)+iTok; s.outTok=(s.outTok||0)+oTok;
+    s.estIn=(s.estIn||0)+iEst;  s.estOut=(s.estOut||0)+oEst;
+    if(!s.since) s.since=Date.now();
+    s.byDay=s.byDay||{}; s.byDay[day]=s.byDay[day]||{calls:0,inTok:0,outTok:0,estIn:0,estOut:0};
+    s.byDay[day].calls++; s.byDay[day].inTok+=iTok; s.byDay[day].outTok+=oTok;
+    s.byDay[day].estIn+=iEst;  s.byDay[day].estOut+=oEst;
+    s.byModel=s.byModel||{}; s.byModel[m]=s.byModel[m]||{calls:0,inTok:0,outTok:0,estIn:0,estOut:0};
+    s.byModel[m].calls++; s.byModel[m].inTok+=iTok; s.byModel[m].outTok+=oTok;
+    s.byModel[m].estIn+=iEst;  s.byModel[m].estOut+=oEst;
+    s.lastAt=Date.now(); s.lastModel=m;
+    rawSave("aiUsage",s);
+    try{ renderAiUsage(); }catch(e){}
+  }catch(e){}
+}
+function aiUsageReset(){
+  try{ rawSave("aiUsage",{calls:0,inTok:0,outTok:0,estIn:0,estOut:0,byDay:{},byModel:{},since:Date.now()}); renderAiUsage(); toast("用量账本已清零。"); }catch(e){}
+}
+function _fmtTok(n){
+  n=Number(n)||0;
+  if(n>=10000) return (n/10000).toFixed(2)+"万";
+  if(n>=1000) return (n/1000).toFixed(1)+"k";
+  return String(n);
+}
+function renderAiUsage(){
+  const el=document.getElementById("aiUsageBox"); if(!el) return;
+  try{
+    const s=aiUsageGet();
+    const day=_aiUsageDay();
+    const d=(s.byDay&&s.byDay[day])||{calls:0,inTok:0,outTok:0,estIn:0,estOut:0};
+    const models=Object.keys(s.byModel||{});
+    const mLines=models.slice(0,4).map(function(m){
+      const x=s.byModel[m];
+      return "　"+m+"："+x.calls+" 次，输入 "+_fmtTok(x.inTok)+" / 输出 "+_fmtTok(x.outTok)+" token";
+    }).join("\n");
+    const real=(s.inTok||0)+(s.outTok||0);
+    el.innerHTML=
+      '<div class="ai-usage-h">🔢 本应用累计 AI 用量（自查用，非官方账单）</div>'+
+      '<div class="ai-usage-b">'+
+        '今日 '+d.calls+' 次 · 输入 '+_fmtTok(d.inTok)+' / 输出 '+_fmtTok(d.outTok)+' token'+
+        ((d.estIn||d.estOut)?('（另含流式估算 输入 '+_fmtTok(d.estIn)+' / 输出 '+_fmtTok(d.estOut)+'）'):'')+'<br>'+
+        '累计 '+s.calls+' 次 · 输入 '+_fmtTok(s.inTok)+' / 输出 '+_fmtTok(s.outTok)+' token'+
+        ((s.estIn||s.estOut)?('（流式估算 输入 '+_fmtTok(s.estIn)+' / 输出 '+_fmtTok(s.estOut)+'）'):'')+
+        (mLines?('<br>'+mLines):'')+
+        '<br><span class="ai-usage-tip">真实值来自接口返回的 usage（消化/分析/精修等）；流式生成拿不到 usage，按 1 汉字≈0.7 token 估算并单独标注。'+
+        '与官方账单对不上时，先点「清零」再跑一次单步操作，即可精确归因。deepseek-flash 现行价：输入缓存命中 ¥0.02/百万、未命中 ¥1/百万、输出 ¥8/百万。</span>'+
+      '</div>'+
+      '<button type="button" class="ai-usage-btn" onclick="aiUsageReset()">清零账本</button>';
+  }catch(e){ el.innerHTML=""; }
+}
 function ctxSourceStat(){
   const ai=load("ai",{});
   const eco=ai.eco!==false;
@@ -6672,6 +6760,9 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
             if(line.indexOf("data:")===0){ const data=line.slice(5).trim(); if(data==="[DONE]")continue;
               try{ const j=JSON.parse(data); const d=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content; if(d){ out+=d; onToken(out); } }catch(e){} } } }
       }catch(e){ /* 流中断：返回已拿到的部分正文 */ }
+      /* v107 用量账本：流式拿不到 usage，按字数估算（单独标注，不与真实值混算） */
+      try{ var _ic=0; for(var _mi=0;_mi<messages.length;_mi++){ _ic+=String((messages[_mi]&&messages[_mi].content)||"").length; }
+        aiUsageAdd({model:model, estIn:_ctxTok(_ic), estOut:_ctxTok(out.length)}); }catch(e){}
       return {content:out, finish_reason:"stop"};
     }
   }
@@ -6685,6 +6776,12 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
   try{ j=JSON.parse(raw); }catch(e){ throw new Error("返回不是合法 JSON（接口可能返回了流式文本未合并）：\n"+raw.slice(0,300)); }
   if(j.error){ throw new Error("接口报错："+(typeof j.error==="string"?j.error:(j.error.message||JSON.stringify(j.error))).slice(0,300)); }
   if(!j.choices||!j.choices[0]){ console.error("[callAI] 无 choices，原始返回：",raw.slice(0,500)); throw new Error("返回里没有 choices（接口可能返回了错误对象而非正文）：\n"+raw.slice(0,400)); }
+  /* v107 用量账本：非流式调用能拿到接口返回的 usage，记真实值；拿不到则按字数估算 */
+  try{
+    if(j.usage) aiUsageAdd({model:model, inTok:j.usage.prompt_tokens, outTok:j.usage.completion_tokens});
+    else { var _ic=0; for(var _mi=0;_mi<messages.length;_mi++){ _ic+=String((messages[_mi]&&messages[_mi].content)||"").length; }
+      aiUsageAdd({model:model, estIn:_ctxTok(_ic), estOut:_ctxTok(String((j.choices[0].message||{}).content||"").length)}); }
+  }catch(e){}
   const msg=j.choices[0].message||{};
   let content=msg.content;
   if((content===undefined||content===null)&&msg.delta&&msg.delta.content!==undefined){ content=msg.delta.content; }
@@ -6821,6 +6918,11 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   const msg=j.choices[0].message||{};
   let content=msg.content;
   if((content===undefined||content===null)&&msg.delta&&msg.delta.content!==undefined){ content=msg.delta.content; }
+  /* v107 用量账本：消化是最烧钱的路径，这里是非流式，能拿到真实 usage */
+  try{
+    if(j.usage) aiUsageAdd({model:finalModel, inTok:j.usage.prompt_tokens, outTok:j.usage.completion_tokens});
+    else aiUsageAdd({model:finalModel, estIn:_ctxTok((sys||"").length+(user||"").length), estOut:_ctxTok(String(content||"").length)});
+  }catch(e){}
   if(content===undefined||content===null||content===""){
     const fr=(j.choices[0].finish_reason)||"";
     let why="本章解析格式异常：接口返回内容为空（finish_reason="+fr+"）";
@@ -7206,7 +7308,19 @@ function chapterVoiceCards(volId, seedText, budget){
     const c=x.c;
     if(!c||!c.name||seen[c.name]) return;
     const hasVoice=(c.langSys||"").trim()||(c.thinkMode||"").trim()||(c.taboos||"").trim();
-    if(!hasVoice) return;
+    if(!hasVoice){
+      /* v107：无「语言体系/思维模式/禁区」的人物此前被整张跳过——而多数人物卡只填了「性格特质」。
+         实测这让声线卡整段为空，人物声线完全失去约束（生成章人设/语言偏差的直接原因之一）。
+         现在退而求其次：用「性格特质」做弱约束卡，并明示字段未填，提示补全后约束更强。 */
+      const tr=(c.traits||"").trim();
+      if(!tr) return;
+      const seg="· "+(c.protagonist?"【主角】":"")+c.name+"（"+(c.house||"")+"）\n"
+        +"  特质基调 "+tr+"\n"
+        +"  （语言体系/思维模式未填，暂按特质弱约束；在「人物」里补全后声线约束大幅增强）";
+      if(picked.length && used+seg.length>budget) return;
+      picked.push(seg); seen[c.name]=1; used+=seg.length;
+      return;
+    }
     const seg="· "+(c.protagonist?"【主角】":"")+c.name+"（"+(c.house||"")+"）\n"
       +"  语言体系 "+((c.langSys||"").trim()||"（未填）")+"\n"
       +"  思维模式 "+((c.thinkMode||"").trim()||"（未填）")
@@ -9081,7 +9195,7 @@ async function aiDeepGen(){
         if(vc.failed>0) parts.push(vc.failed+"章完全消化失败");
         msg+="⚠️ 存在"+parts.join("、")+"，续写会丢失部分剧情线索，是否继续？";
       } else {
-        msg+="建议等待消化完毕再续写。确定要强制继续吗？";
+        msg+="是否继续？继续后未消化的章节将先自动补消化（会产生费用，下一步会报价确认）。";
       }
       if(!confirm(msg)) return;
     }
@@ -9102,7 +9216,7 @@ async function aiDeepGen(){
         if(gc.failed>0) parts.push(gc.failed+"章完全消化失败");
         msg+="⚠️ 存在"+parts.join("、")+"，续写会丢失部分剧情线索，是否继续？";
       } else {
-        msg+="建议等待消化完毕再续写。确定要强制继续吗？";
+        msg+="是否继续？继续后未消化的章节将先自动补消化（会产生费用，下一步会报价确认）。";
       }
       if(!confirm(msg)) return;
     }
@@ -9114,6 +9228,16 @@ async function aiDeepGen(){
     if(writeMode==="vol"){
       const vp=volDigestProgress(curVol||"none");
       if(vp.miss.length){
+        /* v107：补消化前先报价。此前这里静默消化整卷未消化章节——实测用户余额被扣 ¥2
+           却只看到一章生成，费用去向完全不可见。现在必须显式确认，并给出零消耗替代路径。 */
+        const _missChars=vp.miss.reduce(function(a,c){ return a+((c.body||"").length); },0);
+        const _estWan=(_missChars/10000).toFixed(1);
+        const _ok=confirm("深度续写前需先消化本卷未消化的 "+vp.miss.length+" 章（约 "+_estWan+" 万字正文进入 AI）。\n"+
+          "这会产生实际费用（deepseek-flash 输入约几毛，v4-pro 更高；输出另计）。\n\n"+
+          "【确定】先消化再续写（记忆完整，推荐）\n"+
+          "【取消】中止本次续写\n\n"+
+          "不想花钱：数据备份 →「后端消化档案」可零 token 装载整卷档案。");
+        if(!_ok){ btn.disabled=false; btn.textContent=old; return; }
         btn.textContent="消化本卷(0/"+vp.total+")…";
         try{ await digestVolChapters(curVol||"none", {onlyMissing:true, onProg:(dd,tt,l)=>{ btn.textContent=(l||("消化本卷("+dd+"/"+tt+")"))+"…"; }}); }
         catch(e){ aiFail("消化本卷前文",e); return; }
@@ -9122,6 +9246,15 @@ async function aiDeepGen(){
     } else {
       const gp=globalDigestProgress();
       if(gp.miss.length){
+        /* v107：全书模式同样先报价（原先同样静默扣费） */
+        const _missChars=gp.miss.reduce(function(a,c){ return a+((c.body||"").length); },0);
+        const _estWan=(_missChars/10000).toFixed(1);
+        const _ok=confirm("深度续写前需先消化全书未消化的 "+gp.miss.length+" 章（约 "+_estWan+" 万字正文进入 AI）。\n"+
+          "这会产生实际费用（deepseek-flash 输入约几毛，v4-pro 更高；输出另计）。\n\n"+
+          "【确定】先消化再续写（记忆完整，推荐）\n"+
+          "【取消】中止本次续写\n\n"+
+          "不想花钱：数据备份 →「后端消化档案」可零 token 装载整卷档案。");
+        if(!_ok){ btn.disabled=false; btn.textContent=old; return; }
         btn.textContent="消化前文(0/"+chs.length+")…";
         try{ await digestAllChapters({onlyMissing:true, onProg:(dd,tt,l)=>{ btn.textContent=(l||("消化前文("+dd+"/"+tt+")"))+"…"; }}); }
         catch(e){ aiFail("消化前文",e); return; }
@@ -9612,29 +9745,50 @@ function _stripImportedDigestTable(text, vname){
 }
 function applyDigestPack(pack){
   const bk=curBook()||{};
-  const vols=bk.volumes||[];
+  let vols=bk.volumes||[];
   let vid=pack.vol;
-  const _nm=String(pack.volName||"").replace(/\s+/g,"");
-  if(!vols.some(function(v){return v.id===vid;})){
-    let byName=vols.filter(function(v){return v.name===pack.volName;})[0];
-    /* v94：名字对不上时再放宽一次——去空格后互相包含，或用去掉「篇/卷/部」的关键词匹配。
+  /* v107：分卷匹配整体升级。实测卡死场景——UI 建的分卷 id 是 "v"+uid()（如 v1a2b3c），
+     而档案包按 pack.vol（james/sirius）精确匹配 id，两层天然对不上，只能靠卷名兜底；
+     而卷名若含不可见字符（复制粘贴带进来的零宽空格 U+200B / BOM / 软连字符，
+     正则 \s 匹配不到它们），四层匹配会整体失配，弹「找不到分卷」直接把用户挡死。
+     改动：① 归一化比较——剥离一切不可见字符与空白、忽略大小写；
+           ② 四层全失配时不再中断，自动创建同名分卷继续装载（旧弹窗让用户去
+              「管理分卷」手动建卷再回来，这件事程序可以直接替用户做掉）。 */
+  function _volNorm(s){
+    return String(s||"")
+      .replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u180E\u2060]/g,"")
+      .replace(/\s+/g,"")
+      .toLowerCase();
+  }
+  const _nm=_volNorm(pack.volName);
+  if(!vid || !vols.some(function(v){return v.id===vid;})){
+    let byName=vols.filter(function(v){ const n=_volNorm(v.name); return n && n===_nm; })[0];
+    /* v94：名字对不上时再放宽——归一化后互相包含，或用去掉「篇/卷/部」的关键词匹配。
        例如你建的分卷叫「西里斯」或「西里斯篇 」，档案写的是「西里斯篇」。 */
     if(!byName){
       byName=vols.filter(function(v){
-        const n=String(v.name||"").replace(/\s+/g,"");
+        const n=_volNorm(v.name);
         if(!n||!_nm) return false;
         return n.indexOf(_nm)>=0 || _nm.indexOf(n)>=0;
       })[0];
     }
     if(!byName && _nm){
       const kw=_nm.replace(/[篇卷部]$/,"");
-      if(kw.length>=2) byName=vols.filter(function(v){return String(v.name||"").indexOf(kw)>=0;})[0];
+      if(kw.length>=2) byName=vols.filter(function(v){ return _volNorm(v.name).indexOf(kw)>=0; })[0];
     }
-    vid=byName?byName.id:"";
-  }
-  if(!vid||vid==="none"){
-    alert("找不到分卷「"+(pack.volName||pack.vol||"")+"」。\n\n当前分卷："+(vols.map(function(v){return v.name;}).join(" / ")||"（无）")+"\n请先在「管理分卷」里建好同名分卷，再导入。");
-    return;
+    if(byName){
+      vid=byName.id;
+    }else{
+      /* v107：自动创建分卷。id 优先沿用包自带的 vol（james/sirius），被占用则生成新 id。 */
+      const _taken=vols.some(function(v){ return v.id===vid; });
+      const newId=(vid && vid!=="none" && !_taken) ? vid : ("v"+uid());
+      const newName=String(pack.volName||vid||"").trim()||("分卷"+newId);
+      (bk.volumes=bk.volumes||[{id:"none",name:"未分卷"}]).push({id:newId,name:newName});
+      rawSave("books",BOOKS);
+      vols=bk.volumes;
+      vid=newId;
+      try{ toast("未找到同名分卷，已自动创建「"+newName+"」并装载档案。"); }catch(e){}
+    }
   }
   const chs=load("chapters",[])||[];
   const d=getDigest();
@@ -9644,24 +9798,41 @@ function applyDigestPack(pack){
      消化照样能写进去，并在结尾明确告诉用户第几章实际在哪个卷、该用「管理分卷→搬运」纠正。 */
   const ttrim=function(s){ return String(s||"").replace(/\s+/g,"").replace(/^[《【「]+|[》】」]+$/g,""); };
   const findCh=function(it){
+    /* v107：返回 [章, 匹配层级]。L1=卷+章号；L2=章号+标题精确；L3=章号+标题前缀；L4=仅章号兜底。
+       层级供后续「是否把未分卷章归入目标卷」做可靠性判断——L4 只按章号，误配风险高，不改归属。 */
     let c=chs.filter(function(x){ return (x.vol||"none")===vid && Number(x.num)===Number(it.num); })[0];
-    if(c) return c;
+    if(c) return [c,1];
     c=chs.filter(function(x){ return Number(x.num)===Number(it.num) && ttrim(x.title)===ttrim(it.title); })[0];
-    if(c) return c;
+    if(c) return [c,2];
     if(it.title){
       const key=ttrim(it.title).slice(0,6);
       if(key) c=chs.filter(function(x){ return Number(x.num)===Number(it.num) && ttrim(x.title).indexOf(key)>=0; })[0];
-      if(c) return c;
+      if(c) return [c,3];
     }
-    return chs.filter(function(x){ return Number(x.num)===Number(it.num); })[0];
+    c=chs.filter(function(x){ return Number(x.num)===Number(it.num); })[0];
+    return c?[c,4]:[null,0];
   };
+  /* v107b：有效分卷 id 集合。章节若指向一个已经不存在的卷 id（改过卷、删过卷、重建过卷
+     都会留下这种「幽灵归属」），旧代码仍把它当有效卷，档案被写进看不见的幽灵卷，
+     目标卷名下依旧空 —— 这正是「詹姆斯篇一卷档案都没有」的第二种成因。
+     现在：卷 id 不在当前分卷列表里，一律按「未指派」处理，随本次装载归入目标卷。 */
+  const _validIds={}; (vols||[]).forEach(function(v){ if(v&&v.id) _validIds[v.id]=1; });
+  _validIds["none"]=1;
   const byVol={};
-  const blocks={}; const miss=[]; let hit=0; const wrongVol=[];
+  const blocks={}; const miss=[]; let hit=0; const wrongVol=[]; let _assigned=0; let _orphan=0;
   pack.chapters.forEach(function(it){
-    const c=findCh(it);
+    const _fc=findCh(it); const c=_fc[0]; const _lvl=_fc[1];
     if(!c){ miss.push(it.num); return; }
     hit++;
-    const cv=c.vol||"none";
+    /* v107：档案归属修复。「未分卷」(none/空) 的章，其档案此前恒写进 volumes.none——
+       结果詹姆斯篇名下一块档案都没有，卷级滚动摘要与注入全部为空，深度续写等于失忆。
+       现在未指派卷 / 归属已失效卷的章，在装载时直接归入目标卷（仅限可靠层级 L1–L3）。 */
+    const _rawVol=String(c.vol||"").trim();
+    const _isOrphan=!!_rawVol && _rawVol!=="none" && !_validIds[_rawVol];
+    if((!_rawVol||_rawVol==="none"||_isOrphan) && vid!=="none" && _lvl<=3){
+      try{ c.vol=vid; _assigned++; if(_isOrphan) _orphan++; }catch(e){}
+    }
+    const cv=(String(c.vol||"").trim())||vid||"none";
     byVol[cv]=(byVol[cv]||0)+1;
     if(cv!==vid && wrongVol.indexOf(cv)<0) wrongVol.push(cv);
     if(it.synopsis){ try{ setSynopsis(c.id, it.synopsis); }catch(e){} }
@@ -9686,6 +9857,8 @@ function applyDigestPack(pack){
     d.volumes[cv].sig[c.id]=chSig(c);
     setChDigestStatusInPlace(d, c.id, cv, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c), lines.join("\n"), c);
   });
+  /* v107：有章节被归入目标卷时落盘章列表（否则仅改内存，刷新即丢） */
+  if(_assigned){ try{ save("chapters",chs); }catch(e){} }
   /* v106：档案块化后按 chId 幂等覆盖（重复导入天然去重，不再需要剥离旧导入表）；
      text 由 blocks 渲染；rolling 用本地归纳兜底，保持「零 API 成本装载」的原有契约。 */
   Object.keys(byVol).forEach(function(cv){
@@ -9706,6 +9879,11 @@ function applyDigestPack(pack){
   if(wrongVol.length){
     msg+="\n\n注意：这些章节实际不在「"+volName(vid)+"」里，消化已按它们真实所在的分卷写入（不影响使用）。"
        + "若要把它们搬回「"+volName(vid)+"」：管理分卷 → 在对应卷上选目标卷 → 点「搬运」。";
+  }
+  if(_assigned){
+    msg+="\n\n其中 "+_assigned+" 章";
+    msg+=_orphan?("（含 "+_orphan+" 章原先挂在已失效的分卷上）"):"（原先在「未分卷」）";
+    msg+="已随本次装载归入「"+volName(vid)+"」（可在章节列表里核对）。";
   }
   if(miss.length) msg+="\n\n未匹配到章节："+miss.join("、")+"\n请确认这些章的正文已先导入。";
   alert(msg);
@@ -11197,7 +11375,7 @@ function showInstallGuide(){
 }
 function closeInstallGuide(){ const g=document.getElementById('installGuide'); if(g)g.classList.remove('on'); try{ localStorage.setItem(PREFIX+'install_seen','1'); }catch(e){} }
 /* 全局设置弹窗 + PWA 环境判断 + 红点 */
-function openGlobalSettings(){ refreshGlobalSettings(); document.getElementById('globalMask').classList.add('on'); }
+function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
 function closeGlobalSettings(){ var m=document.getElementById('globalMask'); if(m)m.classList.remove('on'); }
 function pwaSupported(){ return !!_deferredPrompt || isIOS(); }
 function refreshGlobalSettings(){
