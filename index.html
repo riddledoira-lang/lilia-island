@@ -6104,7 +6104,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v107";
+const APP_VERSION="v108";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7240,6 +7240,34 @@ function seedRollingFromBlocks(v){
     return (lines.length?lines.join("\n"):b.text.slice(0,300));
   }).join("\n");
   return ("【本卷滚动摘要（本地归纳·未压缩）】\n【早期设定与人物基调】\n"+head+"\n\n【近期进展】\n"+tail).slice(0,ROLL_MAXCHARS);
+}
+/* v107b：全书总档案的零 token 兜底。
+   缺口：装载消化档案（applyDigestPack）后只置 d.globalDirty=true，而总档案的重建
+   （rebuildGlobalDigest）只在「跑批量消化 / 增量消化 / 且无未消化章」时才顺带触发——
+   走「后端消化档案 → 0 token 装载」这条路的用户一次 AI 都没调过，也就永远触发不到，
+   全书模式的深度续写读到的 d.global 依旧是空的，等于全书记忆缺失。
+   这里用纯本地归纳先垫一份（零 API 成本、零风险），之后用户跑 AI 消化时会自然被覆盖。
+   只在 global 尚未有内容时垫底，绝不覆盖已有总档案。 */
+const GLOBAL_SEED_CAP=4000;
+function seedGlobalFromVols(d){
+  try{
+    if(String(d.global||"").trim()) return false;
+    const vols=(curBook().volumes||[]).filter(function(v){ return v && v.id && v.id!=="none"; });
+    const parts=[]; let used=0;
+    vols.forEach(function(v){
+      const vv=(d.volumes||{})[v.id]; if(!vv) return;
+      let t=String(vv.rolling||"").trim();
+      if(!t) t=String(vv.text||"").trim();
+      if(!t) return;
+      const seg="【"+(v.name||v.id)+"】\n"+t.slice(0,1400);
+      if(used+seg.length>GLOBAL_SEED_CAP) return;
+      parts.push(seg); used+=seg.length;
+    });
+    if(!parts.length) return false;
+    d.global="【全书总档案（本地归纳·未压缩，零 token 装载后自动生成）】\n"+parts.join("\n\n");
+    d.globalDirty=false;
+    return true;
+  }catch(e){ return false; }
 }
 /* v106：卷级滚动摘要（L1）AI 压缩。
    节流：距上次压缩累积 <ROLL_EVERY 章且未强制 → 跳过；失败静默保留旧 rolling，绝不影响消化。
@@ -9870,10 +9898,13 @@ function applyDigestPack(pack){
       if(_bl.length) v.rollingSeq=Number(_bl[_bl.length-1].seq)||0; }
   });
   d.globalDirty=true;
+  /* v107b：零 token 装载后立刻垫一份全书总档案，避免「全书记忆」长期为空 */
+  const _seeded=seedGlobalFromVols(d);
   saveDigest(d);
   try{ renderDigest(); }catch(e){}
   try{ refreshChapterViews(); }catch(e){}
   let msg="已导入消化档案："+hit+" 章标记为已消化。";
+  if(_seeded) msg+="\n\n已用本地归纳生成全书总档案（零 token）；跑一次 AI 消化会替换为更完整的版本。";
   const dist=Object.keys(byVol).map(function(k){ return "「"+volName(k)+"」"+byVol[k]+"章"; }).join("、");
   if(dist) msg+="\n\n分布："+dist+"。";
   if(wrongVol.length){
