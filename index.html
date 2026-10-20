@@ -1325,6 +1325,7 @@
   <div class="topbar" style="display:none;" aria-hidden="true" data-page-node-id="Bpoplpo8qN4ZY46jz4fjJC">
     <input type="file" id="impMd" class="hidden-file" accept=".md,.markdown,.txt,.text" onchange="importNovel(event)" data-page-node-id="faaM6eN4qYW2wxOoQ1u7Aa">
     <input type="file" id="imp" class="hidden-file" accept="application/json" onchange="importJSON(event)" data-page-node-id="IHVVc9XOQSWf3CQ2hyVZDS">
+    <input type="file" id="impDigest" class="hidden-file" accept="application/json" onchange="importDigestPack(event)">
   </div>
 
   <div id="backupTip" data-page-node-id="vkHSOFhaOTI45Hn7CvGORL"></div>
@@ -1801,6 +1802,7 @@
       <button onclick="document.getElementById('imp').click()" data-page-node-id="R842nlshm73B1wPWwy7vpy">导入恢复</button>
       <button onclick="openExportMenu()" data-page-node-id="OM4rS5RqaTG3n3eonqHLzA">导出小说</button>
       <button onclick="document.getElementById('impMd').click()" data-page-node-id="cv1EIShru69GJCtToEJLxJ">导入小说</button>
+      <button onclick="document.getElementById('impDigest').click()" title="批量导入已写好的消化档案（按分卷+章号匹配），不需要再逐章跑 AI">导入消化档案</button>
       <button onclick="openDocMode()" title="整篇文档一键读取、自动识别章节并拆分" data-page-node-id="mOlo2NpdwVR8IZ9VBmp5jy">📄 文档模式</button>
       <button onclick="openPaste()" data-page-node-id="cZrWYcwtsjfPZRiaZHL3g7">粘贴拆分</button>
       <button onclick="closeDataPanel();openSync()" title="同步书稿正文以及AI消化档案进度，多设备共享消化成果，避免重复消耗算力" data-page-node-id="Ex9rPeEllCmlKoIvN47llG">同步云端</button>
@@ -5612,8 +5614,9 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v89";
+const APP_VERSION="v90";
 const APP_CHANGELOG=[
+  ["v90","新增「导入消化档案」：把电脑上已写好的逐章摘要（分卷+章号+梗概+出场人物+与主角关联+关键事件）一次性导入，按「分卷+章号」精确匹配写入章节梗概与前文档案，直接标记为已消化——74 章无需逐章点「消化本章」，也不消耗任何 AI 调用"],
   ["v89","导入小说·合并模式修正：去重键从「全局章号」改为「分卷+章号」。各卷章号本就各自独立编号，旧逻辑导入詹姆斯篇第1章时会去匹配西里斯篇第1章——要么把它覆盖掉（丢稿），要么因「已完稿」保护而整章跳过（导入不全）。现在同卷同序号才合并，跨卷互不干扰"],
   ["v88","新版本自动更新更安全：检测到新版后台重载前，先强制落盘保存当前编辑中的章节（不再打断 700ms 自动保存），且若此刻正在生成 AI 内容会等它跑完再刷新（最长 2 分钟），杜绝「更新把稿子/生成结果冲掉」"],
   ["v87","章节分卷改为「按标题归卷」：每卷一个标题关键词（默认卷名），标题含关键词即自动归卷，对不上的章逐章手动指定；彻底移除按章号区间/均分的错误识别"],
@@ -8292,6 +8295,68 @@ function importJSON(e){
     e.target.value="";
   };
   r.readAsText(f);
+}
+/* ---------- v90 批量导入消化档案（按「分卷+章号」匹配，零 AI 调用） ----------
+   场景：几十章稿子在电脑上已写好摘要，不想在手机上逐章点「消化本章」（74 章=74 次 API）。
+   档案格式：{__digestPack:true, vol:"james", volName:"詹姆斯篇",
+             chapters:[{num,title,synopsis,who:[],james,events:[]}]}
+   匹配规则：同一分卷内按章号找章节（各卷章号独立编号，绝不跨卷误配）。 */
+function importDigestPack(e){
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=function(ev){
+    try{
+      const pack=JSON.parse(ev.target.result);
+      if(!pack||!pack.__digestPack||!Array.isArray(pack.chapters)) throw new Error("这不是消化档案文件（缺少 __digestPack 标记）");
+      applyDigestPack(pack);
+    }catch(err){ alert("导入消化档案失败："+err.message); }
+    e.target.value="";
+  };
+  r.onerror=function(){ alert("读取文件失败"); e.target.value=""; };
+  r.readAsText(f);
+}
+function applyDigestPack(pack){
+  const bk=curBook()||{};
+  const vols=bk.volumes||[];
+  let vid=pack.vol;
+  if(!vols.some(function(v){return v.id===vid;})){
+    const byName=vols.filter(function(v){return v.name===pack.volName;})[0];
+    vid=byName?byName.id:"";
+  }
+  if(!vid||vid==="none"){
+    alert("找不到分卷「"+(pack.volName||pack.vol||"")+"」。\n请先在「管理分卷」里建好同名分卷，再导入。");
+    return;
+  }
+  const chs=load("chapters",[])||[];
+  const d=getDigest();
+  if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+  if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
+  const blocks=[]; const miss=[]; let hit=0;
+  pack.chapters.forEach(function(it){
+    const c=chs.filter(function(x){ return (x.vol||"none")===vid && Number(x.num)===Number(it.num); })[0];
+    if(!c){ miss.push(it.num); return; }
+    hit++;
+    if(it.synopsis){ try{ setSynopsis(c.id, it.synopsis); }catch(e){} }
+    const lines=["### 第"+c.num+"章《"+(c.title||it.title||"")+"》"];
+    if(it.synopsis) lines.push("⟦本章梗概⟧"+it.synopsis);
+    if(it.who&&it.who.length) lines.push("·出场人物："+it.who.join("、"));
+    if(it.james) lines.push("·与詹姆斯："+it.james);
+    if(it.events&&it.events.length) lines.push("·关键事件："+it.events.join("；"));
+    blocks.push(lines.join("\n"));
+    d.volumes[vid].sig[c.id]=chSig(c);
+    setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c));
+  });
+  if(blocks.length){
+    const head="=== "+volName(vid)+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
+    d.volumes[vid].text=(d.volumes[vid].text?d.volumes[vid].text+"\n\n---\n\n":"")+head+"\n\n"+blocks.join("\n\n---\n\n");
+  }
+  d.globalDirty=true;
+  saveDigest(d);
+  try{ renderDigest(); }catch(e){}
+  try{ refreshChapterViews(); }catch(e){}
+  let msg="已导入消化档案："+hit+" 章标记为已消化。";
+  if(miss.length) msg+="\n\n未匹配到章节："+miss.join("、")+"\n请确认这些章已导入、且归入「"+volName(vid)+"」分卷。";
+  alert(msg);
 }
 /* ---------- 导出小说（带选项） ---------- */
 function openExportMenu(){document.getElementById("exMask").classList.add("on");}
