@@ -1505,6 +1505,7 @@
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
             <label title="生成后自动跑一次整章精修（做减法）。关闭则首稿即终稿，每章少一次约 2.3 万字输入 + 4k 输出的调用，约省 35% 费用；需要打磨时再手动点「整章精修」"><input type="checkbox" id="m2AutoPolish" checked> ✨ 自动精修</label>
+            <label title="v106：没有挂载灵感方案且距上次自动推演已过 10 章时，深度续写自动生成 3 套节拍骨架并择优采用（不弹窗、不打断）。想自己挑方案就关掉它，改走「🎲 一键灵感推演」或即时 3 套骨架交互"><input type="checkbox" id="inspireAuto"> 🎲 自动灵感（每 10 章）</label>
           </div>
           <div class="dg-mode-sel" style="margin-top:6px;">
             <label style="flex:1;min-width:220px;" title="决定这一章按什么形态写：长篇推进=承接前文推进主线；单章完整事件=本章自带起承转合可独立阅读；情绪特写=弱化事件、放大心理与感官；番外小品=轻度、可幽默、不影响主线">
@@ -2429,7 +2430,12 @@ function _quotaRecover(k,v){
       if(b.aiDigest && b.aiDigest.volumes){
         Object.keys(b.aiDigest.volumes).forEach(function(vid){
           const vv=b.aiDigest.volumes[vid];
-          if(vv && vv.text && vv.text.length>6000){ vv.text=vv.text.slice(0,6000)+"（…缓存已精简）"; vv.globalDirty=true; trimmed=true; }
+          if(!vv) return;
+          /* v106：blocks 是唯一真相。腾空间 = 丢掉可重建的滚动摘要 + 最旧档案块（保留最近 40 章），
+             并重新渲染 text。此前只截 text，裁完 text 与 chapters 就不再是同一份数据（D-2）。 */
+          if(vv.rolling){ vv.rolling=""; vv.rollingAt=0; vv.rollingSeq=0; vv.globalDirty=true; trimmed=true; }
+          if(dropOldVolBlocks(vv, 40)){ vv.globalDirty=true; trimmed=true; }
+          vv.text=renderVolText(vv);
         });
       }
     });
@@ -2564,11 +2570,16 @@ function cleanHistoryCache(){
   let ch=load("chapters",[]);
   ch.forEach(function(c){ if(Array.isArray(c.history) && c.history.length){ c.history=c.history.slice(0,2).map(function(s){ return {t:s.t, body:s.body}; }); } });
   save("chapters",ch);
-  try{ const d=getDigest(); Object.keys(d.volumes||{}).forEach(function(vid){ const vv=d.volumes[vid]; if(vv&&vv.text&&vv.text.length>6000){ vv.text=vv.text.slice(0,6000)+"（…已精简）"; } }); d.globalDirty=true; saveDigest(d); }catch(e){}
+  try{ const d=getDigest(); Object.keys(d.volumes||{}).forEach(function(vid){ const vv=d.volumes[vid]; if(!vv) return;
+      if(vv.rolling){ vv.rolling=""; vv.rollingAt=0; vv.rollingSeq=0; }
+      dropOldVolBlocks(vv, 40); vv.text=renderVolText(vv); });
+      d.globalDirty=true; saveDigest(d); }catch(e){}
   try{ renderStorageMeter(); }catch(e){}
   toast("已清理历史版本缓存，腾出空间 ✅");
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+/* v106：自动灵感开关状态回填（放在这里保证 DOM 与配置都已就绪） */
+setTimeout(function(){ try{ initInspireCfg(); }catch(e){} }, 0);
 
 const COLORS=["#8e7cc3","#3a6ea5","#2e7d4f","#c0392b","#9b59b6","#b8860b","#1f3d2b","#34495e"];
 
@@ -5787,8 +5798,17 @@ function buildBookContext(forGen){
   if(pl.length)parts.push("【核心线索】\n"+pl.join("\n"));
   const st=load("settings",[]);
   if(st.length){
+    /* v106：词条库封顶——>40 条时取「最早 12 条（基础世界观）+ 最近 28 条」，
+       与时间线的处理一致，避免设定库随创作无限膨胀把 sys 撑爆。 */
+    let stCap=st;
+    if(st.length>40){
+      const _seen=new Set(); stCap=[];
+      st.slice(0,12).concat(st.slice(-28)).forEach(function(e){
+        const _k=e.id||e.name; if(!_seen.has(_k)){ _seen.add(_k); stCap.push(e); }
+      });
+    }
     /* 词条携带互链关系，让人物/地点/势力之间的关联也喂给 AI */
-    const s2=st.map(e=>{
+    const s2=stCap.map(e=>{
       const ln=(e.links||[]).map(lid=>{const t=st.find(x=>x.id===lid);return t?t.name:"";}).filter(Boolean);
       return "· ["+e.cat+"] "+e.name+"："+(e.note||"")+(ln.length?"（关联："+ln.join("、")+"）":"");
     }).join("\n");
@@ -6075,7 +6095,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v105";
+const APP_VERSION="v106";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6446,8 +6466,9 @@ function collectPrior(targetNum, maxChars, opts){
      50% 预算给高相关度章节(含线索词/人物名/伏笔关键词)，50% 给最近章节(保情感连贯)，去重后按时间序排列 */
   const plotKw=(load("plot",[])||[]).filter(p=>p.status!=="done").flatMap(p=>[p.line,p.point,p.owner].filter(x=>x&&String(x).trim()).map(x=>String(x).trim()));
   const charNames=(load("chars",[])||[]).map(c=>c.name).filter(n=>n&&n.trim());
-  const dTmp=getDigest();
-  const volDigestText=(dTmp.volumes[edVol||"none"]&&dTmp.volumes[edVol||"none"].text)||"";
+  /* v106：伏笔关键词改从「滚动摘要 + 最近 3 块」提取——此前对整卷 text 跑正则，
+     长卷上是 O(N) 却只被后面的 3600 字预算用掉一点点。 */
+  const volDigestText=(volDigestRolling(edVol||"none")||"")+"\n"+volRecentBlocks(edVol||"none",3).map(function(b){return b.text;}).join("\n");
   const foreshadowKw=(volDigestText.match(/(?:伏笔|钩子|未兑现|悬念|未解|承诺)[：:][^\n]{2,40}/g)||[]).map(m=>m.slice(2).trim());
   const allKw=[...new Set([...plotKw,...charNames,...foreshadowKw])].filter(k=>k.length>=2);
   function relevanceOf(ch){
@@ -6496,19 +6517,18 @@ function collectPrior(targetNum, maxChars, opts){
   /* 按章节序号排序输出 */
   full.sort((a,b)=>a.num-b.num);
   const fullText=full.map(f=>"【前文·第"+f.num+"章《"+f.title+"》（人物互动/情感推进/关键伏笔）】\n"+f.body);
-  const d=getDigest();
-  let curVolDigest=(d.volumes[edVol||"none"]&&d.volumes[edVol||"none"].text)||"";
-  /* v77：注入续写/分析 prompt 的分卷档案封顶最近 8000 字（增量消化后档案按章序累积，尾部=最新章最相关），
-     防止长卷档案把上下文与输入费线性撑爆——既是省钱（输入 token 不随卷长膨胀）也不降质（保留最新线索） */
-  /* v104：原为只取尾部 8000 字，卷档案变长后早期长线线索会整段消失
-     （200 万字规模下可用比例只剩 8%）。改为「开头 1500（卷设定/早期脉络）+ 尾部 6500（最新进展）」，总预算不变。 */
-  if(curVolDigest.length>8000) curVolDigest=curVolDigest.slice(0,1500)+"\n…（中间部分略）…\n"+curVolDigest.slice(-6500);
+  /* v106：本卷档案注入改为「滚动摘要(≤3200) + 最近 4 块(≤4800)」，总量仍是 8000。
+     既保留早期长线脉络（由 rolling 承担），又保证最新进展，且不再随卷长线性膨胀。 */
+  let curVolDigest=volDigestForPrompt(edVol||"none", 8000);
   /* 分卷模式：只给本卷子档案，绝不注入其它卷/全书总档案，避免跨卷串味与上下文膨胀；
      book 模式({all:true})：给全书总档案 + 其它卷子档案（作为次要背景），保持原全书行为 */
   const digest = opts.all ? getGlobalDigestText() : curVolDigest;
+  /* v106：其他卷改为滚动摘要封顶注入（此前全量，实测该返回值全应用无人消费，
+     但一旦被接上就是无封顶的多卷注入口）。 */
+  const d=getDigest();
   const otherVolDigests = opts.all ? (allVolIds()
-      .filter(vid=>vid!==(edVol||"none")&&d.volumes[vid]&&d.volumes[vid].text&&d.volumes[vid].text.trim())
-      .map(vid=>"--- "+volName(vid)+" ---\n"+d.volumes[vid].text)
+      .filter(vid=>vid!==(edVol||"none")&&d.volumes[vid]&&((d.volumes[vid].rolling||"").trim()||(d.volumes[vid].text||"").trim()))
+      .map(vid=>"--- "+volName(vid)+" ---\n"+capDigestForPrompt((d.volumes[vid].rolling||"").trim()?d.volumes[vid].rolling:d.volumes[vid].text, 2500))
       .join("\n\n")) : "";
   return {prior, syn, full:fullText, count:prior.length, digest, curVolDigest, otherVolDigests};
 }
@@ -6874,6 +6894,13 @@ function getDigest(){
   if(!d.queue) d.queue={running:false,paused:false};
   if(d.digest_update_at===undefined) d.digest_update_at=0;
   /* 迁移：旧版 failed[chId]=errorMsg → 新版 chapters[chId]={status,error_msg,raw_output} */
+  /* v106：schema 版本号（本项目此前无版本字段，是最大结构性欠账） */
+  if(d._v===undefined) d._v=1;
+  /* v106：档案块化 + 滚动摘要 惰性迁移——只补默认值，不回填历史数据 */
+  allVolIds().forEach(vid=>{
+    const v=d.volumes[vid]; if(!v) return;
+    ensureVolDigest(d, vid);
+  });
   allVolIds().forEach(vid=>{
     if(!d.volumes[vid]) return;
     const v=d.volumes[vid];
@@ -6894,7 +6921,7 @@ function getDigest(){
 function saveDigest(d){ save("aiDigest",d); }
 function getVolDigest(vid){
   const d=getDigest();
-  if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+  ensureVolDigest(d, vid);
   if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
   return d.volumes[vid];
 }
@@ -6909,10 +6936,12 @@ function getChDigestStatus(chId, vid){
   return v.chapters[chId];
 }
 /* 就地设置章节消化状态（不单独 saveDigest，由调用方统一保存） */
-function setChDigestStatusInPlace(d, chId, vid, status, errorMsg, rawOutput, contentMd5){
-  if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
-  if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
-  d.volumes[vid].chapters[chId]={status:status, error_msg:errorMsg||"", raw_output:rawOutput||"", content_md5:contentMd5||"", update_at:Date.now()};
+function setChDigestStatusInPlace(d, chId, vid, status, errorMsg, rawOutput, contentMd5, blockText, chObj){
+  const v=ensureVolDigest(d, vid);
+  if(!v.chapters) v.chapters={};
+  v.chapters[chId]={status:status, error_msg:errorMsg||"", raw_output:rawOutput||"", content_md5:contentMd5||"", update_at:Date.now()};
+  /* v106：档案块化。digested/degraded 且带 blockText → 写块；其余状态 → 清掉可能的旧块 */
+  if(chObj) putVolBlock(d, vid, chObj, blockText, status);
   d.digest_update_at=Date.now();
 }
 /* 独立设置章节消化状态（自带 saveDigest） */
@@ -6989,6 +7018,217 @@ function digestChaptersOrdered(){
   return ch;
 }
 function chSig(c){ return (c.num||"?")+"|"+(c.body||"").length+"|"+(c.title||""); }
+
+/* ============== v106：分卷档案对象工厂 + 档案块化(blocks) + 卷级滚动摘要(rolling) ==============
+   背景（v105 实测）：
+     · aiDigest 占整包 28.6%；`volumes[vid].text` 是 append-only 无上限累积，
+       600 章时达 72 万字，`rebuildGlobalDigest` 把它无封顶拼给 AI ≈ 517k token/次；
+     · `buildRagIndex` 只索引最旧 40 块，单卷 >40 章后最新档案块全部丢失（詹姆斯篇 74 章已丢 34 章）；
+     · `_quotaRecover`/`cleanHistoryCache` 只截 text，裁完 text 与 chapters 就不再是同一份数据。
+   方案：blocks[chId] 是唯一真相，text 降级为「由 blocks 渲染的只读缓存」；
+         rolling 是固定 4000 字的 L1 卷级摘要，专供跨卷/全书级注入。
+   不变量（三缺一即视为数据损坏）：
+     C1 blocks[chId].hash === chapters[chId].content_md5 === chapterContentHash(ch)
+     C2 blocks 必须按 seq(=章号) 排序渲染，不得依赖 Object.keys 插入顺序（重试/乱序消化会错位）
+     C3 status ∈ {digested,degraded} 必须有块；其余状态不得有块 */
+const ROLL_MAXCHARS = 4000;   /* rolling 硬上限 */
+const ROLL_EVERY    = 8;      /* 每累积 8 章压缩一次滚动摘要 */
+function newVolDigest(){
+  return {text:"", sig:{}, chapters:{}, rolling:"", rollingAt:0, rollingSeq:0, blocks:{}};
+}
+/* 确保分卷档案对象结构完整；d 必须是 getDigest() 返回的可变对象。
+   同时完成一次性「历史 text → 历史残留块」迁移：未块化的旧档案整体搬进 __legacy__ 块，
+   保证未匹配到的旧章节档案不会在块化后丢失。 */
+function ensureVolDigest(d, vid){
+  if(!d.volumes) d.volumes={};
+  if(!d.volumes[vid]) d.volumes[vid]=newVolDigest();
+  const v=d.volumes[vid];
+  if(!v.sig) v.sig={};
+  if(!v.chapters) v.chapters={};
+  if(!v.blocks) v.blocks={};
+  if(typeof v.rolling!=="string") v.rolling="";
+  if(!isFinite(v.rollingSeq)) v.rollingSeq=0;
+  if(!isFinite(v.rollingAt)) v.rollingAt=0;
+  if(!v._legacyMigrated){
+    v._legacyMigrated=true;
+    const _legacy=(v.text||"").trim();
+    const _hasBlk=volBlocksSorted(v).length>0;
+    if(_legacy && !_hasBlk && !v.blocks["__legacy__"]){
+      v.blocks["__legacy__"]={text:"【历史档案（v106 之前的累积档案，未按章拆分，仅作背景参考）】\n"+_legacy,
+                              at:0, hash:"", seq:-1};
+      v.text=renderVolText(v);
+    }
+  }
+  return v;
+}
+/* blocks 按章号升序（__legacy__ 的 seq=-1 恒在最前） */
+function volBlocksSorted(v){
+  const b=(v&&v.blocks)||{};
+  return Object.keys(b).map(function(k){ const x=b[k]; return x?Object.assign({__k:k},x):null; })
+    .filter(Boolean)
+    .filter(function(x){ return typeof x.text==="string" && x.text.trim(); })
+    .sort(function(a,b){ return (Number(a.seq)||0)-(Number(b.seq)||0); });
+}
+/* text 只是 blocks 的渲染缓存；无块时保留 legacy text 原样 */
+function renderVolText(v){
+  const arr=volBlocksSorted(v);
+  if(!arr.length) return (v&&v.text)||"";
+  return arr.map(function(b){ return b.text; }).join("\n\n---\n\n");
+}
+/* 写入 / 清除一个档案块，并同步 text 缓存 */
+function putVolBlock(d, vid, ch, text, status){
+  const v=ensureVolDigest(d, vid);
+  if(!ch||!ch.id) return v;
+  const keep=(status===DS_DIGESTED||status===DS_DEGRADED);
+  if(keep && String(text||"").trim()){
+    v.blocks[ch.id]={text:String(text).trim().slice(0,6000), at:Date.now(),
+                     hash:chapterContentHash(ch), seq:Number(ch.num)||0};
+  }else if(!keep && v.blocks[ch.id]){
+    delete v.blocks[ch.id];
+  }
+  v.text=renderVolText(v);
+  return v;
+}
+/* 读取侧统一入口：本卷全部档案块（按章序） */
+function volBlocksOf(vid){
+  return volBlocksSorted(ensureVolDigest(getDigest(), vid));
+}
+function volRecentBlocks(vid, n){
+  const a=volBlocksOf(vid);
+  return a.slice(Math.max(0, a.length-(n||5)));
+}
+/* 本卷 L1 滚动摘要；历史数据没有 rolling 时回退到 legacy text 的「头+尾」 */
+function volDigestRolling(vid){
+  const v=ensureVolDigest(getDigest(), vid);
+  if(v.rolling && v.rolling.trim()) return v.rolling;
+  /* v106：回退也必须是头尾兼顾——早期长线设定在头部、最新进展在尾部，只取头部会重犯
+     v104 修掉的「早期线索整段消失」。 */
+  return capDigestForPrompt(v.text||"", ROLL_MAXCHARS);
+}
+/* 注入 prompt 用的本卷档案：rolling(≤40%) + 最近章档案块(≤60%)，总量受 budget 控制 */
+function volDigestForPrompt(vid, budget){
+  budget=budget||4000;
+  const r=(volDigestRolling(vid)||"").trim();
+  const rb=volRecentBlocks(vid,4).map(function(b){ return b.text; });
+  let t=r;
+  const room=Math.max(0, budget-r.length);
+  if(room>400 && rb.length){
+    const tail=rb.join("\n\n");
+    t += (t?"\n\n":"") + (tail.length>room ? ("…（更早的本卷档案略）…\n"+tail.slice(-room)) : tail);
+  }
+  return capDigestForPrompt(t, budget);
+}
+/* 腾空间：丢弃可重建的 rolling + 最旧的档案块（保留最近 keep 章） */
+function dropOldVolBlocks(v, keep){
+  const b=v.blocks||{};
+  const arr=Object.keys(b).map(function(k){ return {k:k, seq:Number(b[k].seq)||0}; })
+    .sort(function(a,c){ return a.seq-c.seq; });
+  if(arr.length<=keep) return false;
+  arr.slice(0, arr.length-keep).forEach(function(x){ delete b[x.k]; });
+  v.text=renderVolText(v);
+  return true;
+}
+/* 本地归纳初始 rolling（零 API 成本，用于离线档案包导入后的兜底） */
+function seedRollingFromBlocks(v){
+  const bl=volBlocksSorted(v);
+  if(!bl.length) return "";
+  const head=bl[0].text.slice(0,900);
+  const tail=bl.slice(-6).map(function(b){
+    const lines=(b.text||"").split("\n").filter(function(l){ return /^(·|⟦|###)/.test(l.trim()); }).slice(0,6);
+    return (lines.length?lines.join("\n"):b.text.slice(0,300));
+  }).join("\n");
+  return ("【本卷滚动摘要（本地归纳·未压缩）】\n【早期设定与人物基调】\n"+head+"\n\n【近期进展】\n"+tail).slice(0,ROLL_MAXCHARS);
+}
+/* v106：卷级滚动摘要（L1）AI 压缩。
+   节流：距上次压缩累积 <ROLL_EVERY 章且未强制 → 跳过；失败静默保留旧 rolling，绝不影响消化。
+   输入 = 旧 rolling + 其后新增的档案块（≤12 块），输出 ≤4000 字。 */
+async function maybeRollVolDigest(vid, force){
+  try{
+    const ai=load("ai",{}); if(!ai.base) return false;
+    const d=getDigest();
+    const v=ensureVolDigest(d, vid);
+    const all=volBlocksSorted(v);
+    /* inc = 自上次压缩以来的新增块；__legacy__（早期累积档案，seq=-1）必须每次都进输入，
+       否则 v106 之前的长线设定永远不会被压缩进 rolling，等于静默丢失。 */
+    const inc=all.filter(function(b){
+      const q=Number(b.seq)||0;
+      return q<0 || q>=(Number(v.rollingSeq)||0);
+    });
+    if(!inc.length && !force) return false;
+    if(!force && inc.length < ROLL_EVERY) return false;
+    const feed=inc.slice(-12).map(function(b){
+      return (b.seq<0?"（早期累积档案）":"（第"+b.seq+"章）")+b.text.slice(0, b.seq<0?3000:1200);
+    }).join("\n\n").slice(0,14000);
+    const sys=digestVolSysPrompt(vid)+"\n\n【卷级滚动摘要任务】你现在维护「"+volName(vid)+"」分卷的滚动摘要（≤"+ROLL_MAXCHARS+"字），它是跨卷与全书级注入时唯一可见的本卷概要，必须自包含。";
+    const user=(v.rolling && v.rolling.trim()
+        ? ("【旧滚动摘要（在其基础上更新，不要丢失其中仍然有效的长线信息）】\n"+v.rolling.slice(0,ROLL_MAXCHARS)+"\n\n")
+        : "【尚无滚动摘要，请基于以下新增章节档案建立初始版本】\n")
+      + "【新增章节档案】\n"+(feed||"（无）")
+      + "\n\n请输出更新后的完整滚动摘要正文（≤"+ROLL_MAXCHARS+"字），覆盖：本卷核心人物当前状态与关系、未回收伏笔/线索、本卷时间线关键节点、已了结剧情。只输出摘要正文，不要任何标记、标题或解释。";
+    const out=await callAIDigest({sys:sys, user:user, temperature:0.3, max_tokens:2200, timeout:120000});
+    if(out && out.trim()){
+      v.rolling=out.trim().slice(0,ROLL_MAXCHARS);
+      v.rollingAt=Date.now();
+      let mx=Number(v.rollingSeq)||0;
+      inc.forEach(function(b){ const q=Number(b.seq)||0; if(q>mx) mx=q; });
+      if(all.length){ const q2=Number(all[all.length-1].seq)||0; if(q2>mx) mx=q2; }
+      v.rollingSeq=mx;
+      d.globalDirty=true;
+      saveDigest(d);
+      return true;
+    }
+  }catch(e){ /* 静默：滚动摘要失败不影响消化 */ }
+  return false;
+}
+/* v106：本章出场人物声线卡（诉求①人物声线统一）。
+   不再只靠 RAG top-6 撞运气——按「本章分析/节拍/指令里点名的人物」确定注入谁，
+   固定预算内给出语言体系 + 思维模式 + 禁区。 */
+function chapterVoiceCards(volId, seedText, budget){
+  budget=budget||2200;
+  const all=load("chars",[]);
+  /* v106：候选 = 「本章点名」∪「主角」∪「本卷相关」。
+     此前只用 volScopedChars 过滤，会把「本章分析/指令里点名、但尚未出现在本卷语料」的人物
+     （典型：刚引入的跨卷角色、或用户 brief 指定的对手戏对象）整张卡掉——而那正是最需要锁声线的人。 */
+  const scoped=(volId && volId!=="none")?volScopedChars(volId, all):all;
+  const scopedSet={}; scoped.forEach(function(c){ if(c&&c.name) scopedSet[c.name]=1; });
+  const t=String(seedText||"").toLowerCase();
+  const scored=all.map(function(c){
+    let sc=0;
+    const nm=(c.name||"").toLowerCase();
+    if(nm && t.indexOf(nm)>=0) sc+=3;      /* 本章明确点名：最高优先 */
+    if(c.protagonist) sc+=2;               /* 叙述者声线永远在场 */
+    if(scopedSet[c.name]) sc+=1;           /* 本卷相关：弱加分，只用于排序 */
+    return {c:c, sc:sc};
+  }).filter(function(x){ return x.sc>0; })
+   .sort(function(a,b){ return b.sc-a.sc; });
+  const picked=[], seen={}; let used=0;
+  scored.forEach(function(x){
+    const c=x.c;
+    if(!c||!c.name||seen[c.name]) return;
+    const hasVoice=(c.langSys||"").trim()||(c.thinkMode||"").trim()||(c.taboos||"").trim();
+    if(!hasVoice) return;
+    const seg="· "+(c.protagonist?"【主角】":"")+c.name+"（"+(c.house||"")+"）\n"
+      +"  语言体系 "+((c.langSys||"").trim()||"（未填）")+"\n"
+      +"  思维模式 "+((c.thinkMode||"").trim()||"（未填）")
+      +((c.taboos||"").trim()?("\n  禁区 "+(c.taboos||"").trim()):"");
+    if(picked.length && used+seg.length>budget) return;
+    picked.push(seg); seen[c.name]=1; used+=seg.length;
+  });
+  if(!picked.length) return "";
+  return "【本章出场人物·声线卡（最高优先级：严格按各自语言体系与思维模式落笔，任何人不得串味；情绪只靠行动/表情/对话传达，绝不直述感受）】\n"+picked.join("\n");
+}
+/* v106：自动灵感（诉求④）。配置走 localStorage 小键，不影响 books 结构 */
+function inspireCfg(){ try{ return Object.assign({auto:false,lastNum:0,lastAt:0}, rawLoad("inspireCfg",{})); }catch(e){ return {auto:false,lastNum:0,lastAt:0}; } }
+function setInspireCfg(patch){ try{ const c=inspireCfg(); Object.assign(c,patch||{}); rawSave("inspireCfg",c); }catch(e){} }
+/* 启动时把开关状态读进配置 */
+function initInspireCfg(){
+  try{
+    const el=document.getElementById("inspireAuto"); if(!el) return;
+    const c=inspireCfg();
+    el.checked=!!c.auto;
+    el.addEventListener("change",function(){ setInspireCfg({auto:!!el.checked}); toast(el.checked?"已开启自动灵感：无挂载方案且过 10 章时，深度续写自动择优采用节拍卡":"已关闭自动灵感，改回手动挑方案"); });
+  }catch(e){}
+}
 /* v105：注入 prompt 前的档案统一封顶。
    背景：collectPrior 里的 8000 字封顶只作用于 collectPrior 自己的返回值，
    而深度续写(aiDeepGen)是直接从 getDigest() 取 text 注入的，等于完全没封顶——
@@ -7073,7 +7313,7 @@ function onChapterVolChange(chId, oldVol, newVol){
     if(d.volumes[ov].sig&&d.volumes[ov].sig[chId]) delete d.volumes[ov].sig[chId];
   }
   if(entry){
-    if(!d.volumes[nv]) d.volumes[nv]={text:"",sig:{},chapters:{}};
+    ensureVolDigest(d, nv);
     if(!d.volumes[nv].chapters) d.volumes[nv].chapters={};
     if(!d.volumes[nv].sig) d.volumes[nv].sig={};
     d.volumes[nv].chapters[chId]=entry;
@@ -7235,10 +7475,21 @@ async function runDigestUpdate(){
 /* 重建全书总档案（从所有分卷子档案综合提炼） */
 async function rebuildGlobalDigest(){
   const d=getDigest();
-  const volTexts=allVolIds()
-    .filter(vid=>d.volumes[vid]&&d.volumes[vid].text&&d.volumes[vid].text.trim())
-    .map(vid=>"=== 分卷："+volName(vid)+" 子档案 ===\n"+d.volumes[vid].text)
-    .join("\n\n");
+  /* v106：优先用各卷 rolling（3×4000=12,000 字 ≈ 8.6k token）。
+     此前是无封顶拼接所有分卷 text：600 章实测 724,179 字 ≈ 517k token，
+     而这条路径在单章消化时每章都会跑一次。 */
+  let _parts=[];
+  allVolIds().forEach(function(vid){
+    const v=d.volumes[vid];
+    if(v && (v.rolling||"").trim()) _parts.push("=== 分卷："+volName(vid)+" 滚动摘要 ===\n"+v.rolling.slice(0,ROLL_MAXCHARS));
+  });
+  if(!_parts.length){
+    allVolIds().forEach(function(vid){
+      const v=d.volumes[vid];
+      if(v && (v.text||"").trim()) _parts.push("=== 分卷："+volName(vid)+" 子档案 ===\n"+capDigestForPrompt(v.text,8000));
+    });
+  }
+  const volTexts=_parts.join("\n\n");
   if(!volTexts){ d.globalDirty=false; saveDigest(d); return; }
   _digestStatusLabel="正在重建全书总档案…";
   renderDigestStatus();
@@ -7332,7 +7583,7 @@ async function digestSerialQueue(chapters, vid, opts){
 
     try{
       const d=getDigest();
-      if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+      ensureVolDigest(d, vid);
       if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
       const bodyText=(c.body||"").slice(0, CHARS_LIMIT);
       const existing=d.volumes[vid].text||"";
@@ -7341,7 +7592,8 @@ async function digestSerialQueue(chapters, vid, opts){
         .map(ch=>"· 第"+(ch.num||"?")+"章《"+(ch.title||"")+"》： "+ch.synopsis.trim()).join("\n");
 
       /* v77 增量消化：只输出本章新增条目，输出 token ~5000，提速省钱不降质 */
-      const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
+      /* v106：「已有子档案」改为 滚动摘要 + 最近 3 块（原为 text 尾部 9000 字，同样丢早期脉络） */
+      const existTail = volDigestForPrompt(vid, 9000);
       const user="你正在消化「"+volName(vid)+"」分卷的章节。请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，不要复述已有子档案全文，保持档案增量、快速且省钱。\n严格按结构：①本卷人物档案 ②本卷伏笔/线索 ③本卷时间线 ④本卷已完成剧情 ⑤本章一句话梗概(⟦本章梗概⟧此处填写,≤40字)\n\n"+
         "=== 已有子档案(勿复述) ===\n"+(existTail||"（无，请建立初始子档案）")+"\n\n"+
         "=== 本章全文（"+chLabel+"）===\n"+bodyText+"\n\n"+
@@ -7376,22 +7628,22 @@ async function digestSerialQueue(chapters, vid, opts){
         const deg=detectDegraded(out, chLabel);
         if(deg.degraded){
           /* 降级模式：保留 AI 产出内容作为降级摘要，标记 degraded */
-          d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
           d.volumes[vid].sig[c.id]=chSig(c);
-          setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可使用但线索精度下降", out.trim(), chapterContentHash(c));
+          setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可使用但线索精度下降", out.trim(), chapterContentHash(c), out.trim(), c);
           d.globalDirty=true;
           saveDigest(d);
           degradedCount++;
           consecutiveNetFail=0; /* 降级不算网络失败 */
         } else {
           /* 正常成功 */
-          d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
           d.volumes[vid].sig[c.id]=chSig(c);
-          setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c));
+          setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c), out.trim(), c);
           d.globalDirty=true;
           saveDigest(d);
           successCount++;
           consecutiveNetFail=0;
+          /* v106：滚动摘要（节流：每 8 章一次，零打扰） */
+          await maybeRollVolDigest(vid, false);
           if(digestExtrasOn()){
             try{ await autoTimelineFromChapter(c); }catch(e2){ console.warn('autoTimelineFromChapter 失败(非致命):', e2 && e2.message); }
             try{ await analyzeCharBehavior(c); }catch(e2){ console.warn('analyzeCharBehavior 失败(非致命):', e2 && e2.message); }
@@ -7402,7 +7654,7 @@ async function digestSerialQueue(chapters, vid, opts){
       }
     }catch(e){
       const d=getDigest();
-      if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+      ensureVolDigest(d, vid);
       if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
       const errMsg=friendlyDigestError(e, chLabel);
       const dt=e&&e.digestType;
@@ -7410,7 +7662,7 @@ async function digestSerialQueue(chapters, vid, opts){
       if(dt==='network'||dt==='ratelimit'){ status=DS_NET_FAILED; consecutiveNetFail++; }
       else if(dt==='timeout'){ status=DS_TIMEOUT; consecutiveNetFail++; } /* 慢模型超时也算瞬时失败，触发冷却/熔断保护 */
       else { status=DS_PARSE_FAILED; consecutiveNetFail=0; } /* 解析失败不算网络失败，不触发熔断 */
-      setChDigestStatusInPlace(d, c.id, vid, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(c));
+      setChDigestStatusInPlace(d, c.id, vid, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(c), "", c);
       saveDigest(d);
       failCount++;
       failedList.push({ch:c, err:errMsg, status});
@@ -7491,10 +7743,10 @@ async function digestVolChapters(vid, opts){
   _digestBusy=true;
   try{
     const d=getDigest();
-    if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+    ensureVolDigest(d, vid);
     if(opts.reset){
       /* 只清空该卷的子档案，绝不清空全书总档案或其它分卷 */
-      d.volumes[vid]={text:"",sig:{},chapters:{}};
+      d.volumes[vid]=newVolDigest();
       d.globalDirty=true; saveDigest(d);
     }
     const ch=digestChaptersByVol(vid);
@@ -7542,7 +7794,7 @@ async function digestAllChapters(opts){
   try{
     if(opts.reset){
       /* 唯一允许清空全部档案的地方 */
-      save("aiDigest",{global:"",volumes:{},globalSig:{},globalDirty:false,queue:{running:false,paused:false}});
+      save("aiDigest",{global:"",volumes:{},globalSig:{},globalDirty:false,queue:{running:false,paused:false},digest_update_at:0});
     }
     const d=getDigest();
     const vols=allVolIds();
@@ -7554,7 +7806,7 @@ async function digestAllChapters(opts){
     for(const vid of vols){
       const ch=digestChaptersByVol(vid);
       if(!ch.length) continue;
-      if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+      ensureVolDigest(d, vid);
       let todo=opts.onlyMissing ? ch.filter(c=>!_digestUpToDate(c, vid)) : ch;
       if(!todo.length){ doneCh+=ch.length; continue; }
 
@@ -7663,14 +7915,15 @@ async function digestOneChapter(chId, btn){
   renderDigestStatus();
   try{
     const d=getDigest();
-    if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+    ensureVolDigest(d, vid);
     if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
     const existing=d.volumes[vid].text||"";
     const bodyText=(ch.body||"").slice(0,12000);
     const head=chLabel+"（分卷："+volName(vid)+"）";
     /* v77 增量消化：只让 AI 输出「本章新增提取条目」，不再复述整卷档案；输出 token 从 ~12000 降到 ~5000，
        既提速（不再触发 180s 超时误报"网络失败"）又省钱，且每章信息都独立留存、不丢线索（质量不降）。 */
-    const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
+      /* v106：「已有子档案」改为 滚动摘要 + 最近 3 块（原为 text 尾部 9000 字，同样丢早期脉络） */
+      const existTail = volDigestForPrompt(vid, 9000);
     const user=existing
       ? "你是「"+volName(vid)+"」分卷前文档案维护助手。下面给出【已有子档案】(仅供你参考、避免重复，请勿复述它) 与【本章全文】。\n请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，以保持档案增量、快速且省钱。\n严格按以下结构输出：\n① 本卷人物档案（本章出场人物的情绪变化/动机/秘密/关系动态）\n② 本卷伏笔/线索（本章新埋或推进的伏笔、物件、预言）\n③ 本卷时间线（本章按发生顺序的关键事件）\n④ 本卷已完成剧情（本章了结的冲突）\n⑤ 本章一句话剧情梗概（≤40字，客观陈述，格式：⟦本章梗概⟧此处填写）\n\n=== 已有子档案(勿复述) ===\n"+existTail+"\n\n=== 本章全文（"+head+"）===\n"+bodyText
       : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，建立「"+volName(vid)+"」分卷的初始子档案。\n严格按结构输出：①人物档案 ②伏笔/线索 ③时间线 ④已完成剧情，每条绑定原文依据(章号+摘抄)；并在【全文最开头第一行】用固定格式输出本章一句话梗概：⟦本章梗概⟧此处填写(≤40字)\n\n=== "+head+" 全文 ===\n"+bodyText;
@@ -7692,11 +7945,10 @@ async function digestOneChapter(chId, btn){
       /* 降级检测 */
       const deg=detectDegraded(out, chLabel);
       if(deg.degraded){
-        /* 降级模式：保存全文为降级摘要 */
-        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
+        /* 降级模式：保存全文为降级摘要（v106：写入档案块，text 由 blocks 渲染） */
         if(ch.id&&ch.id!=="_tmp"){
           d.volumes[vid].sig[ch.id]=chSig(ch);
-          setChDigestStatusInPlace(d, ch.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可使用但线索精度下降", out.trim(), chapterContentHash(ch));
+          setChDigestStatusInPlace(d, ch.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason+"，续写可以使用但线索精度下降", out.trim(), chapterContentHash(ch), out.trim(), ch);
         }
         d.globalDirty=true;
         saveDigest(d);
@@ -7705,16 +7957,16 @@ async function digestOneChapter(chId, btn){
         await rebuildGlobalDigest();
         toastErr("⚠️ "+chLabel+" 为降级摘要（"+deg.reason+"），结构化提取不完全，续写可以使用但线索精度下降");
       } else {
-        /* 正常成功 */
-        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
+        /* 正常成功（v106：写入档案块） */
         if(ch.id&&ch.id!=="_tmp"){
           d.volumes[vid].sig[ch.id]=chSig(ch);
-          setChDigestStatusInPlace(d, ch.id, vid, DS_DIGESTED, "", "", chapterContentHash(ch));
+          setChDigestStatusInPlace(d, ch.id, vid, DS_DIGESTED, "", "", chapterContentHash(ch), out.trim(), ch);
         }
         d.globalDirty=true;
         saveDigest(d);
         renderDigest();
         if(btn) btn.textContent="更新总档案…";
+        await maybeRollVolDigest(vid, false);
         await rebuildGlobalDigest();
         const fbNote=(usedModel && ai.model && usedModel!==ai.model)?"（分析模型不可用，已自动改用续写模型）":"";
         toast(chLabel+" 已深度消化完成，档案已更新"+fbNote);
@@ -7735,7 +7987,7 @@ async function digestOneChapter(chId, btn){
     if(!d.volumes[vid2].chapters) d.volumes[vid2].chapters={};
     let status=digestStatusFromErr(e);
     if(ch.id&&ch.id!=="_tmp"){
-      setChDigestStatusInPlace(d, ch.id, vid2, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(ch));
+      setChDigestStatusInPlace(d, ch.id, vid2, status, errMsg, (e&&e.rawOutput)||"", chapterContentHash(ch), "", ch);
       saveDigest(d);
     }
     renderDigest();
@@ -7758,12 +8010,13 @@ async function digestChapterNow(c){
   if(c.id && shouldSkipDigestion(c, vid)) return;
   try{
     const d=getDigest();
-    if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
+    ensureVolDigest(d, vid);
     if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
     const existing=d.volumes[vid].text||"";
     const head="第"+(c.num||"?")+"章《"+(c.title||"")+"》（分卷："+volName(vid)+"）";
     /* v77 增量消化：只输出本章新增条目，输出 token ~5000，提速省钱不降质 */
-    const existTail = existing.length>9000 ? "\n...(已有子档案前文略)...\n"+existing.slice(-9000) : existing;
+      /* v106：「已有子档案」改为 滚动摘要 + 最近 3 块（原为 text 尾部 9000 字，同样丢早期脉络） */
+      const existTail = volDigestForPrompt(vid, 9000);
     const user=existing
       ? "你是「"+volName(vid)+"」分卷前文档案维护助手。下面给出【已有子档案】(仅供你参考、避免重复，请勿复述它) 与【新章全文】。\n请【只输出本章新增的提取条目】，逐条绑定原文依据(章节号+关键原文摘抄)，保持档案增量、快速且省钱。\n严格按结构：①本卷人物档案 ②本卷伏笔/线索 ③本卷时间线 ④本卷已完成剧情 ⑤本章一句话梗概(⟦本章梗概⟧此处填写,≤40字)\n\n=== 已有子档案(勿复述) ===\n"+existTail+"\n\n=== 新章全文（"+head+"）===\n"+(c.body||"").slice(0,12000)
       : "请基于本章原文，细致挖掘人物细微情绪变化、隐藏伏笔、对话潜台词，建立「"+volName(vid)+"」分卷的初始子档案。\n严格按结构输出：①人物档案 ②伏笔/线索 ③时间线 ④已完成剧情，每条绑定原文依据；并在【全文最开头第一行】输出本章一句话梗概：⟦本章梗概⟧此处填写(≤40字)\n\n=== "+head+" 全文 ===\n"+(c.body||"").slice(0,12000);
@@ -7781,16 +8034,15 @@ async function digestChapterNow(c){
       /* 降级检测 */
       const deg=detectDegraded(out);
       if(deg.degraded){
-        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         d.volumes[vid].sig[c.id]=chSig(c);
-        setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason, out.trim(), chapterContentHash(c));
+        setChDigestStatusInPlace(d, c.id, vid, DS_DEGRADED, "⚠️ 降级摘要："+deg.reason, out.trim(), chapterContentHash(c), out.trim(), c);
       } else {
-        d.volumes[vid].text=(existing?existing+"\n\n---\n\n":"")+out.trim();
         d.volumes[vid].sig[c.id]=chSig(c);
-        setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c));
+        setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", "", chapterContentHash(c), out.trim(), c);
       }
       d.globalDirty=true;
       saveDigest(d);
+      await maybeRollVolDigest(vid, false);
       await rebuildGlobalDigest();
       renderDigest();
       if(digestExtrasOn()){
@@ -8471,6 +8723,13 @@ async function planBeatCard(opts){
   /* 解析3套方案 */
   const plans=parseBeatPlans(raw);
   if(!plans.length) return null;
+  /* v106：autoPick=true（自动灵感）时不弹窗，直接择优：
+     节拍数最多者优先（信息量最大），同数量取靠前的一套（AI 通常把最稳的放第一）。 */
+  if(opts.autoPick){
+    let best=plans[0];
+    plans.forEach(function(p){ if(p.beats.length>best.beats.length) best=p; });
+    return best;
+  }
   /* 动态弹窗让用户选 */
   return await chooseBeatPlan(plans);
 }
@@ -8572,8 +8831,9 @@ function volScopedChars(volId, allChars){
   const _chAll=ch.filter(c=>(c.vol||"none")===volId);
   const _chDone=_chAll.filter(c=>(c.status||"draft")==="done");
   const vols=(_chDone.length?_chDone:_chAll);
-  const d=getDigest();
-  const dig=(d.volumes&&d.volumes[volId]&&d.volumes[volId].text)||"";
+  /* v106：语料里的档案部分改为「滚动摘要 + 最近 3 块」——整卷 text 在 600 章时达 24 万字，
+     每次 buildRagIndex 都 lowercase + 20 次 indexOf 全扫一遍，是最贵的一段。 */
+  const dig=(volDigestRolling(volId)||"")+"\n"+volRecentBlocks(volId,3).map(function(b){return b.text;}).join("\n");
   const corpus=(vols.map(c=>(c.body||"")+"\n"+(c.title||"")+"\n"+(c.synopsis||"")).join("\n")+"\n"+dig+"\n"+(volName(volId)||"")).toLowerCase();
   return allChars.filter(c=> c&&c.name && corpus.indexOf(c.name.toLowerCase())>=0);
 }
@@ -8617,16 +8877,30 @@ function buildRagIndex(volId){
     if(_dg){
       Object.keys(_dg.volumes||{}).forEach(function(vid){
         if(volId&&volId!=="none"&&vid!==volId) return;
-        var _t=((_dg.volumes[vid]||{}).text||"").trim();
+        var _v=ensureVolDigest(_dg, vid);
+        /* v106：直接读 blocks（无需再按「---」正则切分）。
+           修 D-1：原 slice(0,40) 只索引最旧 40 块，单卷 >40 章后最新档案块全部丢失
+           （实测 200 块时给最新块打的标记命中数为 0；詹姆斯篇 74 章已丢最新 34 章）。
+           现改为「最早 12 块（早期长线设定）+ 最近 60 块」，共 72 条封顶，成本基本不变。 */
+        var _bl=volBlocksSorted(_v);
+        if(_bl.length){
+          var _pick=_bl.length<=72 ? _bl : _bl.slice(0,12).concat(_bl.slice(-60));
+          _pick.forEach(function(b){
+            var _ttl="消化档案 · "+volName(vid)+((Number(b.seq)>=0)?(" 第"+b.seq+"章"):"（早期累积）");
+            idx.push({type:"消化档案",title:_ttl,text:b.text,tok:_ragTok(b.text)});
+          });
+          return;
+        }
+        var _t=(_v.text||"").trim();
         if(!_t) return;
-        /* v102：整卷一大坨进索引时，注入上下文只取得到前 300 字，等于档案白建。
-           改为按「---」分块入索引，每块单独可召回，检索精度显著提升。 */
+        /* 兼容极少数「有 text 无块」的残留数据（正常迁移后不会出现） */
         var _blocks=_t.split(/\n\s*-{3,}\s*\n/).map(function(x){return x.trim();}).filter(Boolean);
         if(_blocks.length<=1){
           idx.push({type:"消化档案",title:"消化档案 · "+volName(vid),text:_t,tok:_ragTok(_t)});
           return;
         }
-        _blocks.slice(0,40).forEach(function(b,i){
+        var _pick2=_blocks.length<=72 ? _blocks : _blocks.slice(0,12).concat(_blocks.slice(-60));
+        _pick2.forEach(function(b,i){
           var _m=b.match(/###\s*第\s*(\S+?)\s*章\s*[《]?([^》\n]*)》?/);
           var _ttl=_m?("消化档案 · "+volName(vid)+" 第"+_m[1]+"章"):("消化档案 · "+volName(vid)+"（"+(i+1)+"/"+_blocks.length+"）");
           idx.push({type:"消化档案",title:_ttl,text:b,tok:_ragTok(b)});
@@ -8857,11 +9131,12 @@ async function aiDeepGen(){
     digest=getGlobalDigestText();
     /* 修复：消化阶段后必须重新读取档案对象，旧的 d 是消化前的内存引用 */
     const dFresh=getDigest();
-    /* v105：三处注入全部封顶。此前均为完整注入，长卷/多卷时输入成本线性爆炸。 */
-    const curVolDigest=capDigestForPrompt((dFresh.volumes[curVol||"none"]&&dFresh.volumes[curVol||"none"].text)||"", 8000);
+    /* v106：本卷档案 = 滚动摘要 + 最近 4 章档案块（总量 8000）；
+       他卷 = 各自滚动摘要（2500）。三处都不再随卷长线性膨胀。 */
+    const curVolDigest=volDigestForPrompt(curVol||"none", 8000);
     const otherVolDigests=allVolIds()
-      .filter(vid=>vid!==(curVol||"none")&&dFresh.volumes[vid]&&dFresh.volumes[vid].text&&dFresh.volumes[vid].text.trim())
-      .map(vid=>"--- "+volName(vid)+" ---\n"+capDigestForPrompt(dFresh.volumes[vid].text, 2500))
+      .filter(vid=>vid!==(curVol||"none")&&dFresh.volumes[vid]&&((dFresh.volumes[vid].rolling||"").trim()||(dFresh.volumes[vid].text||"").trim()))
+      .map(vid=>"--- "+volName(vid)+" ---\n"+capDigestForPrompt((dFresh.volumes[vid].rolling||"").trim()?dFresh.volumes[vid].rolling:dFresh.volumes[vid].text, 2500))
       .join("\n\n");
     /* 阶段一：深度分析前文（带缓存：消化档案未更新且同分卷则直接复用，提速+稳定+省算力） */
     btn.textContent="分析中…";
@@ -8911,13 +9186,32 @@ async function aiDeepGen(){
       beatCard=_ded; usedDeduction=true;
       toast("🎯 采用已挂载的灵感推演方案"+_ded.idx+(_ded.tone?(" · "+_ded.tone):"")+" 作为强制前置约束");
     } else {
-      try{
-        const _planVol=(writeMode==="vol")?(curVol||"none"):null;
-        beatCard=await planBeatCard({
-          analysis, plot:load("plot",[]), chars:load("chars",[]),
-          num, title, body, brief, volSec, volName:volName(curVol), volId:_planVol
-        });
-      }catch(e){ console.warn("节拍卡规划失败(非致命,跳过):",e.message); }
+      const _planVol=(writeMode==="vol")?(curVol||"none"):null;
+      /* v106：自动灵感（诉求④）。开启且无挂载方案、且距上次自动推演已过 10 章时，
+         自动生成 3 套骨架并择优采用——不弹窗、不打断；否则维持原来的手动挑选交互。 */
+      const _ic=inspireCfg();
+      let _autoDone=false;
+      if(_ic.auto && ai.base && ((Number(num)||0)-(Number(_ic.lastNum)||0))>=10){
+        try{
+          const _ab=await planBeatCard({
+            analysis, plot:load("plot",[]), chars:load("chars",[]),
+            num, title, body, brief, volSec, volName:volName(curVol), volId:_planVol, autoPick:true
+          });
+          if(_ab && _ab.beats && _ab.beats.length){
+            beatCard=_ab; usedDeduction=true; _autoDone=true;
+            setInspireCfg({lastNum:Number(num)||0, lastAt:Date.now()});
+            toast("🎲 已自动生成并采用灵感节拍（每 10 章一次；想自己挑方案请关掉「🎲 自动灵感」）");
+          }
+        }catch(e){ console.warn("自动灵感推演失败(非致命,回退手动):",e&&e.message); }
+      }
+      if(!_autoDone){
+        try{
+          beatCard=await planBeatCard({
+            analysis, plot:load("plot",[]), chars:load("chars",[]),
+            num, title, body, brief, volSec, volName:volName(curVol), volId:_planVol
+          });
+        }catch(e){ console.warn("节拍卡规划失败(非致命,跳过):",e.message); }
+      }
     }
     btn.textContent="生成中…";
     /* 阶段二：基于分析生成新章 */
@@ -8930,8 +9224,14 @@ async function aiDeepGen(){
     if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
     if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
     const _beatOnly=!!(document.getElementById("writeFromBeatOnly")&&document.getElementById("writeFromBeatOnly").checked);
+    /* v106：本章出场人物声线卡（诉求①）。不依赖 RAG 撞运气，按本章点名人物确定性注入。 */
+    {
+      const _vcSeed=(analysis||"")+"\n"+(beatCard?beatCard.beats.join("\n"):"")+"\n"+(title||"")+"\n"+(brief||"");
+      const _vc=chapterVoiceCards(writeMode==="vol"?(curVol||"none"):null, _vcSeed, 2200);
+      if(_vc) ctx+="\n\n"+_vc;
+    }
     if(_beatOnly){
-      /* 双智能体·写作仅依据节拍卡：剥离 RAG/脉络/前文，只保留 volSec+节拍卡+分析+正向写作要求 */
+      /* 双智能体·写作仅依据节拍卡：剥离 RAG/脉络/前文，只保留 volSec+节拍卡+分析+声线卡+正向写作要求 */
       ctx+="\n\n【续写前必读分析】\n"+analysis+"\n\n"+_styleReq;
     } else {
       /* #4 RAG 检索：召回相关人设/伏笔/前文，全程锁定 */
@@ -8991,9 +9291,10 @@ async function aiDeepGen(){
       if(_m2Off) throw new Error("__M2_SKIPPED__");
       btn.textContent="自动精修中…";
       const _refBody=rawDraft.trim();
-      const _dRef=getDigest();
-      const _volText=(_dRef.volumes[(curVol||"none")]&&_dRef.volumes[(curVol||"none")].text)||"";
-      const _globalText=_dRef.global||"";
+      /* v106：精修也改读「滚动摘要 + 最近块」；修 D-3：原为 _volText.slice(0,4000)，
+         而卷档案是按章序追加的，头部=最老内容——精修看到的依据与生成时看到的不是同一段。 */
+      const _volText=volDigestForPrompt((curVol||"none"), 4000);
+      const _globalText=capDigestForPrompt(getGlobalDigestText(), 3000);
       let _rUser="下面是第"+num+"章《"+title+"》的草稿。请作为「首席编辑」深度审读，先内部分析其内容质量与逻辑结构（不要输出分析报告），然后直接输出【优化后的完整正文】。\n\n"+
         "【优化要求】\n"+
         "① 修正逻辑断裂、时间线/因果错误、动机缺失\n"+
@@ -9006,8 +9307,8 @@ async function aiDeepGen(){
       _rUser+="【文风一致性·最高优先级】严格延续前文既定语气、比喻系统与用词密度，不得出现风格跳脱；保持第一人称主动观察式视角。\n";
       _rUser+="【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n";
       if(volSec) _rUser+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
-      if(_volText) _rUser+="【当前分卷档案（人物/伏笔/事件依据）】\n"+_volText.slice(0,4000)+"\n\n";
-      if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText.slice(0,3000)+"\n\n";
+      if(_volText) _rUser+="【当前分卷档案（滚动摘要+最近章节档案，人物/伏笔/事件依据）】\n"+_volText+"\n\n";
+      if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText+"\n\n";
       _rUser+="【草稿原文】\n"+_refBody;
       const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
       if(_refined&&_refined.trim()){
@@ -9379,20 +9680,21 @@ function applyDigestPack(pack){
     }
     if(it.tags&&it.tags.length) lines.push("·标签："+it.tags.join("、"));
     (blocks[cv]=blocks[cv]||[]).push(lines.join("\n"));
-    if(!d.volumes[cv]) d.volumes[cv]={text:"",sig:{},chapters:{}};
+    ensureVolDigest(d, cv);
     if(!d.volumes[cv].chapters) d.volumes[cv].chapters={};
     if(!d.volumes[cv].sig) d.volumes[cv].sig={};
     d.volumes[cv].sig[c.id]=chSig(c);
-    setChDigestStatusInPlace(d, c.id, cv, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c));
+    setChDigestStatusInPlace(d, c.id, cv, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c), lines.join("\n"), c);
   });
-  Object.keys(blocks).forEach(function(cv){
-    if(!blocks[cv]||!blocks[cv].length) return;
-    const vn=volName(cv);
-    const head="=== "+vn+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
-    const tail="=== /"+vn+" · 章节摘要总表（导入结束） ===";
-    /* v95：先剔除上一次同卷同格式的导入块，再追加 → 重复导入不再叠加 */
-    const prev=_stripImportedDigestTable(d.volumes[cv].text, vn);
-    d.volumes[cv].text=(prev?prev+"\n\n---\n\n":"")+head+"\n\n"+blocks[cv].join("\n\n---\n\n")+"\n\n"+tail;
+  /* v106：档案块化后按 chId 幂等覆盖（重复导入天然去重，不再需要剥离旧导入表）；
+     text 由 blocks 渲染；rolling 用本地归纳兜底，保持「零 API 成本装载」的原有契约。 */
+  Object.keys(byVol).forEach(function(cv){
+    const v=ensureVolDigest(d,cv);
+    v.text=renderVolText(v);
+    if(!(v.rolling||"").trim()) v.rolling=seedRollingFromBlocks(v);
+    if(v.rolling){ v.rollingAt=Date.now();
+      const _bl=volBlocksSorted(v);
+      if(_bl.length) v.rollingSeq=Number(_bl[_bl.length-1].seq)||0; }
   });
   d.globalDirty=true;
   saveDigest(d);
