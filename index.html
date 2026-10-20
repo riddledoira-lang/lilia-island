@@ -564,6 +564,9 @@
   .dp-qk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;}
   .dp-qk-h{font-size:12px;color:var(--sub);}
   .dp-qk-b{font-size:12px;min-height:30px;padding:0 10px;border-radius:999px;}
+  /* v95 备份提示 */
+  .dp-note{margin-top:10px;font-size:12px;line-height:1.6;color:var(--sub);background:var(--soft);border:1px dashed var(--line);border-radius:8px;padding:7px 9px;}
+  .dp-note b{color:#b8860b;}
 
   /* 搜索高亮 */
   mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px;font-weight:600;}
@@ -1836,6 +1839,7 @@
       <button onclick="openPaste()" data-page-node-id="cZrWYcwtsjfPZRiaZHL3g7">粘贴拆分</button>
       <button onclick="closeDataPanel();openSync()" title="同步书稿正文以及AI消化档案进度，多设备共享消化成果，避免重复消耗算力" data-page-node-id="Ex9rPeEllCmlKoIvN47llG">同步云端</button>
     </div>
+    <div class="dp-note">备份文件包含全部书稿与 AI 配置（<b>含 API Key 明文</b>），转发前请先确认；「导入恢复」会让你选择合并或替换，不会一点就覆盖。</div>
     <div class="dp-url">
       <div class="dp-url-h">从网址导入<span>素材在电脑上生成、写作在手机上时，不必再传文件——把文件挂到网上，这里填网址直接装</span></div>
       <input id="imUrl" type="url" inputmode="url" spellcheck="false" placeholder="https://……/xxx.txt（正文）或 .json（消化档案）">
@@ -1890,6 +1894,23 @@
     <div class="mbtn" data-page-node-id="NHO5u8Of3m8HySNXMuRWuu">
       <button onclick="closeEx()" data-page-node-id="rPei7SQJEZU4UaQiok5XU1">取消</button>
       <button class="primary" onclick="doExportNovel()" data-page-node-id="lDvzrLFTBCGUIAnGxaYI2N">导出</button>
+    </div>
+  </div>
+</div>
+
+<!-- v95 备份导入：替换 / 合并（二次确认） -->
+<div class="modal-mask" id="bkMask">
+  <div class="modal">
+    <h3>导入 JSON 备份</h3>
+    <p id="bkInfo" class="meta">正在读取备份…</p>
+    <div class="opt">
+      <label class="opt-row"><input type="radio" name="bkMode" value="merge" checked onchange="document.getElementById('bkWarn').style.display='none'"> 合并为新增书籍（保留现有内容）</label>
+      <label class="opt-row"><input type="radio" name="bkMode" value="replace" onchange="document.getElementById('bkWarn').style.display=''"> 替换当前全部内容（现有书稿会被备份覆盖）</label>
+    </div>
+    <p id="bkWarn" class="meta" style="color:#b3261e;display:none;">⚠️ 替换会清掉当前全部书籍与章节，且不可恢复。建议先「导出JSON备份」。</p>
+    <div class="mbtn">
+      <button onclick="closeBkImport()">取消</button>
+      <button class="primary" onclick="doBkImport()">确定导入</button>
     </div>
   </div>
 </div>
@@ -2984,7 +3005,17 @@ function saveChapter(){
   const due=document.getElementById("chDue").value;
   const hook=document.getElementById("chHook").value.trim();
   const brief=document.getElementById("chBrief").value;
-  const vol=document.getElementById("chVol").value||"none";
+  const _selVol=document.getElementById("chVol")?document.getElementById("chVol").value:"";
+  let vol=_selVol||"none";
+  let _volWarn="";
+  /* v95：下拉的 value 被清空、或指向一个已删除的分卷时，旧逻辑直接把章节存进「未分卷」且毫无提示。
+     这里校验一次，并把这个提醒并进「已保存」的 toast（否则会被后一条 toast 立刻盖掉）。 */
+  if(_selVol==="" || (_selVol!=="none" && !(curBook().volumes||[]).some(x=>x.id===_selVol))){
+    vol="none";
+    _volWarn="（原分卷已不存在，已存到「未分卷」）";
+    try{ popVolSelect(); }catch(e){}
+    try{ document.getElementById("chVol").value="none"; }catch(e){}
+  }
   if(!title&&!num){alert("请至少填写标题或章节序号");return;}
   let ch=load("chapters",[]); let saved; let _oldVol=null;
   if(id){const i=ch.findIndex(x=>x.id===id);if(i>=0){_oldVol=ch[i].vol||"none";ch[i]={...ch[i],num,title,body,status,due,hook,brief,vol};saved=ch[i];}}
@@ -3001,11 +3032,11 @@ function saveChapter(){
   if(document.body.classList.contains("focus")){
     document.getElementById("chCount").textContent="字数："+(body||"").length;
     updateFocusBar();
-    refreshChapterViews(); queueDigestChapter(saved); toast("已保存");
+    refreshChapterViews(); queueDigestChapter(saved); toast("已保存"+_volWarn);
     return;
   }
   /* 修复 B5：手动保存后不清空编辑器，可直接继续写；仅刷新视图 */
-  refreshChapterViews(); queueDigestChapter(saved); toast("已保存");
+  refreshChapterViews(); queueDigestChapter(saved); toast("已保存"+_volWarn);
 }
 function editChapter(id){
   /* 切章前先落盘当前章节，清掉旧定时器，防未保存内容丢失与串章 */
@@ -3168,6 +3199,12 @@ function renderStats(){
 }
 let _asTimer=null;
 function autoSaveChapter(){ clearTimeout(_asTimer); _asTimer=setTimeout(_doAutoSave,700); }
+/* v95：把「下拉里那个值」校正成真实存在的分卷，防止静默写进已删除的分卷 */
+function _safeVol(v){
+  const s=v||"none";
+  if(s==="none") return "none";
+  return ((curBook()||{}).volumes||[]).some(x=>x.id===s)?s:"none";
+}
 let _checkTimer=null;
 /* 立即把当前编辑器内容持久化（用于切书/切章前与关闭前），不弹 toast、不重渲染，避免串稿与刷屏 */
 function _flushAutoSave(){
@@ -3181,7 +3218,7 @@ function _flushAutoSave(){
   }
   if(body.trim()==="" && title==="") return null;
   const num=parseInt(document.getElementById("chNum").value)||0;
-  const nc={id:uid(),num,title:title||"未命名草稿",body,status:"draft",vol:document.getElementById("chVol").value||"none",demo:false};
+  const nc={id:uid(),num,title:title||"未命名草稿",body,status:"draft",vol:_safeVol(document.getElementById("chVol").value),demo:false};
   ch.push(nc); save("chapters",ch); document.getElementById("chId").value=nc.id;
   recordWords(nc); pushHistory(nc); return nc;
 }
@@ -5734,7 +5771,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v94";
+const APP_VERSION="v95";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -5744,6 +5781,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
   ["v94","章节列表标题栏适配窄屏：标题文字可省略、徽章不换行、智能分卷/管理分卷收进独立按钮组，手机上整组落到第二行右对齐，不再顶出标题栏。数据层：消化档案支持自带「与XX的关联」标签（西里斯篇用「与西里斯」）；导入消化档案时分卷名允许模糊匹配（去空格互相包含、或去掉篇/卷部后的关键词），找不到会列出你当前的分卷名"],
   ["v93","修「移动章节会波及别的分卷」：选中某卷后，章节页其实把其它分卷的章节也混排在列表尾部（为防“保存了却看不见”），拖拽/↑↓ 又拿这个混合列表的下标去重排 order——所以「在詹姆斯篇里动一下」，西里斯篇和莱姆斯篇的章节顺序被一起重写，看着就像詹姆斯的内容被复制过去、别的卷被覆盖。现在：order 严格卷内编号、视图只返回当前卷、拖拽与上下移只在同卷内生效（跨卷拖动直接拒绝并提示走「编辑·分卷」或「管理分卷·搬运」）。同时「搬运」按钮的目标卷改为必须手动选择，不再默认第一个卷一点就生效；编辑器里改分卷会把消化记录一起迁走并切到新卷；搬运后在源卷摘要末尾留一行「已搬出」说明"],
   ["v92","新增「从网址导入」：正文与消化档案都能直接填网址装载，解决「素材在电脑、写作在手机、传文件麻烦」的断层（数据备份面板底部）。配套两条快捷链接，点一下即可装载詹姆斯篇 74 章正文 / 74 章消化档案 · 消化档案导入不再要求章节已归对分卷：按「分卷+章号」找不到时，会退回按「章号+标题」全库匹配并写入章节真实所在的分卷，同时在结尾告知第几章跑偏了 · 新增「分卷搬家」：管理分卷里每卷多了一行「本卷 N 章 → 搬到 [目标卷] · 搬运」，把误入其它分卷的章节整批搬回，连消化档案一起迁移，不动一个字正文"],
@@ -8422,26 +8460,69 @@ function exportJSON(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
   a.download="工作台备份_"+TODAY+".json";a.click();URL.revokeObjectURL(a.href);
-  toast("已导出 JSON 备份");
+  /* v95：备份里含 AI 配置（含 API Key 明文），提醒一句，避免随手转发 */
+  toast("已导出 JSON 备份（含 API Key，请勿外传）");
 }
+/* ---------- v95 备份导入：先解析、再让你选「替换 / 合并」，不再一点就覆盖 ---------- */
+let _bkPending=null;
 function importJSON(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
   r.onload=ev=>{
     try{
       const d=JSON.parse(ev.target.result);
-      if(d.books && Array.isArray(d.books) && d.books.length){
-        BOOKS=d.books; curId=d.curBook||BOOKS[0].id; rawSave("books",BOOKS); rawSave("curBook",curId);
-        allRender(); toast("导入成功！已恢复 "+BOOKS.length+" 本书。");
-      }else{
-        const b=defaultBook({title:"导入的书", chapters:d.chapters||[], chars:d.chars||[], style:d.style||[], meta:d.meta||"", plot:d.plot||[], ai:d.ai||{}, seeded:d.seeded||false});
-        BOOKS=[b]; curId=b.id; rawSave("books",BOOKS); rawSave("curBook",curId);
-        allRender(); toast("已按旧格式导入为一本书。");
-      }
+      const hasBooks=(d.books && Array.isArray(d.books) && d.books.length);
+      const legacy=(d.chapters||d.chars||d.plot)?{chapters:d.chapters||[],chars:d.chars||[],style:d.style||[],meta:d.meta||"",plot:d.plot||[],ai:d.ai||{},seeded:d.seeded||false}:null;
+      if(!hasBooks && !legacy) throw new Error("这个文件里既没有 books 也没有 chapters，不像是本应用的备份。");
+      _bkPending={data:d, hasBooks:!!hasBooks, legacy:legacy};
+      const incBooks=hasBooks?d.books.length:1;
+      const incCh=hasBooks?d.books.reduce(function(a,b){return a+((b.chapters||[]).length||0);},0):(legacy.chapters||[]).length;
+      const curCh=(BOOKS||[]).reduce(function(a,b){return a+((b.chapters||[]).length||0);},0);
+      const info=document.getElementById("bkInfo");
+      if(info) info.innerHTML="备份内容：<b>"+incBooks+" 本书 / "+incCh+" 章</b>　·　当前：<b>"+(BOOKS||[]).length+" 本书 / "+curCh+" 章</b>";
+      const rd=document.querySelector('input[name="bkMode"][value="merge"]'); if(rd) rd.checked=true;
+      const wn=document.getElementById("bkWarn"); if(wn) wn.style.display="none";
+      const mask=document.getElementById("bkMask"); if(mask) mask.classList.add("on");
     }catch(err){alert("导入失败："+err.message);}
     e.target.value="";
   };
+  r.onerror=function(){ alert("读取文件失败"); e.target.value=""; };
   r.readAsText(f);
+}
+function closeBkImport(){ _bkPending=null; const m=document.getElementById("bkMask"); if(m) m.classList.remove("on"); }
+function doBkImport(){
+  if(!_bkPending){ closeBkImport(); return; }
+  const sel=document.querySelector('input[name="bkMode"]:checked');
+  const mode=(sel&&sel.value)||"merge";
+  const p=_bkPending;
+  if(mode==="replace"){
+    const cur=(BOOKS||[]).length, curCh=(BOOKS||[]).reduce(function(a,b){return a+((b.chapters||[]).length||0);},0);
+    if(!confirm("确定用备份替换当前全部内容？\n\n当前 "+cur+" 本书 / "+curCh+" 章将被清空，且不可恢复。\n（建议先「导出JSON备份」）")) return;
+  }
+  try{
+    if(p.hasBooks && mode==="replace"){
+      BOOKS=p.data.books; curId=p.data.curBook||BOOKS[0].id;
+      rawSave("books",BOOKS); rawSave("curBook",curId);
+      allRender(); toast("已用备份替换："+BOOKS.length+" 本书。");
+    }else if(p.hasBooks){
+      /* 合并：每本都换新 id，避免与现有书撞号互相覆盖 */
+      const exist={}; (BOOKS||[]).forEach(function(b){ exist[b.id]=1; });
+      let n=0;
+      p.data.books.forEach(function(b){
+        const nb=JSON.parse(JSON.stringify(b));
+        if(!nb.id||exist[nb.id]) nb.id=uid();
+        exist[nb.id]=1; BOOKS.push(nb); n++;
+      });
+      rawSave("books",BOOKS);
+      allRender(); toast("已合并导入 "+n+" 本书（当前共 "+BOOKS.length+" 本）。");
+    }else{
+      const nb=defaultBook(Object.assign({title:"导入的书"}, p.legacy||{}));
+      if(mode==="replace"){ BOOKS=[nb]; curId=nb.id; } else { BOOKS.push(nb); }
+      rawSave("books",BOOKS); rawSave("curBook",curId);
+      allRender(); toast(mode==="replace"?"已按旧格式导入为一本书。":"已按旧格式新增一本书。");
+    }
+    closeBkImport();
+  }catch(err){ alert("导入失败："+err.message); }
 }
 /* ---------- v90 批量导入消化档案（按「分卷+章号」匹配，零 AI 调用） ----------
    场景：几十章稿子在电脑上已写好摘要，不想在手机上逐章点「消化本章」（74 章=74 次 API）。
@@ -8461,6 +8542,27 @@ function importDigestPack(e){
   };
   r.onerror=function(){ alert("读取文件失败"); e.target.value=""; };
   r.readAsText(f);
+}
+/* v95：导入表格去重——写 text 前先剔掉上一次导入写进去的那一段，避免重复导入把卷摘要叠成 N 份。
+   新数据用「导入结束」标记精确剔除；v94 及更早写进去的老数据没有结束标记，
+   只在「尾部整段都是导入表格」时才剔除（宁可留下重复，也不误删 AI 生成的摘要）。 */
+function _stripImportedDigestTable(text, vname){
+  let t=String(text||"");
+  if(!t) return "";
+  const V=String(vname).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const reMarked=new RegExp("(?:\\n\\n---\\n\\n)?=== "+V+" · 章节摘要总表（导入 [^）]*） ===[\\s\\S]*?=== /"+V+" · 章节摘要总表（导入结束） ===","g");
+  t=t.replace(reMarked,"");
+  const i=t.indexOf("=== "+vname+" · 章节摘要总表");
+  if(i>=0){
+    const segs=t.slice(i).split("\n\n---\n\n");
+    const safe=segs.every(function(s){
+      const x=String(s).replace(/^\s+/,"");
+      if(x.indexOf("### 第")===0) return true;
+      return x.indexOf("=== ")===0 && x.indexOf("章节摘要总表")>0;
+    });
+    if(safe) t=t.slice(0,i);
+  }
+  return t.replace(/(\s*---\s*)+$/,"").replace(/\s+$/,"");
 }
 function applyDigestPack(pack){
   const bk=curBook()||{};
@@ -8533,8 +8635,12 @@ function applyDigestPack(pack){
   });
   Object.keys(blocks).forEach(function(cv){
     if(!blocks[cv]||!blocks[cv].length) return;
-    const head="=== "+volName(cv)+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
-    d.volumes[cv].text=(d.volumes[cv].text?d.volumes[cv].text+"\n\n---\n\n":"")+head+"\n\n"+blocks[cv].join("\n\n---\n\n");
+    const vn=volName(cv);
+    const head="=== "+vn+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
+    const tail="=== /"+vn+" · 章节摘要总表（导入结束） ===";
+    /* v95：先剔除上一次同卷同格式的导入块，再追加 → 重复导入不再叠加 */
+    const prev=_stripImportedDigestTable(d.volumes[cv].text, vn);
+    d.volumes[cv].text=(prev?prev+"\n\n---\n\n":"")+head+"\n\n"+blocks[cv].join("\n\n---\n\n")+"\n\n"+tail;
   });
   d.globalDirty=true;
   saveDigest(d);
