@@ -7,9 +7,9 @@
       "vol": "sirius",
       "volName": "西里斯篇",
       "file": "sirius14_digest.json",
-      "source": "西里斯篇.docx（第1–14章，第5–13章取精修稿）",
+      "source": "西里斯篇.docx（第1–14章；第5–13章取精修稿，初稿同章已去重）",
       "chapters": 14,
-      "bytes": 15468,
+      "bytes": 26868,
       "madeAt": "2026-10-20",
       "linkLabel": "与西里斯"
     },

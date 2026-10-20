@@ -293,9 +293,202 @@ function writeIndex(baseUrl) {
   return idx;
 }
 
+/* ---------- 结构化入库（--ingest）：校验 → 幂等去重 → 批量写入 ----------
+   输入是「已整理好的结构化文本」，本通道不再做任何 AI 抽取，只做
+   ① 字段校验 ② 按 (章节号 + 标题) 幂等 upsert ③ 批量写包 + 更新索引。
+
+   输入 JSON 形状（sirius_framework.json 即为此形状）：
+   {
+     "vol":"sirius", "volName":"西里斯篇", "linkLabel":"与西里斯", "source":"…",
+     "chapters":[{
+        "num":1, "title":"最俊俏的林间黑狐与苍鹭",
+        "synopsis":"…", "who":["薇拉","西里斯"], "events":["…"], "link":"…",
+        "tags":["摄政公园"], "chars":6029,
+        "sections":[{"title":"…","paras":["…","…"]}]
+     }]
+   }
+   容错：也接受 {"books":[{"chapters":[…]}]} 与顶层 chapters 数组。
+------------------------------------------------------------------------- */
+function asStrArray(v) {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.map(x => String(x || '').trim()).filter(Boolean);
+  return String(v).split(/[、;；,，]/).map(x => x.trim()).filter(Boolean);
+}
+function normTitleKey(t) {
+  return String(t || '').replace(/\s+/g, '')
+    .replace(/^[《【「"'']+|[》】」"'']+$/g, '')
+    .toLowerCase();
+}
+/* 单章校验：返回 {ok, errs[], item} —— 校验按「缺什么补什么」尽量宽松，
+   只有章号/标题/正文三者缺一才判定该章不可用。 */
+function validateChapter(raw, idx) {
+  const errs = [];
+  const num = Number(raw && raw.num);
+  if (!raw || !isFinite(num) || !Number.isInteger(num) || num <= 0) errs.push('章节号缺失或非正整数');
+  const title = String((raw && raw.title) || '').trim();
+  if (!title) errs.push('章节标题为空');
+
+  let body = '';
+  if (raw && Array.isArray(raw.sections) && raw.sections.length) {
+    body = raw.sections.map(s => (Array.isArray(s && s.paras) ? s.paras.join('\n') : String(s && s.text || '')))
+      .filter(Boolean).join('\n');
+  } else if (raw && Array.isArray(raw.paras)) {
+    body = raw.paras.join('\n');
+  } else {
+    body = String((raw && raw.body) || '');
+  }
+  body = body.trim();
+  if (!body) errs.push('正文为空');
+
+  const synopsis = String((raw && raw.synopsis) || '').trim();
+  if (synopsis.length > 800) errs.push('摘要超长（>800 字）：' + synopsis.length);
+
+  const sections = (raw && Array.isArray(raw.sections) ? raw.sections : [])
+    .map(s => ({ title: String((s && s.title) || '').trim(), chars: Number(s && s.chars) || 0 }))
+    .filter(s => s.title);
+  (raw && Array.isArray(raw.sections) ? raw.sections : []).forEach((s, i) => {
+    if (!String((s && s.title) || '').trim()) errs.push('第' + (i + 1) + '个小节标题为空');
+  });
+
+  const item = {
+    num: Number.isInteger(num) && num > 0 ? num : 0,
+    title: title,
+    synopsis: synopsis,
+    who: asStrArray(raw && raw.who),
+    events: asStrArray(raw && raw.events),
+    tags: asStrArray(raw && raw.tags),
+    chars: Number(raw && raw.chars) || body.length,
+    sections: sections
+  };
+  const link = String((raw && raw.link) || '').trim();
+  if (link) item.link = link;
+  return { ok: errs.length === 0, errs: errs, item: item, _idx: idx };
+}
+
+/* 幂等 upsert：以 (num, 归一化标题) 为业务主键。
+   - 同 num 同标题  → 覆盖更新（重复导入不产生副本）
+   - 同 num 异标题  → 记为冲突，默认用新值覆盖并告警（可用 --onConflict keep 保留旧值）
+   - 不同 num 同标题 → 记为重名告警（不阻断，章节号才是主键） */
+function upsertChapters(prev, next, onConflict) {
+  const map = new Map();
+  (prev || []).forEach(c => {
+    if (Number(c && c.num) > 0) map.set(Number(c.num), c);
+  });
+  const added = [], updated = [], conflicts = [];
+  next.forEach(c => {
+    const old = map.get(c.num);
+    if (!old) { map.set(c.num, c); added.push(c.num); return; }
+    if (normTitleKey(old.title) === normTitleKey(c.title)) { map.set(c.num, c); updated.push(c.num); return; }
+    conflicts.push({ num: c.num, oldTitle: old.title, newTitle: c.title });
+    if (String(onConflict).toLowerCase() === 'keep') { /* 保留旧值 */ }
+    else { map.set(c.num, c); updated.push(c.num); }
+  });
+  const merged = Array.from(map.values()).sort((a, b) => Number(a.num) - Number(b.num));
+  /* 重名检测 */
+  const byTitle = new Map();
+  merged.forEach(c => {
+    const k = normTitleKey(c.title);
+    if (!k) return;
+    (byTitle.get(k) || byTitle.set(k, []).get(k)).push(c.num);
+  });
+  const dupTitles = [];
+  byTitle.forEach((nums, k) => { if (nums.length > 1) dupTitles.push({ title: k, nums: nums }); });
+  return { merged: merged, added: added, updated: updated, conflicts: conflicts, dupTitles: dupTitles };
+}
+
+function runIngest() {
+  const file = A['in'];
+  if (!file) die('--ingest 需要 --in 指向结构化 JSON');
+  if (!fs.existsSync(file)) die('输入文件不存在：' + file);
+  let j;
+  try { j = JSON.parse(fs.readFileSync(file, 'utf-8')); }
+  catch (e) { die('解析失败（不是合法 JSON）：' + (e && e.message || e)); }
+
+  let raws = [];
+  let meta = {};
+  if (Array.isArray(j)) raws = j;
+  else if (Array.isArray(j.chapters)) { raws = j.chapters; meta = j; }
+  else if (Array.isArray(j.books)) {
+    j.books.forEach(b => (b.chapters || []).forEach(c => raws.push(c)));
+    meta = j;
+  } else die('解析失败：JSON 里没找到 chapters 数组');
+
+  if (!raws.length) die('解析失败：chapters 为空');
+
+  /* --- 字段校验 --- */
+  const good = [], bad = [];
+  raws.forEach((r, i) => {
+    const v = validateChapter(r, i);
+    if (v.ok) good.push(v.item); else bad.push({ at: i + 1, num: (r && r.num), errs: v.errs });
+  });
+  log('字段校验：通过 ' + good.length + ' / 失败 ' + bad.length);
+  bad.forEach(b => log('   ✗ 第' + (b.num || '?') + '章（输入第' + b.at + '条）：' + b.errs.join('；')));
+  if (good.length === 0) die('没有任何章节通过校验，拒绝写入（避免把坏数据写进档案）');
+  if (bad.length > good.length) die('失败条目多于通过条目（' + bad.length + ' > ' + good.length + '），疑似结构性错误，拒绝写入');
+
+  /* --- 幂等去重（批内自去重 + 与既有档案合并） --- */
+  const inBatch = new Map();
+  const batchDup = [];
+  good.forEach(c => {
+    const k = c.num + '|' + normTitleKey(c.title);
+    if (inBatch.has(k)) { batchDup.push(c.num); return; }
+    inBatch.set(k, c);
+  });
+  if (batchDup.length) log('批内重复条目已合并：第 ' + batchDup.join('、') + ' 章');
+
+  const vol = A.vol || meta.vol || path.basename(A.out || '').replace(/\d+$/, '') || 'none';
+  const volName = A.volName || meta.volName || vol;
+  const outFile = path.join(IMPORT_DIR, String(A.out).replace(PACK_RE, '') + '_digest.json');
+
+  let prevPack = null;
+  if (fs.existsSync(outFile)) {
+    try {
+      prevPack = JSON.parse(fs.readFileSync(outFile, 'utf-8'));
+      if (!prevPack || prevPack.__digestPack !== true) prevPack = null;
+    } catch (e) { log('警告：既有档案解析失败，将整体覆盖（' + (e && e.message || e) + '）'); prevPack = null; }
+  }
+  const prevChs = (prevPack && Array.isArray(prevPack.chapters)) ? prevPack.chapters : [];
+  const ups = upsertChapters(prevChs, Array.from(inBatch.values()), A.onConflict || 'overwrite');
+  log('幂等合并：新增 ' + ups.added.length + ' 章，更新 ' + ups.updated.length + ' 章，最终 ' + ups.merged.length + ' 章');
+  if (ups.conflicts.length) {
+    ups.conflicts.forEach(c => log('   ⚠ 第' + c.num + '章标题不一致：「' + c.oldTitle + '」→「' + c.newTitle + '」（已按 --onConflict=' + (A.onConflict || 'overwrite') + ' 处理）'));
+  }
+  if (ups.dupTitles.length) {
+    ups.dupTitles.forEach(d => log('   ⚠ 不同章节号使用了相同标题：「' + d.title + '」→ 第 ' + d.nums.join('、') + ' 章'));
+  }
+
+  /* --- 批量写入 --- */
+  const pack = {
+    __digestPack: true,
+    vol: vol,
+    volName: volName,
+    madeAt: new Date().toISOString().slice(0, 10),
+    source: A.source || meta.source || path.basename(file),
+    chapters: ups.merged
+  };
+  const linkLabel = A.linkLabel || meta.linkLabel;
+  if (linkLabel) pack.linkLabel = linkLabel;
+  if (meta.authorNotes && meta.authorNotes.length) pack.authorNotes = meta.authorNotes;
+  pack.digestMode = 'ingest';
+  pack.ingest = {
+    validated: good.length, rejected: bad.length,
+    added: ups.added.length, updated: ups.updated.length,
+    conflicts: ups.conflicts.length, duplicateTitles: ups.dupTitles.length
+  };
+
+  fs.mkdirSync(IMPORT_DIR, { recursive: true });
+  fs.writeFileSync(outFile, JSON.stringify(pack, null, 2), 'utf-8');
+  log('已写入 → ' + path.relative(process.cwd(), outFile) + '（' + ups.merged.length + ' 章，'
+    + (fs.statSync(outFile).size / 1024).toFixed(1) + ' KB）');
+  writeIndex(A.baseUrl);
+  log('完成。前端装载：数据备份面板 → 从网址导入 → 填 '
+    + (A.baseUrl || 'https://riddledoira-lang.github.io/lilia-island/import/') + path.basename(outFile));
+}
+
 /* ---------- 主流程 ---------- */
 (async function main() {
   if (A.reindex) { writeIndex(A.baseUrl); return; }
+  if (A.ingest) { runIngest(); return; }
   if (!A.out) die('缺少 --out（输出文件名，如 james74）；只想重建索引用 --reindex');
 
   const vol = A.vol || path.basename(A.out || '').replace(/\d+$/, '') || 'none';

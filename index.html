@@ -9000,6 +9000,13 @@ function applyDigestPack(pack){
     if(it.link) lines.push("·"+(pack.linkLabel||"关联")+"："+it.link);
     else if(it.james) lines.push("·"+(pack.linkLabel||"与詹姆斯")+"："+it.james);
     if(it.events&&it.events.length) lines.push("·关键事件："+it.events.join("；"));
+    /* v101：档案可自带「小节 / 标签」（西里斯篇整理后的结构化框架）。
+       这两个字段是可选的，旧档案没有就完全不渲染，行为不变。 */
+    if(it.sections&&it.sections.length){
+      const _st=it.sections.map(function(x){ return String((x&&x.title)||"").trim(); }).filter(Boolean);
+      if(_st.length) lines.push("·小节："+_st.join(" / "));
+    }
+    if(it.tags&&it.tags.length) lines.push("·标签："+it.tags.join("、"));
     (blocks[cv]=blocks[cv]||[]).push(lines.join("\n"));
     if(!d.volumes[cv]) d.volumes[cv]={text:"",sig:{},chapters:{}};
     if(!d.volumes[cv].chapters) d.volumes[cv].chapters={};
@@ -9368,7 +9375,14 @@ function isChTitle(ln){
   if(!s) return false;
   const N="[0-9"+_CN_NUM+"]+";
   const numbered=new RegExp("^(第\\s*"+N+"\\s*[章卷节篇回]|"+N+"\\s*[章卷节篇回]|[Cc]hapter\\s*\\d+)");
-  if(numbered.test(s)) return s.length<=80;
+  if(numbered.test(s)){
+    /* v101：正文里常有「第二节是变形课。」这种以句号收尾的叙述句，
+       会被误判成章标题而把一章劈成两章。句号收尾的一律不算标题；
+       但「第N章」是最高频的正式写法，且存在「第五章"你怎么在这里！"」这类以引号收尾的标题，
+       所以只对「第N章」以外的编号单位（节/卷/篇/回/无「第」字的写法）生效，避免误伤。 */
+    if(/。$/.test(s) && !/^第\s*[0-9零〇一二三四五六七八九十百两]+\s*章/.test(s)) return false;
+    return s.length<=80;
+  }
   if(!/^(序章|楔子|番外|外传|终章|后记|尾声|附录|引子)/.test(s)) return false;
   if(s.length>30) return false;
   return !/[。！？!?，,；;：:…]$/.test(s);
