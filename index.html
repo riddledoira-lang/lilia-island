@@ -547,6 +547,23 @@
   .vrow button:disabled{opacity:.4;cursor:not-allowed;}
   .vnote{margin:-4px 0 10px 26px;}
   .vnote textarea{width:100%;min-height:64px;font-size:13px;line-height:1.6;padding:8px 10px;border:1px dashed var(--input-bd);border-radius:8px;background:var(--soft);resize:vertical;box-sizing:border-box;}
+  /* v92 分卷搬家：把误入其它分卷的章节整批搬回目标卷 */
+  .vmove{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-2px 0 14px 26px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--soft);font-size:12px;color:var(--sub);}
+  .vmove b{color:var(--ink);font-size:13px;}
+  .vmove select{flex:none;min-width:96px;max-width:150px;min-height:30px;font-size:12px;padding:2px 4px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);}
+  .vmove button{flex:none;min-height:30px;padding:0 10px;font-size:12px;}
+  [data-theme="dark"] .vmove select{background:var(--card);color:var(--ink);}
+  /* v92 数据面板 · 从网址导入 */
+  .dp-url{margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--soft);}
+  .dp-url-h{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px;}
+  .dp-url-h span{display:block;font-weight:400;font-size:12px;color:var(--sub);line-height:1.5;margin-top:2px;}
+  .dp-url input{width:100%;box-sizing:border-box;margin-top:8px;min-height:36px;font-size:13px;padding:6px 8px;border:1px solid var(--input-bd);border-radius:8px;background:#fff;color:var(--ink);}
+  [data-theme="dark"] .dp-url input{background:var(--card);}
+  .dp-url-b{display:flex;gap:8px;margin-top:8px;}
+  .dp-url-b button{flex:1;min-height:36px;font-size:13px;}
+  .dp-qk{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;}
+  .dp-qk-h{font-size:12px;color:var(--sub);}
+  .dp-qk-b{font-size:12px;min-height:30px;padding:0 10px;border-radius:999px;}
 
   /* 搜索高亮 */
   mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px;font-weight:600;}
@@ -1807,6 +1824,15 @@
       <button onclick="openPaste()" data-page-node-id="cZrWYcwtsjfPZRiaZHL3g7">粘贴拆分</button>
       <button onclick="closeDataPanel();openSync()" title="同步书稿正文以及AI消化档案进度，多设备共享消化成果，避免重复消耗算力" data-page-node-id="Ex9rPeEllCmlKoIvN47llG">同步云端</button>
     </div>
+    <div class="dp-url">
+      <div class="dp-url-h">从网址导入<span>素材在电脑上生成、写作在手机上时，不必再传文件——把文件挂到网上，这里填网址直接装</span></div>
+      <input id="imUrl" type="url" inputmode="url" spellcheck="false" placeholder="https://……/xxx.txt（正文）或 .json（消化档案）">
+      <div class="dp-url-b">
+        <button id="imUrlGo" class="primary" onclick="importFromUrl('novel')">导入正文</button>
+        <button onclick="importFromUrl('digest')">导入消化档案</button>
+      </div>
+      <div class="dp-qk" id="imQuick"></div>
+    </div>
     <div class="dp-danger" data-page-node-id="i6goLaoxXrPMxwiTdg5rjo">
       <button class="danger" onclick="clearAll()" data-page-node-id="dqyhAnf9wQAQvgbu1tm369">清空全部数据</button>
       <div class="meta" data-page-node-id="BbHq9aOb2tELwtEILTO4HX">高危操作，会删除当前书全部内容，需二次确认。建议先「导出JSON备份」留底。</div>
@@ -2522,9 +2548,36 @@ function renderVolMgr(){
     </div>
     <div class="vnote">
       <textarea placeholder="「${esc(v.name)}」专属设定（喂给AI，可留空）：本卷人物年龄/年级、时代背景、文风基调、叙事禁忌……&#10;例：本卷为詹姆斯线，主角11岁一年级：语言天真直白、幽默来自儿童视角；严禁成人化抒情、网络流行语；人物关系称谓须符合HP原著（如纳西莎是西里斯的堂姐）。" onchange="updVolNote('${v.id}',this.value)">${esc(v.note||"")}</textarea>
+    </div>
+    <div class="vmove">
+      <span>本卷 <b>${(load("chapters",[])||[]).filter(function(c){return (c.vol||"none")===v.id;}).length}</b> 章</span>
+      <span>→ 搬到</span>
+      <select id="vmTo_${v.id}">${vols.filter(function(x){return x.id!==v.id;}).map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>';}).join("")}</select>
+      <button type="button" onclick="volMoveChapters('${v.id}',document.getElementById('vmTo_${v.id}').value)">搬运</button>
     </div>`).join("");
 }
 function updVolNote(id,val){const b=curBook();const v=(b.volumes||[]).find(x=>x.id===id);if(v){v.note=val;rawSave("books",BOOKS);toast("「"+v.name+"」专属设定已保存");}}
+/* v92 分卷搬家：把某卷的章节整体搬到另一卷（修「章节被错分到别的卷」）
+   连消化档案一起迁，避免「已消化」统计留在旧卷名下。 */
+function volMoveChapters(fromId,toId){
+  if(!fromId||!toId){ toast("请选择目标分卷"); return; }
+  if(fromId===toId){ toast("目标分卷不能是本卷"); return; }
+  const chs=load("chapters",[])||[];
+  const mv=chs.filter(function(c){return (c.vol||"none")===fromId;});
+  if(!mv.length){ toast("本卷本来就没有章节"); return; }
+  if(!confirm("将把「"+volName(fromId)+"」的 "+mv.length+" 章搬到「"+volName(toId)+"」。\n\n只改所属分卷，不动一个字正文。确定？")) return;
+  /* 先改 vol 再调钩子：钩子会按章节当前内容重算签名。消化记录由 onChapterVolChange 整条搬过去。 */
+  mv.forEach(function(c){
+    c.vol=toId;
+    try{ onChapterVolChange(c.id, fromId, toId); }catch(e){}
+  });
+  save("chapters",chs);
+  toast("已搬运 "+mv.length+" 章到「"+volName(toId)+"」（消化记录一并迁移）");
+  renderVolMgr();
+  try{ popVolSelect(); }catch(e){}
+  try{ refreshChapterViews(); }catch(e){}
+  try{ renderDigest(); }catch(e){}
+}
 /* 获取分卷专属设定文本（供 AI 生成/消化注入） */
 function getVolSetting(vid){
   const b=curBook(); const v=(b.volumes||[]).find(x=>x.id===(vid||"none"));
@@ -5616,8 +5669,16 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v91";
+const APP_VERSION="v92";
+/* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
+   用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
+   把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
+const IMPORT_QUICK_LINKS=[
+  {t:"詹姆斯篇 正文 74 章", u:"https://riddledoira-lang.github.io/lilia-island/import/james74.txt", k:"novel"},
+  {t:"詹姆斯篇 消化档案 74 章", u:"https://riddledoira-lang.github.io/lilia-island/import/james74_digest.json", k:"digest"}
+];
 const APP_CHANGELOG=[
+  ["v92","新增「从网址导入」：正文与消化档案都能直接填网址装载，解决「素材在电脑、写作在手机、传文件麻烦」的断层（数据备份面板底部）。配套两条快捷链接，点一下即可装载詹姆斯篇 74 章正文 / 74 章消化档案 · 消化档案导入不再要求章节已归对分卷：按「分卷+章号」找不到时，会退回按「章号+标题」全库匹配并写入章节真实所在的分卷，同时在结尾告知第几章跑偏了 · 新增「分卷搬家」：管理分卷里每卷多了一行「本卷 N 章 → 搬到 [目标卷] · 搬运」，把误入其它分卷的章节整批搬回，连消化档案一起迁移，不动一个字正文"],
   ["v91","导入小说新增「强制覆盖受保护章节」开关：默认保护「已完稿」章节不被覆盖，导致整本手稿一次性导入时，手机上已有的同卷同号章节（哪怕是先前的手录版）会被跳过、留下的仍是旧内容。勾选后忽略全部状态保护，一律以导入文件为准"],
   ["v90","新增「导入消化档案」：把电脑上已写好的逐章摘要（分卷+章号+梗概+出场人物+与主角关联+关键事件）一次性导入，按「分卷+章号」精确匹配写入章节梗概与前文档案，直接标记为已消化——74 章无需逐章点「消化本章」，也不消耗任何 AI 调用"],
   ["v89","导入小说·合并模式修正：去重键从「全局章号」改为「分卷+章号」。各卷章号本就各自独立编号，旧逻辑导入詹姆斯篇第1章时会去匹配西里斯篇第1章——要么把它覆盖掉（丢稿），要么因「已完稿」保护而整章跳过（导入不全）。现在同卷同序号才合并，跨卷互不干扰"],
@@ -6553,9 +6614,24 @@ function removeDigestSig(id){
 function onChapterVolChange(chId, oldVol, newVol){
   const d=getDigest();
   const ov=oldVol||"none", nv=newVol||"none";
+  if(ov===nv) return;
+  /* v92：旧版只删旧卷的消化记录、不写新卷 —— 等于「一改分卷，这一章的已消化状态就没了」。
+     现在改为整条搬过去（梗概/状态/错误信息一起走），搬完按章节当前内容重算签名，
+     避免刚到新卷就被判定成「内容已变，需要重新消化」。 */
+  let entry=null;
   if(d.volumes[ov]){
+    if(d.volumes[ov].chapters&&d.volumes[ov].chapters[chId]){ entry=d.volumes[ov].chapters[chId]; delete d.volumes[ov].chapters[chId]; }
     if(d.volumes[ov].sig&&d.volumes[ov].sig[chId]) delete d.volumes[ov].sig[chId];
-    if(d.volumes[ov].chapters&&d.volumes[ov].chapters[chId]) delete d.volumes[ov].chapters[chId];
+  }
+  if(entry){
+    if(!d.volumes[nv]) d.volumes[nv]={text:"",sig:{},chapters:{}};
+    if(!d.volumes[nv].chapters) d.volumes[nv].chapters={};
+    if(!d.volumes[nv].sig) d.volumes[nv].sig={};
+    d.volumes[nv].chapters[chId]=entry;
+    try{
+      const c=(load("chapters",[])||[]).filter(function(x){return x.id===chId;})[0];
+      d.volumes[nv].sig[chId]=c?chSig(c):((entry&&entry.sig)||"");
+    }catch(e){}
   }
   if(d.globalSig&&d.globalSig[chId]){ delete d.globalSig[chId]; }
   d.globalDirty=true;
@@ -8332,34 +8408,116 @@ function applyDigestPack(pack){
   }
   const chs=load("chapters",[])||[];
   const d=getDigest();
-  if(!d.volumes[vid]) d.volumes[vid]={text:"",sig:{},chapters:{}};
-  if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
-  const blocks=[]; const miss=[]; let hit=0;
+  /* v92：不再要求章节必须已归入目标分卷。
+     先按「分卷+章号」精确匹配；匹配不到就在全部章节里按「章号+标题」找；
+     再找不到才按「章号」找。这样即使章节被误分到别的卷（如詹姆斯篇的内容落在莱姆斯篇），
+     消化照样能写进去，并在结尾明确告诉用户第几章实际在哪个卷、该用「管理分卷→搬运」纠正。 */
+  const ttrim=function(s){ return String(s||"").replace(/\s+/g,"").replace(/^[《【「]+|[》】」]+$/g,""); };
+  const findCh=function(it){
+    let c=chs.filter(function(x){ return (x.vol||"none")===vid && Number(x.num)===Number(it.num); })[0];
+    if(c) return c;
+    c=chs.filter(function(x){ return Number(x.num)===Number(it.num) && ttrim(x.title)===ttrim(it.title); })[0];
+    if(c) return c;
+    if(it.title){
+      const key=ttrim(it.title).slice(0,6);
+      if(key) c=chs.filter(function(x){ return Number(x.num)===Number(it.num) && ttrim(x.title).indexOf(key)>=0; })[0];
+      if(c) return c;
+    }
+    return chs.filter(function(x){ return Number(x.num)===Number(it.num); })[0];
+  };
+  const byVol={};
+  const blocks={}; const miss=[]; let hit=0; const wrongVol=[];
   pack.chapters.forEach(function(it){
-    const c=chs.filter(function(x){ return (x.vol||"none")===vid && Number(x.num)===Number(it.num); })[0];
+    const c=findCh(it);
     if(!c){ miss.push(it.num); return; }
     hit++;
+    const cv=c.vol||"none";
+    byVol[cv]=(byVol[cv]||0)+1;
+    if(cv!==vid && wrongVol.indexOf(cv)<0) wrongVol.push(cv);
     if(it.synopsis){ try{ setSynopsis(c.id, it.synopsis); }catch(e){} }
     const lines=["### 第"+c.num+"章《"+(c.title||it.title||"")+"》"];
     if(it.synopsis) lines.push("⟦本章梗概⟧"+it.synopsis);
     if(it.who&&it.who.length) lines.push("·出场人物："+it.who.join("、"));
     if(it.james) lines.push("·与詹姆斯："+it.james);
     if(it.events&&it.events.length) lines.push("·关键事件："+it.events.join("；"));
-    blocks.push(lines.join("\n"));
-    d.volumes[vid].sig[c.id]=chSig(c);
-    setChDigestStatusInPlace(d, c.id, vid, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c));
+    (blocks[cv]=blocks[cv]||[]).push(lines.join("\n"));
+    if(!d.volumes[cv]) d.volumes[cv]={text:"",sig:{},chapters:{}};
+    if(!d.volumes[cv].chapters) d.volumes[cv].chapters={};
+    if(!d.volumes[cv].sig) d.volumes[cv].sig={};
+    d.volumes[cv].sig[c.id]=chSig(c);
+    setChDigestStatusInPlace(d, c.id, cv, DS_DIGESTED, "", it.synopsis||"", chapterContentHash(c));
   });
-  if(blocks.length){
-    const head="=== "+volName(vid)+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
-    d.volumes[vid].text=(d.volumes[vid].text?d.volumes[vid].text+"\n\n---\n\n":"")+head+"\n\n"+blocks.join("\n\n---\n\n");
-  }
+  Object.keys(blocks).forEach(function(cv){
+    if(!blocks[cv]||!blocks[cv].length) return;
+    const head="=== "+volName(cv)+" · 章节摘要总表（导入 "+(pack.madeAt||"")+"） ===";
+    d.volumes[cv].text=(d.volumes[cv].text?d.volumes[cv].text+"\n\n---\n\n":"")+head+"\n\n"+blocks[cv].join("\n\n---\n\n");
+  });
   d.globalDirty=true;
   saveDigest(d);
   try{ renderDigest(); }catch(e){}
   try{ refreshChapterViews(); }catch(e){}
   let msg="已导入消化档案："+hit+" 章标记为已消化。";
-  if(miss.length) msg+="\n\n未匹配到章节："+miss.join("、")+"\n请确认这些章已导入、且归入「"+volName(vid)+"」分卷。";
+  const dist=Object.keys(byVol).map(function(k){ return "「"+volName(k)+"」"+byVol[k]+"章"; }).join("、");
+  if(dist) msg+="\n\n分布："+dist+"。";
+  if(wrongVol.length){
+    msg+="\n\n注意：这些章节实际不在「"+volName(vid)+"」里，消化已按它们真实所在的分卷写入（不影响使用）。"
+       + "若要把它们搬回「"+volName(vid)+"」：管理分卷 → 在对应卷上选目标卷 → 点「搬运」。";
+  }
+  if(miss.length) msg+="\n\n未匹配到章节："+miss.join("、")+"\n请确认这些章的正文已先导入。";
   alert(msg);
+}
+/* ---------- v92 从网址导入（正文 / 消化档案） ----------
+   场景：素材文件在电脑上生成，写作在手机上，中间隔着「把文件弄到手机里」这一步。
+   把文件挂到网上（GitHub Pages / 任意静态空间）后，手机填网址点一下即可装载。 */
+function renderImportQuick(){
+  const box=document.getElementById("imQuick"); if(!box) return;
+  const arr=(typeof IMPORT_QUICK_LINKS!=="undefined"&&IMPORT_QUICK_LINKS)?IMPORT_QUICK_LINKS:[];
+  if(!arr.length){ box.style.display="none"; box.innerHTML=""; return; }
+  box.style.display="";
+  box.innerHTML='<span class="dp-qk-h">快捷装载</span>'+arr.map(function(it,i){
+    return '<button type="button" class="dp-qk-b" onclick="quickImportLink('+i+')">'+esc(it.t)+'</button>';
+  }).join("");
+}
+function quickImportLink(i){
+  const it=(typeof IMPORT_QUICK_LINKS!=="undefined"&&IMPORT_QUICK_LINKS)?IMPORT_QUICK_LINKS[i]:null;
+  if(!it) return;
+  const el=document.getElementById("imUrl"); if(el) el.value=it.u;
+  importFromUrl(it.k);
+}
+function importFromUrl(kind){
+  const el=document.getElementById("imUrl");
+  let url=((el&&el.value)||"").trim();
+  if(!url){
+    const u=prompt("请输入素材文件的网址（http/https，正文用 .txt/.md，消化档案用 .json）");
+    if(!u||!u.trim()) return;
+    url=u.trim(); if(el) el.value=url;
+  }
+  if(!/^https?:\/\//i.test(url)){ alert("网址要以 http:// 或 https:// 开头。\n\n你填的是："+url); return; }
+  const btn=document.getElementById("imUrlGo"); if(btn){ btn.disabled=true; btn.textContent="下载中…"; }
+  const done=function(){ if(btn){ btn.disabled=false; btn.textContent="导入正文"; } };
+  fetch(url,{cache:"no-store",mode:"cors"}).then(function(r){
+    if(!r.ok) throw new Error("下载失败：HTTP "+r.status+"（网址可能失效或需要登录）");
+    return r.text();
+  }).then(function(t){
+    if(!t||!t.trim()) throw new Error("下载到的内容是空的");
+    if(kind==="digest"){
+      let pack=null;
+      try{ pack=JSON.parse(t); }catch(e){ throw new Error("这个网址返回的不是 JSON，不像是消化档案（消化档案请以 .json 结尾）"); }
+      if(!pack||!pack.__digestPack||!Array.isArray(pack.chapters)) throw new Error("这不是消化档案文件（缺少 __digestPack 标记）");
+      done();
+      applyDigestPack(pack);
+      return;
+    }
+    const chs=parseNovel(t);
+    if(!chs||!chs.length) throw new Error("没能在这份文本里识别到章节标题。\n\n需要每行一个章标题，例如：\n第1章 隐形衣下的吻\n第2章 · 魁地奇与嫉妒");
+    done();
+    closeDataPanel();
+    openImportMenu(chs,null);
+    toast("识别到 "+chs.length+" 章，请选择导入方式");
+  }).catch(function(e){
+    done();
+    alert("从网址导入失败：\n"+((e&&e.message)||e)+"\n\n请确认：1) 网址能直接在浏览器里打开；2) 以 https 开头；3) 是纯文本/JSON，不是网盘预览页。");
+  });
 }
 /* ---------- 导出小说（带选项） ---------- */
 function openExportMenu(){document.getElementById("exMask").classList.add("on");}
@@ -8845,7 +9003,7 @@ function clearSample(){
 }
 function openModal(t,x){document.getElementById("mTitle").textContent=t;document.getElementById("mText").textContent=x;document.getElementById("mask").classList.add("on");}
 function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
-function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}}
+function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}
