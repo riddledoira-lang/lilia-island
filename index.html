@@ -611,6 +611,16 @@
   .dp-note b{color:#b8860b;}
   .dp-chk{display:flex;align-items:flex-start;gap:6px;margin-top:7px;font-size:12px;color:var(--ink);cursor:pointer;line-height:1.5;}
   .dp-chk input{margin-top:2px;flex:none;}
+  /* v101 后端消化档案索引 */
+  .dp-dg{margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--soft);}
+  .dp-dg-h{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px;}
+  .dp-dg-h span{display:block;font-weight:400;font-size:12px;color:var(--sub);line-height:1.5;margin-top:2px;}
+  .dp-dg-list{margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+  .dp-dg-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
+  .dp-dg-item .dg-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dp-dg-item .dg-m{flex:none;color:var(--sub);font-size:11px;}
+  .dp-dg-item button{flex:none;min-height:30px;font-size:12px;padding:0 10px;border-radius:999px;}
+  .dp-dg-meta{margin-top:6px;font-size:11px;color:var(--sub);line-height:1.5;}
 
   /* 搜索高亮 */
   mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px;font-weight:600;}
@@ -1936,6 +1946,11 @@
       </div>
       <div class="dp-qk" id="imQuick"></div>
     </div>
+    <div class="dp-dg">
+      <div class="dp-dg-h">后端消化档案（零 token）<span>档案在服务端预先消化好并挂在网上，这里一键装载——本机不调用 AI、不消耗你的额度</span></div>
+      <div class="dp-dg-list" id="dgIndexList"><div class="dp-dg-meta">正在读取索引…</div></div>
+      <div class="dp-dg-meta" id="dgIndexMeta"></div>
+    </div>
     <div class="dp-danger">
       <button class="danger" onclick="clearAll()">清空全部数据</button>
       <div class="meta">高危操作，会删除当前书全部内容，需二次确认。建议先「导出JSON备份」留底。</div>
@@ -2836,19 +2851,34 @@ function searchBook(b,q){
   (b.chars||[]).forEach(c=>{ const t=(c.name+" "+(c.traits||"")); if(t.toLowerCase().includes(q)) res.push({type:"char",bookId:b.id,bookName:b.title,id:c.id,title:c.name,text:((c.name+" "+(c.traits||"")))}); });
   (b.plot||[]).forEach(p=>{ const t=(p.line+" "+p.point); if(t.toLowerCase().includes(q)) res.push({type:"plot",bookId:b.id,bookName:b.title,id:p.id,title:p.line,text:((p.line+" "+p.point))}); });
   (b.notes||[]).forEach(n=>{ const t=(n.text||""); if(t.toLowerCase().includes(q)) res.push({type:"note",bookId:b.id,bookName:b.title,id:n.id,title:"灵感笔记",text:(n.text||"")}); });
+  /* v101：消化档案纳入搜索。此前 aiDigest 从未进入任何搜索/索引，
+     导致「文件搜索搜不到消化档案」——档案确实在库里，只是压根没被检索过。 */
+  try{
+    const _d=(b.aiDigest)||null;
+    if(_d){
+      const _vs=_d.volumes||{};
+      Object.keys(_vs).forEach(function(vid){
+        const _t=((_vs[vid]||{}).text||"");
+        if(!_t.trim()) return;
+        const _vn=((b.volumes||[]).find(function(x){return x.id===vid;})||{}).name||"未分卷";
+        if(_t.toLowerCase().includes(q)) res.push({type:"digest",bookId:b.id,bookName:b.title,id:vid,title:"消化档案 · "+_vn,text:_t});
+      });
+      if(((_d.global)||"").toLowerCase().includes(q)) res.push({type:"digest",bookId:b.id,bookName:b.title,id:"__global__",title:"消化档案 · 全书总档案",text:(_d.global||"")});
+    }
+  }catch(e){ /* 消化档案读取失败不影响其余搜索结果 */ }
   return res;
 }
 function runSearch(){
   const q=document.getElementById("searchInput").value.trim().toLowerCase();
   const scope=document.getElementById("searchScope").value;
   const box=document.getElementById("searchRes");
-  if(!q){box.innerHTML='<div class="meta">输入关键词后实时搜索（章节 / 人物 / 情节 / 灵感）。</div>';return;}
+  if(!q){box.innerHTML='<div class="meta">输入关键词后实时搜索（章节 / 人物 / 情节 / 灵感 / 消化档案）。</div>';return;}
   const books = scope==="all"?BOOKS:[curBook()];
   let all=[]; books.forEach(b=>{ all=all.concat(searchBook(b,q)); });
   if(!all.length){box.innerHTML='<div class="meta">没有匹配「'+esc(q)+'」的内容。</div>';return;}
-  const groups={ch:"章节",char:"人物",plot:"情节",note:"灵感"};
+  const groups={ch:"章节",char:"人物",plot:"情节",note:"灵感",digest:"消化档案"};
   let html="";
-  ["ch","char","plot","note"].forEach(t=>{
+  ["ch","char","plot","note","digest"].forEach(t=>{
     const items=all.filter(x=>x.type===t);
     if(items.length){
       html+='<div class="sr-group">'+groups[t]+'（'+items.length+'）</div>';
@@ -2863,10 +2893,12 @@ function runSearch(){
 function jumpTo(bookId,type,id){
   if(bookId!==curId) switchBook(bookId);
   closeSearch();
-  const tabMap={ch:"p1",char:"p2",plot:"p3",note:"p5"};
+  const tabMap={ch:"p1",char:"p2",plot:"p3",note:"p5",digest:"p1"};
   const tab=tabMap[type];
   const btn=document.querySelector('[data-p="'+tab+'"]'); if(btn)btn.click();
   if(type==="ch"){ setTimeout(()=>editChapter(id),60); }
+  /* v101：点搜索结果里的「消化档案」→ 直接切到该分卷，档案就在眼前 */
+  if(type==="digest"){ setTimeout(function(){ try{ if(id&&id!=="__global__"&&typeof setVol==="function"){ setVol(id); } try{ renderDigestStatus(); }catch(e2){} }catch(e){} },60); }
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
@@ -6034,7 +6066,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v100";
+const APP_VERSION="v101";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6044,7 +6076,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
-  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
+  ["v101","修「文件消化」链路，并在服务端闭环：① 根因——消化档案此前从未进入任何搜索/检索索引（顶栏搜索与全书检索都只扫章节/人物/线索/灵感/世界观），档案明明在库里却搜不到；现在消化档案纳入顶栏搜索（新增「消化档案」分组，点击直接跳到对应分卷）与全书检索（AI 生成时能读到已消化好的前文档案）。② 索引缺失——项目里从来没有「消化档案索引文件」，现由服务端脚本生成 import/digest_index.json，登记全部可用档案（分卷/章数/文件名/更新时间）。③ 录入→消化断点——导入正文后原本只入队却不会消化（未配 AI 时更是静默返回，看不出原因）；现在录入完成会按来源自动匹配配套档案并询问装载，未配 AI 也会明确提示零消耗方案。④ 后端消化——新增 tools/digest_build.js：读取手稿或工作台备份，在服务端产出 __digestPack 摘要包并自动维护索引，支持本地规则抽取（零 token）与 AI 两种模式；前端「数据备份 → 后端消化档案」一键装载，全程不调用本机 AI、不消耗你的额度"],  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
   ["v94","章节列表标题栏适配窄屏：标题文字可省略、徽章不换行、智能分卷/管理分卷收进独立按钮组，手机上整组落到第二行右对齐，不再顶出标题栏。数据层：消化档案支持自带「与XX的关联」标签（西里斯篇用「与西里斯」）；导入消化档案时分卷名允许模糊匹配（去空格互相包含、或去掉篇/卷部后的关键词），找不到会列出你当前的分卷名"],
   ["v93","修「移动章节会波及别的分卷」：选中某卷后，章节页其实把其它分卷的章节也混排在列表尾部（为防“保存了却看不见”），拖拽/↑↓ 又拿这个混合列表的下标去重排 order——所以「在詹姆斯篇里动一下」，西里斯篇和莱姆斯篇的章节顺序被一起重写，看着就像詹姆斯的内容被复制过去、别的卷被覆盖。现在：order 严格卷内编号、视图只返回当前卷、拖拽与上下移只在同卷内生效（跨卷拖动直接拒绝并提示走「编辑·分卷」或「管理分卷·搬运」）。同时「搬运」按钮的目标卷改为必须手动选择，不再默认第一个卷一点就生效；编辑器里改分卷会把消化记录一起迁走并切到新卷；搬运后在源卷摘要末尾留一行「已搬出」说明"],
   ["v92","新增「从网址导入」：正文与消化档案都能直接填网址装载，解决「素材在电脑、写作在手机、传文件麻烦」的断层（数据备份面板底部）。配套两条快捷链接，点一下即可装载詹姆斯篇 74 章正文 / 74 章消化档案 · 消化档案导入不再要求章节已归对分卷：按「分卷+章号」找不到时，会退回按「章号+标题」全库匹配并写入章节真实所在的分卷，同时在结尾告知第几章跑偏了 · 新增「分卷搬家」：管理分卷里每卷多了一行「本卷 N 章 → 搬到 [目标卷] · 搬运」，把误入其它分卷的章节整批搬回，连消化档案一起迁移，不动一个字正文"],
@@ -7139,7 +7171,18 @@ async function runDigestUpdate(){
   _digestTimer=null;
   /* v100：整段兜底 —— 后台重建失败原先会变成未捕获 rejection，污染控制台且无任何提示 */
   try{
-    const ai=load("ai",{}); if(!ai.base) return;
+    const ai=load("ai",{});
+    if(!ai.base){
+      /* v101：原先未配 AI 时直接 return，用户看不到任何反馈，
+         表现为「文件都录入了但一章也没消化」且无从排查。现在给一次明确提示。 */
+      try{
+        if(!window.__dgNoAiHinted){
+          window.__dgNoAiHinted=true;
+          toast("未配置 AI：章节不会自动批量消化（这是设计如此，避免烧额度）。\n零消耗方案：数据备份 →「后端消化档案」一键装载。");
+        }
+      }catch(e){}
+      return;
+    }
     const d=getDigest();
     /* 只在 globalDirty 时重建全书总档案，不自动触发批量章节消化 */
     if(d.globalDirty){
@@ -8251,6 +8294,23 @@ function buildRagIndex(volId){
     var t=(c.title||("第"+(c.num||"?")+"章"))+"。 "+(c.body||"");
     idx.push({type:"章节",title:c.title||("第"+(c.num||"?")+"章"),text:t.slice(0,4000),tok:_ragTok(t.slice(0,4000))});
   });
+  /* v101：消化档案纳入全书检索。此前 buildRagIndex 只索引人物/线索/章节/世界观，
+     消化档案（aiDigest）缺席，AI 生成时读不到已消化好的前文档案。 */
+  try{
+    var _dg=getDigest();
+    if(_dg){
+      Object.keys(_dg.volumes||{}).forEach(function(vid){
+        if(volId&&volId!=="none"&&vid!==volId) return;
+        var _t=((_dg.volumes[vid]||{}).text||"").trim();
+        if(!_t) return;
+        idx.push({type:"消化档案",title:"消化档案 · "+volName(vid),text:_t,tok:_ragTok(_t)});
+      });
+      if(!(volId&&volId!=="none")){
+        var _g=((_dg.global)||"").trim();
+        if(_g) idx.push({type:"消化档案",title:"消化档案 · 全书总档案",text:_g,tok:_ragTok(_g)});
+      }
+    }
+  }catch(e){ /* 消化档案索引失败不影响其余检索 */ }
   var w=(load("world","")||"").trim(); if(w) idx.push({type:"世界观",title:"世界观",text:w,tok:_ragTok(w)});
   return idx;
 }
@@ -8997,6 +9057,7 @@ function importFromUrl(kind){
     url=u.trim(); if(el) el.value=url;
   }
   if(!/^https?:\/\//i.test(url)){ alert("网址要以 http:// 或 https:// 开头。\n\n你填的是："+url); return; }
+  _lastImportSource=url;   /* v101：记住来源，导入完成后去索引里找配套消化档案 */
   const btn=document.getElementById("imUrlGo"); if(btn){ btn.disabled=true; btn.textContent="下载中…"; }
   const done=function(){ if(btn){ btn.disabled=false; btn.textContent="导入正文"; } };
   fetch(url,{cache:"no-store",mode:"cors"}).then(function(r){
@@ -9023,6 +9084,120 @@ function importFromUrl(kind){
     alert("从网址导入失败：\n"+((e&&e.message)||e)+"\n\n请确认：1) 网址能直接在浏览器里打开；2) 以 https 开头；3) 是纯文本/JSON，不是网盘预览页。");
   });
 }
+/* ---------- v101 后端消化档案索引 ----------
+   背景：消化在客户端跑要烧大量 token。改为「服务端预先消化 → 产出 __digestPack
+   → 挂到 import/ → 前端只下载装载（零 AI 调用）」。本模块负责：
+     ① 读取 import/digest_index.json（索引文件，此前从未生成过）
+     ② 面板列出全部可用档案，一键装载
+     ③ 导入正文后按来源自动匹配配套档案，询问装载 —— 打通「录入 → 消化」断点。
+   索引由 tools/digest_build.js 在服务端生成与维护。 */
+/* 默认指向官方站点的索引；自托管（或本地调试）可在控制台执行：
+     localStorage.setItem("jkd_dg_index_url","https://你的域名/import/digest_index.json")
+   索引里的 baseUrl 决定各摘要包的下载地址，改一处即可整体换源。 */
+const DIGEST_INDEX_URL=(function(){
+  try{ var _u=localStorage.getItem("jkd_dg_index_url"); if(_u&&/^https?:\/\//i.test(_u)) return _u; }catch(e){}
+  return "https://riddledoira-lang.github.io/lilia-island/import/digest_index.json";
+})();
+let _dgIndex=null, _dgIndexAt=0, _dgIndexBusy=false;
+let _lastImportSource="";   /* 最近一次录入的正文来源（网址/文件名），用于匹配配套档案 */
+function dgBaseUrl(idx){
+  const b=(idx&&idx.baseUrl)||"";
+  if(b) return b.replace(/\/?$/,"/");
+  return DIGEST_INDEX_URL.replace(/digest_index\.json$/,"");
+}
+function dgPackUrl(idx,p){ return (p&&p.u)?p.u:(dgBaseUrl(idx)+(p&&p.file||"")); }
+async function fetchDigestIndex(force){
+  const TTL=10*60*1000;
+  if(!force && _dgIndex && (Date.now()-_dgIndexAt)<TTL) return _dgIndex;
+  if(_dgIndexBusy) return _dgIndex;
+  _dgIndexBusy=true;
+  try{
+    const r=await fetch(DIGEST_INDEX_URL+(force?("?t="+Date.now()):""),{cache:"no-store",mode:"cors"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    if(!j||!j.__digestIndex||!Array.isArray(j.packs)) throw new Error("索引格式不对（缺少 __digestIndex）");
+    _dgIndex=j; _dgIndexAt=Date.now();
+    return j;
+  }catch(e){
+    console.warn('读取后端消化档案索引失败(非致命):',(e&&e.message)||e);
+    return _dgIndex;
+  }finally{ _dgIndexBusy=false; }
+}
+async function loadDigestPackByUrl(url){
+  const r=await fetch(url,{cache:"no-store",mode:"cors"});
+  if(!r.ok) throw new Error("下载失败：HTTP "+r.status+"（档案可能还没发布）");
+  const t=await r.text();
+  let pack=null;
+  try{ pack=JSON.parse(t); }catch(e){ throw new Error("返回的不是 JSON，不像是消化档案"); }
+  if(!pack||!pack.__digestPack||!Array.isArray(pack.chapters)) throw new Error("缺少 __digestPack 标记，不是消化档案");
+  applyDigestPack(pack);
+  return pack;
+}
+/* 按来源匹配配套档案：先比 source，再比文件名主干 */
+function dgMatchPack(idx, hint){
+  if(!idx||!Array.isArray(idx.packs)) return null;
+  /* 来源可能是完整网址（从网址导入时记的就是 URL），先取文件名主干再比，
+     否则 https://…/import/james74.txt 永远匹配不到 james74_digest.json */
+  let h=String(hint||"").toLowerCase().split("?")[0];
+  const slash=h.lastIndexOf("/"); if(slash>=0) h=h.slice(slash+1);
+  const stem=h.replace(/\.(txt|md|docx?|json)$/i,"").replace(/[\s_\-]+/g,"");
+  if(!stem) return null;
+  for(let i=0;i<idx.packs.length;i++){
+    const p=idx.packs[i]||{};
+    const s=String(p.source||"").toLowerCase().replace(/[\s_\-]+/g,"");
+    const f=String(p.file||"").toLowerCase().replace(/[\s_\-]+/g,"");
+    if(s&&(s.indexOf(stem)>=0||stem.indexOf(s)>=0)) return p;
+    if(f&&(f.indexOf(stem)>=0||stem.indexOf(f)>=0)) return p;
+  }
+  return null;
+}
+/* 录入正文后：查索引 → 命中配套档案 → 询问装载（零 token 完成消化） */
+async function afterImportTryDigest(hint){
+  try{
+    const idx=await fetchDigestIndex(false);
+    if(!idx) return;
+    const p=dgMatchPack(idx,hint);
+    if(!p) return;
+    const url=dgPackUrl(idx,p);
+    const ok=confirm("检测到这份正文配套的后端消化档案：\n\n「"+(p.volName||p.vol)+"」"+p.chapters+" 章\n\n现在装载？\n装载后这些章节直接标记为已消化，本机不调用 AI、不消耗额度。");
+    if(!ok) return;
+    await loadDigestPackByUrl(url);
+    toast("已装载后端消化档案："+(p.volName||p.vol)+" "+p.chapters+" 章");
+  }catch(e){
+    console.warn('自动装载后端消化档案失败(非致命):',(e&&e.message)||e);
+    try{ alert("装载配套消化档案失败：\n"+((e&&e.message)||e)+"\n\n也可以在「数据备份 → 后端消化档案」里手动点装载。"); }catch(e2){}
+  }
+}
+function dgLoadPack(i){
+  try{
+    if(!_dgIndex||!_dgIndex.packs||!_dgIndex.packs[i]){ toast("索引还没读出来，稍等一下再点"); return; }
+    const p=_dgIndex.packs[i];
+    toast("正在下载「"+(p.volName||p.vol)+"」消化档案…");
+    loadDigestPackByUrl(dgPackUrl(_dgIndex,p)).then(function(){
+      toast("已装载："+(p.volName||p.vol)+" "+p.chapters+" 章（零 token）");
+    }).catch(function(e){ alert("装载失败：\n"+((e&&e.message)||e)); });
+  }catch(e){ alert("装载失败：\n"+((e&&e.message)||e)); }
+}
+async function renderDigestIndex(force){
+  const list=document.getElementById("dgIndexList"); if(!list) return;
+  const meta=document.getElementById("dgIndexMeta");
+  list.innerHTML='<div class="dp-dg-meta">正在读取索引…</div>';
+  const idx=await fetchDigestIndex(!!force);
+  if(!idx||!Array.isArray(idx.packs)||!idx.packs.length){
+    list.innerHTML='<div class="dp-dg-meta">暂时没读到后端消化档案索引（离线，或索引尚未发布）。</div>';
+    if(meta) meta.textContent="";
+    return;
+  }
+  list.innerHTML=idx.packs.map(function(p,i){
+    return '<div class="dp-dg-item">'
+      +'<span class="dg-t">'+esc(p.volName||p.vol)+' · '+p.chapters+' 章</span>'
+      +'<span class="dg-m">'+esc(p.madeAt||"")+'</span>'
+      +'<button class="primary" onclick="dgLoadPack('+i+')">装载</button>'
+      +'</div>';
+  }).join("");
+  if(meta) meta.textContent="索引更新于 "+esc(idx.updatedAt||"")+" · 共 "+idx.packs.length+" 个档案 · 装载不消耗任何 AI 额度";
+}
+
 /* ---------- 导出小说（带选项） ---------- */
 function openExportMenu(){document.getElementById("exMask").classList.add("on");}
 function closeEx(){document.getElementById("exMask").classList.remove("on");}
@@ -9239,6 +9414,7 @@ function readFileText(file){
 }
 function importNovel(e){
   const f=e.target.files[0];if(!f)return;
+  try{ _lastImportSource=f.name||""; }catch(_e){ _lastImportSource=""; }
   readFileText(f).then(txt=>{
     try{
       const chs=parseNovel(txt);
@@ -9361,6 +9537,8 @@ function doImportNovel(){
   const shortSkipped=pendingChs.length-filtered.length;
   const r=simulateImport(load("chapters",[]),filtered,mode,protectArr);
   save("chapters",r.existing);refreshChapterViews();queueDigestUpdate();switchTab('p1',document.querySelector('#tabs button[data-p="p1"]'));
+  /* v101：打通「录入 → 消化」断点 —— 录入完成后查后端档案索引，命中就询问装载（零 token） */
+  try{ if(_lastImportSource) afterImportTryDigest(_lastImportSource); }catch(e){ console.warn('配套消化档案匹配失败(非致命):',(e&&e.message)||e); }
   let msg=mode==="replace"
     ? "替换完成：导入 "+r.added+" 章。"
     : "导入完成：新增 "+r.added+" 章，合并覆盖 "+r.merged+" 章。";
@@ -9507,7 +9685,7 @@ function clearSample(){
 }
 function openModal(t,x){document.getElementById("mTitle").textContent=t;document.getElementById("mText").textContent=x;document.getElementById("mask").classList.add("on");}
 function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);try{save("trash",[]);}catch(e){}const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
-function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}}
+function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}

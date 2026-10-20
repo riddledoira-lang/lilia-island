@@ -1,0 +1,27 @@
+{
+  "__digestIndex": true,
+  "updatedAt": "2026-10-20",
+  "baseUrl": "https://riddledoira-lang.github.io/lilia-island/import/",
+  "packs": [
+    {
+      "vol": "sirius",
+      "volName": "西里斯篇",
+      "file": "sirius14_digest.json",
+      "source": "西里斯篇.docx（第1–14章，第5–13章取精修稿）",
+      "chapters": 14,
+      "bytes": 15468,
+      "madeAt": "2026-10-20",
+      "linkLabel": "与西里斯"
+    },
+    {
+      "vol": "james",
+      "volName": "詹姆斯篇",
+      "file": "james74_digest.json",
+      "source": "詹姆斯篇1-74.docx",
+      "chapters": 74,
+      "bytes": 36666,
+      "madeAt": "2026-10-20",
+      "linkLabel": null
+    }
+  ]
+}
