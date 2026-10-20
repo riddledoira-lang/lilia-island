@@ -1879,6 +1879,8 @@
           <label data-page-node-id="gB2GlI7HKNkAZPQOP2uMr5"><input type="checkbox" name="imProtect" value="done" checked data-page-node-id="GV91kRPAjzOyjjwFGoyzPC"> 已完稿</label>
         </div>
       </label>
+      <label class="opt-row" style="margin-top:6px;color:var(--ink);"><input type="checkbox" id="imForce" onchange="previewImport()"> <b>强制覆盖受保护章节</b>（勾选后忽略上面所有保护，一律以导入文件为准）</label>
+      <div style="font-size:12px;color:var(--sub);margin:4px 0 2px;">整本手稿一次性导入时建议勾选：否则手机上已有且标了「已完稿」的同卷同号章节会被跳过，留下的仍是旧内容。</div>
       <label class="opt-row" style="flex-wrap:wrap;" data-page-node-id="nJAjHGowgagmX8ldkikFRT">跳过正文少于
         <input type="number" id="imMinLen" value="0" min="0" style="width:64px;margin:0 6px;" data-page-node-id="lN6HG70vFAXXfkUIR1fzsd"> 字的导入章节（0=不限制）
       </label>
@@ -5614,8 +5616,9 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v90";
+const APP_VERSION="v91";
 const APP_CHANGELOG=[
+  ["v91","导入小说新增「强制覆盖受保护章节」开关：默认保护「已完稿」章节不被覆盖，导致整本手稿一次性导入时，手机上已有的同卷同号章节（哪怕是先前的手录版）会被跳过、留下的仍是旧内容。勾选后忽略全部状态保护，一律以导入文件为准"],
   ["v90","新增「导入消化档案」：把电脑上已写好的逐章摘要（分卷+章号+梗概+出场人物+与主角关联+关键事件）一次性导入，按「分卷+章号」精确匹配写入章节梗概与前文档案，直接标记为已消化——74 章无需逐章点「消化本章」，也不消耗任何 AI 调用"],
   ["v89","导入小说·合并模式修正：去重键从「全局章号」改为「分卷+章号」。各卷章号本就各自独立编号，旧逻辑导入詹姆斯篇第1章时会去匹配西里斯篇第1章——要么把它覆盖掉（丢稿），要么因「已完稿」保护而整章跳过（导入不全）。现在同卷同序号才合并，跨卷互不干扰"],
   ["v88","新版本自动更新更安全：检测到新版后台重载前，先强制落盘保存当前编辑中的章节（不再打断 700ms 自动保存），且若此刻正在生成 AI 内容会等它跑完再刷新（最长 2 分钟），杜绝「更新把稿子/生成结果冲掉」"],
@@ -8591,6 +8594,7 @@ function openImportMenu(chs, cleanup){
   document.getElementById("imCount").textContent="识别到 "+chs.length+" 章。请选择导入方式：";
   document.querySelector('input[name="imMode"][value="merge"]').checked=true;
   document.querySelectorAll('input[name="imProtect"]').forEach(c=>c.checked=(c.value==="done"));
+  var _imf0=document.getElementById("imForce"); if(_imf0) _imf0.checked=false;
   const gv=document.getElementById("imVol"); if(gv){ gv.innerHTML=imVolOpts("none"); }
   pendingChs.forEach(c=>{ if(!c.vol)c.vol="none"; });
   document.getElementById("imPreview").style.display="none";
@@ -8657,7 +8661,9 @@ function simulateImport(existing,filtered,mode,protectArr){
 function previewImport(){
   if(!pendingChs)return;
   const mode=document.querySelector('input[name="imMode"]:checked').value;
-  const protectArr=Array.from(document.querySelectorAll('input[name="imProtect"]:checked')).map(x=>x.value);
+  /* v91：勾选「强制覆盖」后忽略所有状态保护，一律以导入文件为准 */
+  const _imf=document.getElementById("imForce");
+  const protectArr=(_imf&&_imf.checked)?[]:Array.from(document.querySelectorAll('input[name="imProtect"]:checked')).map(x=>x.value);
   const minLen=parseInt(document.getElementById("imMinLen").value)||0;
   const filtered=pendingChs.filter(c=> minLen>0 ? (c.body||"").length>=minLen : true);
   const shortSkipped=pendingChs.length-filtered.length;
@@ -8685,7 +8691,9 @@ function backToIm(){document.getElementById("imPreview").style.display="none";}
 function doImportNovel(){
   if(!pendingChs)return;
   const mode=document.querySelector('input[name="imMode"]:checked').value;
-  const protectArr=Array.from(document.querySelectorAll('input[name="imProtect"]:checked')).map(x=>x.value);
+  /* v91：勾选「强制覆盖」后忽略所有状态保护，一律以导入文件为准 */
+  const _imf=document.getElementById("imForce");
+  const protectArr=(_imf&&_imf.checked)?[]:Array.from(document.querySelectorAll('input[name="imProtect"]:checked')).map(x=>x.value);
   const minLen=parseInt(document.getElementById("imMinLen").value)||0;
   const filtered=pendingChs.filter(c=> minLen>0 ? (c.body||"").length>=minLen : true);
   const shortSkipped=pendingChs.length-filtered.length;
