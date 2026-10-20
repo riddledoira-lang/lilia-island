@@ -140,6 +140,36 @@
   @media(min-width:1024px){ .cf-bar{left:auto;right:16px;width:360px;bottom:16px;} }
   [data-theme="dark"] .cf-bar{background:#2f2716;border-color:#6b5620;}
   [data-theme="dark"] .cf-txt b{color:#f0cf8a;} [data-theme="dark"] .cf-txt span{color:#c8b78c;}
+  /* ===== v97 体检台（审稿 / 去套话 / 节奏） ===== */
+  .qs-modal{max-width:760px;width:100%;max-height:86vh;display:flex;flex-direction:column;}
+  .qs-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
+  .qs-head h3{margin:0;}
+  .qs-sub{font-size:12px;color:var(--sub);line-height:1.5;margin-bottom:8px;}
+  .qs-tabs{display:flex;gap:6px;margin:6px 0 10px;flex-wrap:wrap;}
+  .qs-tab{font-size:12.5px;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--sub);cursor:pointer;}
+  .qs-tab.on{background:var(--brand);border-color:var(--brand);color:#fff;}
+  .qs-body{overflow:auto;flex:1;min-height:120px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card2);}
+  .qs-sec{margin:0 0 12px;}
+  .qs-sec h4{margin:0 0 5px;font-size:13px;display:flex;align-items:center;gap:6px;}
+  .qs-sec h4 .qs-n{font-size:11px;font-weight:500;color:var(--sub);background:var(--soft);border-radius:999px;padding:1px 7px;}
+  .qs-list{margin:0;padding-left:18px;font-size:12.5px;line-height:1.65;}
+  .qs-list li{margin:3px 0;}
+  .qs-k{color:var(--sub);}
+  .qs-bad{color:#b3261e;} .qs-ok{color:#1f7a4d;} .qs-warn{color:#b8860b;}
+  .qs-metrics{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px;}
+  .qs-metrics div{background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:6px 10px;min-width:82px;}
+  .qs-metrics b{display:block;font-size:15px;line-height:1.25;}
+  .qs-metrics span{font-size:11px;color:var(--sub);}
+  .qs-pre{white-space:pre-wrap;font-size:12.5px;line-height:1.7;margin:0;}
+  .qs-foot{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .qs-foot button{flex:1;min-height:36px;font-size:13px;min-width:120px;}
+  .qs-diff{font-size:12.5px;line-height:1.6;}
+  .qs-diff .old{color:var(--sub);text-decoration:line-through;}
+  .qs-diff .new{color:var(--ink);}
+  .qs-diff .row{padding:6px 0;border-bottom:1px dashed var(--line);}
+  .qs-diff .row:last-child{border-bottom:none;}
+  .qs-ta{width:100%;min-height:96px;font-size:12.5px;line-height:1.6;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);resize:vertical;box-sizing:border-box;font-family:inherit;}
+  .qs-field{font-size:12px;color:var(--sub);margin:6px 0 3px;}
   @media (max-width:768px){
     .fab-write{display:inline-flex;position:fixed;right:16px;bottom:calc(108px + env(safe-area-inset-bottom));z-index:72;width:54px;height:54px;border-radius:50%;border:none;background:var(--brand);color:#fff;align-items:center;justify-content:center;font-size:23px;box-shadow:0 6px 16px rgba(0,0,0,.32);}
     .fab-write:active{transform:scale(.94);}
@@ -1458,7 +1488,19 @@
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
           </div>
+          <div class="dg-mode-sel" style="margin-top:6px;">
+            <label style="flex:1;min-width:220px;" title="决定这一章按什么形态写：长篇推进=承接前文推进主线；单章完整事件=本章自带起承转合可独立阅读；情绪特写=弱化事件、放大心理与感官；番外小品=轻度、可幽默、不影响主线">
+              本章形态
+              <select id="chShape" style="margin-left:6px;min-height:30px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:2px 6px;background:var(--card);color:var(--ink);">
+                <option value="long">长篇推进（默认）</option>
+                <option value="single">单章完整事件（可独立读）</option>
+                <option value="mood">情绪特写（弱事件、强心理）</option>
+                <option value="extra">番外小品（轻松/幽默）</option>
+              </select>
+            </label>
+          </div>
           <button id="digestOneBtn" onclick="digestOneChapter(null,this)" title="仅「已完稿」章节会被消化进入前文档案；草稿/待修改不进入">消化本章</button>
+          <button onclick="qsOpen()" title="体检台：本地扫描套话/重复/长句/钩子（免消耗），或让 AI 审稿看结构硬伤与人物漂移，并可直接去套话重写">🔍 体检/审稿</button>
           <button onclick="openFindReplace()">查找/替换</button>
           <button onclick="toggleFocus()">专注写作</button>
           <button onclick="resetChapterForm()">清空表单</button>
@@ -5868,7 +5910,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v96";
+const APP_VERSION="v98";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -5878,7 +5920,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
-  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
+  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
   ["v94","章节列表标题栏适配窄屏：标题文字可省略、徽章不换行、智能分卷/管理分卷收进独立按钮组，手机上整组落到第二行右对齐，不再顶出标题栏。数据层：消化档案支持自带「与XX的关联」标签（西里斯篇用「与西里斯」）；导入消化档案时分卷名允许模糊匹配（去空格互相包含、或去掉篇/卷部后的关键词），找不到会列出你当前的分卷名"],
   ["v93","修「移动章节会波及别的分卷」：选中某卷后，章节页其实把其它分卷的章节也混排在列表尾部（为防“保存了却看不见”），拖拽/↑↓ 又拿这个混合列表的下标去重排 order——所以「在詹姆斯篇里动一下」，西里斯篇和莱姆斯篇的章节顺序被一起重写，看着就像詹姆斯的内容被复制过去、别的卷被覆盖。现在：order 严格卷内编号、视图只返回当前卷、拖拽与上下移只在同卷内生效（跨卷拖动直接拒绝并提示走「编辑·分卷」或「管理分卷·搬运」）。同时「搬运」按钮的目标卷改为必须手动选择，不再默认第一个卷一点就生效；编辑器里改分卷会把消化记录一起迁走并切到新卷；搬运后在源卷摘要末尾留一行「已搬出」说明"],
   ["v92","新增「从网址导入」：正文与消化档案都能直接填网址装载，解决「素材在电脑、写作在手机、传文件麻烦」的断层（数据备份面板底部）。配套两条快捷链接，点一下即可装载詹姆斯篇 74 章正文 / 74 章消化档案 · 消化档案导入不再要求章节已归对分卷：按「分卷+章号」找不到时，会退回按「章号+标题」全库匹配并写入章节真实所在的分卷，同时在结尾告知第几章跑偏了 · 新增「分卷搬家」：管理分卷里每卷多了一行「本卷 N 章 → 搬到 [目标卷] · 搬运」，把误入其它分卷的章节整批搬回，连消化档案一起迁移，不动一个字正文"],
@@ -7906,6 +7948,8 @@ async function aiGen(){
     if(prior.curVolDigest && prior.curVolDigest.trim()) userMsg+=`\n\n【当前分卷子档案（本卷局部人物/伏笔/事件，优先参照）】\n${prior.curVolDigest}`;
   }
   userMsg+=`\n\n【一致性要求】请基于前文已建立的人物性格、关系动态与情感线继续推进：情感状态须连贯、人物行为须符合其已有性格与前文依据；可在本章让情感 / 关系产生新的进展或转折，但不可凭空跳变；结尾留强钩子。`;
+  /* v97：本章形态（长篇推进 / 单章完整事件 / 情绪特写 / 番外小品）——只加一句约束，不改原有链路 */
+  const _shape=shapePrompt(); if(_shape) userMsg+="\n\n"+_shape;
   userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持"主动观察式记录"的第一人称视角，避免被动承受式句式；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
   const btn=document.getElementById("aiBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="生成中…";
   try{
@@ -9554,6 +9598,422 @@ function allRender(){
   renderDigest();
   const au=document.getElementById("appUrl");if(au)au.textContent=location.href;
 }
+/* ===================== v97 体检台（审稿 / 去套话 / 节奏） =====================
+   背景：续写链路本身已经够用（前文档案 + 节拍卡 + 纠偏闭环），缺的是「写完之后的质检」。
+   这里补三件事，全部复用现有 AI 通道与弹窗样式，不新增依赖、不动数据模型：
+     · 本地体检：零消耗规则扫描——套话、四字高频重复、超长句、超长段、对话占比、结尾钩子。
+     · AI 审稿：一次低温调用，看结构硬伤 / 人物漂移 / 节奏问题，产出可执行条目。
+     · 去套话：把被标出的句子交给 AI 逐句重写，给出「原句→新句」对照，确认后再替换正文。
+   体检结论可一键写进「本章专属指令」（#chBrief），下一轮生成即生效——这样体检不是看完就忘。 */
+const QS_CLICHE=["心中一颤","心头一颤","心里一紧","心跳漏了一拍","呼吸一滞","瞳孔微缩","倒吸一口凉气","嘴角勾起","唇角微扬","嘴角微扬","勾起一抹","微微一笑","笑了笑","挑了挑眉","叹了口气","摇了摇头","点了点头","抿了抿唇","垂眸","抬眸","眸光","眸色一沉","目光深邃","眼神复杂","神色复杂","五味杂陈","翻江倒海","如遭雷击","如坠冰窟","恍如隔世","一言难尽","难以言喻","说不出的","不知为何","不知怎么","不由得","不由自主","情不自禁","下意识","鬼使神差","仿佛","似乎","好像","空气仿佛凝固","空气凝固","气氛凝固","就在这时","下一秒","顿时","瞬间","霎时","刹那","猛地","骤然","缓缓地","轻轻地","淡淡的","默默地","静静地","深吸一口气","深吸了一口气","长长地吐出一口气","忍不住","竟然","居然","不得不说","毫无疑问","显而易见","众所周知","某种意义上","某种程度","可以说","总而言之"];
+const QS_MODERN=["破防","社死","无语子","YYDS","老铁","内卷","躺平","打工人","氛围感","松弛感","情绪价值","爹味","纯爱战神","天花板","出圈","种草","复盘","闭环","赋能","抓手","颗粒度","拉满","在线等","一整个","绷不住","精神内耗","PUA","凡尔赛","栓Q","整活"];
+/* 讲述代替呈现（telling not showing）：直接下结论/点心理，而不是让人物做出来。
+   只收「叙述者替读者总结」的标记，不收 于是/所以 这类普通连接词，避免误报。 */
+const QS_TELL=["她知道","他知道","她明白","他明白","她意识到","他意识到","她清楚","他清楚","意识到","这意味着","也就是说","换句话说","事实上","其实","显然","总之","表明","说明了","可以看出","不得不说","她没想到","他没想到","她这才明白","他这才明白","对于她来说","对于他来说"];
+const QS_SHAPE={
+  long:"【本章形态：长篇推进】承接前文已建立的关系与情绪线向前推进，本章要有实质性进展或转折，结尾留钩子。",
+  single:"【本章形态：单章完整事件】本章要自带完整起承转合：一个明确的目标或麻烦 → 受阻/升级 → 解决或反转 → 余波。读者即使单看这一章也能读懂并得到情绪满足；但仍需与前文人物关系一致。",
+  mood:"【本章形态：情绪特写】弱化外部事件，把镜头压在一个场景、一段时间或一次对话里，放大感官细节与心理层次；允许情节推进很少，但情绪必须真实、具体、有变化曲线，不要靠形容词堆砌。",
+  extra:"【本章形态：番外小品】篇幅可短、基调可轻松或幽默，允许日常、玩笑、小意外；不改变主线走向与人物根本性格，不引入需要后续回收的新伏笔。"
+};
+let _qsTab="local", _qsScan=null, _qsRewrites=null, _qsExtra="";
+function qsCurrentText(){
+  const ta=document.getElementById("chBody");
+  if(ta&&(ta.value||"").trim()) return {text:ta.value, from:"editor"};
+  const id=(document.getElementById("chId")||{}).value;
+  if(id){ const c=(load("chapters",[])||[]).filter(function(x){return x.id===id;})[0]; if(c) return {text:c.body||"", from:"saved"}; }
+  return {text:"", from:"none"};
+}
+function qsChapterLabel(){
+  const num=(document.getElementById("chNum")||{}).value||"?";
+  const title=(document.getElementById("chTitle")||{}).value||"（未命名）";
+  return "第"+num+"章《"+title+"》";
+}
+function _qsSents(t){
+  const out=[]; let buf="";
+  for(let i=0;i<t.length;i++){
+    const ch=t[i]; buf+=ch;
+    if("。！？…!?".indexOf(ch)>=0){ if(buf.trim()) out.push(buf.trim()); buf=""; }
+  }
+  if(buf.trim()) out.push(buf.trim());
+  return out;
+}
+function qsScanLocal(text){
+  const t=String(text||"");
+  const chars=t.replace(/\s/g,"").length;
+  const sents=_qsSents(t);
+  const paras=t.split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);
+  const hit=[];
+  QS_CLICHE.forEach(function(w){
+    let n=0,i=0; while((i=t.indexOf(w,i))>=0){ n++; i+=w.length; }
+    if(n) hit.push({w:w,n:n});
+  });
+  hit.sort(function(a,b){ return b.n-a.n; });
+  const modern=[];
+  QS_MODERN.forEach(function(w){ if(t.indexOf(w)>=0) modern.push(w); });
+  /* 讲述句：一句话里出现「叙述者替读者下结论」的标记，就算讲述型 */
+  const tellSents=sents.filter(function(s){ return QS_TELL.some(function(w){ return s.indexOf(w)>=0; }); });
+  const tellRatio=sents.length? tellSents.length/sents.length : 0;
+  const tellHit=QS_TELL.filter(function(w){ return t.indexOf(w)>=0; }).slice(0,10);
+  /* 四字高频：中文串里滑动窗口统计，命中 ≥3 次才算「反复用同一个词」 */
+  const clean=t.replace(/[^\u4e00-\u9fa5]/g,"");
+  const freq={};
+  for(let i=0;i+4<=clean.length;i++){ const k=clean.substr(i,4); freq[k]=(freq[k]||0)+1; }
+  const repeats=Object.keys(freq).map(function(k){return {p:k,n:freq[k]};})
+    .filter(function(x){ return x.n>=3; })
+    .filter(function(x){ return !hit.some(function(h){ return h.w.indexOf(x.p)>=0||x.p.indexOf(h.w)>=0; }); })
+    .sort(function(a,b){ return b.n-a.n; }).slice(0,8);
+  const longS=sents.filter(function(s){ return s.length>70; }).map(function(s){ return {len:s.length, t:s.slice(0,36)+"…"}; });
+  const longP=paras.map(function(p,i){ return {i:i+1,len:p.length,t:p.slice(0,24)+"…"}; }).filter(function(x){ return x.len>300; });
+  const dlgChars=(t.match(/[“「][^”」]*[”」]/g)||[]).reduce(function(a,m){ return a+m.length; },0);
+  const dialogueRatio=chars? dlgChars/chars : 0;
+  const avgLen=sents.length? Math.round(chars/sents.length) : 0;
+  const last=sents.length? sents[sents.length-1] : "";
+  const hookWord=/(却|竟|然而|只是|忽然|突然|可|偏偏|原以为|没想到|门|声|血|影|信|名单|秘密)/;
+  const hookEnd=/[？！…]$/.test(last);
+  const hookStrong=hookEnd||hookWord.test(last.slice(-16));
+  return {chars:chars, sents:sents.length, paras:paras.length, hit:hit, modern:modern, repeats:repeats,
+          longS:longS, longP:longP, dialogueRatio:dialogueRatio, avgLen:avgLen, last:last, hookStrong:hookStrong,
+          tellRatio:tellRatio, tellN:tellSents.length, tellHit:tellHit, tellSample:tellSents.slice(0,3)};
+}
+function qsOpen(){
+  const cur=qsCurrentText();
+  const ttl=document.getElementById("qsTitle"); if(ttl) ttl.textContent=qsChapterLabel()+" · "+(cur.text.replace(/\s/g,"").length)+" 字";
+  document.getElementById("qsMask").classList.add("on");
+  _qsRewrites=null; _qsExtra="";
+  qsSwitch("local");
+}
+function qsClose(){ const m=document.getElementById("qsMask"); if(m) m.classList.remove("on"); }
+function qsSwitch(k){
+  _qsTab=k;
+  const TABS={local:"qsTabLocal", ai:"qsTabAi", deslop:"qsTabDeslop", open:"qsTabOpen", dir:"qsTabDir"};
+  const RUNS={local:"重新扫描", ai:"开始 AI 审稿", deslop:"生成重写对照", open:"拆解开篇", dir:"生成方向报告"};
+  Object.keys(TABS).forEach(function(x){
+    const b=document.getElementById(TABS[x]);
+    if(b) b.classList.toggle("on", x===k);
+  });
+  const run=document.getElementById("qsRunBtn");
+  if(run){ run.onclick=qsRun; run.disabled=false; run.textContent=RUNS[k]||"重新扫描"; }
+  if(k==="local") qsRunLocal();
+  else if(k==="ai") qsAiPlaceholder();
+  else if(k==="deslop") qsDeslopPlaceholder();
+  else if(k==="open") qsOpenPlaceholder();
+  else qsDirPlaceholder();
+}
+function qsRun(){
+  if(_qsTab==="local") qsRunLocal();
+  else if(_qsTab==="ai") qsAiReview();
+  else if(_qsTab==="deslop") qsRunDeslop();
+  else if(_qsTab==="open") qsRunOpen();
+  else qsRunDir();
+}
+function qsRunLocal(){
+  const cur=qsCurrentText();
+  const box=document.getElementById("qsBody"); if(!box) return;
+  if(!cur.text.trim()){ box.innerHTML='<div class="qs-sec"><p class="qs-pre">当前章节还没有正文。先写一点或用「接着写」生成，再来体检。</p></div>'; return; }
+  _qsScan=qsScanLocal(cur.text);
+  box.innerHTML=qsRenderLocal(_qsScan);
+}
+function qsRenderLocal(s){
+  const pct=Math.round(s.dialogueRatio*100);
+  const clicheTotal=s.hit.reduce(function(a,x){ return a+x.n; },0);
+  const per1k=s.chars? (clicheTotal/s.chars*1000) : 0;
+  const clicheLevel = per1k<=3? "ok" : (per1k<=7? "warn" : "bad");
+  const dlLevel = (pct<12||pct>62)? "warn" : "ok";
+  const tellPct = Math.round(s.tellRatio*100);
+  const tellLevel = tellPct<=12? "ok" : (tellPct<=28? "warn" : "bad");
+  let h='<div class="qs-metrics">'+
+    '<div><b>'+s.chars+'</b><span>字数（去空白）</span></div>'+
+    '<div><b>'+s.sents+'</b><span>句子</span></div>'+
+    '<div><b>'+s.avgLen+'</b><span>平均句长</span></div>'+
+    '<div><b class="'+dlLevel+'">'+pct+'%</b><span>对话占比</span></div>'+
+    '<div><b class="'+clicheLevel+'">'+per1k.toFixed(1)+'</b><span>套话/千字</span></div>'+
+    '<div><b class="'+tellLevel+'">'+tellPct+'%</b><span>讲述句占比</span></div>'+
+    '<div><b class="'+(s.hookStrong?'ok':'warn')+'">'+(s.hookStrong?'有':'弱')+'</b><span>结尾钩子</span></div>'+
+    '</div>';
+  h+='<div class="qs-sec"><h4>套话与空泛表达 <span class="qs-n">'+clicheTotal+' 次命中 · '+s.hit.length+' 种</span></h4>';
+  if(!s.hit.length) h+='<p class="qs-pre qs-ok">没有命中常见套话词表，很好。</p>';
+  else h+='<ul class="qs-list">'+s.hit.slice(0,14).map(function(x){
+      return '<li><b>'+esc(x.w)+'</b> ×'+x.n+(x.n>=4?' <span class="qs-bad">（偏多）</span>':'')+'</li>';
+    }).join('')+'</ul>';
+  h+='<p class="qs-pre qs-k" style="margin-top:6px;">说明：这是提示不是判决——「仿佛/似乎」偶尔用没问题，同一种词反复出现才是问题。切到「去套话重写」可让 AI 只重写含这些词的句子。</p></div>';
+  h+='<div class="qs-sec"><h4>反复出现的四字短语 <span class="qs-n">≥3 次</span></h4>';
+  h+= s.repeats.length? '<ul class="qs-list">'+s.repeats.map(function(x){ return '<li>「'+esc(x.p)+'」×'+x.n+'</li>'; }).join('')+'</ul>'
+      : '<p class="qs-pre qs-ok">没有明显重复的四字短语。</p>';
+  h+='</div>';
+  h+='<div class="qs-sec"><h4>句子与段落 <span class="qs-n">长句 >70 字 / 长段 >300 字</span></h4>';
+  let sp=[];
+  if(s.longS.length) sp.push('<li><span class="qs-warn">'+s.longS.length+' 个超长句</span>，例如：「'+esc(s.longS[0].t)+'」（'+s.longS[0].len+' 字）</li>');
+  if(s.longP.length) sp.push('<li><span class="qs-warn">'+s.longP.length+' 个超长段</span>，例如第 '+s.longP[0].i+' 段（'+s.longP[0].len+' 字）</li>');
+  if(!sp.length) sp.push('<li class="qs-ok">句段长度正常</li>');
+  sp.push('<li>对话占比 '+pct+'%'+(dlLevel==="warn"?(pct<12?' <span class="qs-warn">偏少：几乎全是叙述，场景缺少交流与动作支撑</span>':' <span class="qs-warn">偏多：缺少环境与心理支撑</span>'):' <span class="qs-ok">适中</span>')+'</li>');
+  h+='<ul class="qs-list">'+sp.join('')+'</ul></div>';
+  h+='<div class="qs-sec"><h4>讲述 vs 呈现 <span class="qs-n">讲述句占比 '+tellPct+'%</span></h4>';
+  if(!s.tellN) h+='<p class="qs-pre qs-ok">没有「叙述者替读者下结论」的句子，基本靠动作与细节推进。</p>';
+  else{
+    h+='<ul class="qs-list">'+
+      '<li class="'+(tellLevel==="ok"?"qs-ok":"qs-warn")+'">'+s.tellN+' 句在直接说明心理或结论（共 '+s.sents+' 句）'+
+        (tellLevel==="bad"?' <span class="qs-bad">比例偏高：读者被"告知"感受，而不是自己体会到</span>':'')+'</li>'+
+      (s.tellHit.length?'<li>高频标记：'+s.tellHit.map(function(w){return esc(w);}).join('、')+'</li>':'')+
+      s.tellSample.map(function(x){ return '<li class="qs-k">例：'+esc(x.slice(0,44))+(x.length>44?'…':'')+'</li>'; }).join('')+
+      '</ul>';
+  }
+  h+='<p class="qs-pre qs-k" style="margin-top:6px;">改法：把「她感到害怕」换成让她做出害怕时才会做的动作；把「他明白了」换成他改口、停手、看别处。</p></div>';
+  h+='<div class="qs-sec"><h4>结尾钩子</h4><p class="qs-pre">最后一句：'+esc(s.last||"（空）")+'<br>'+
+     (s.hookStrong? '<span class="qs-ok">✓ 结尾有悬念或转折信号</span>' : '<span class="qs-warn">✗ 结尾偏平，建议留一个未解决的问题、异常细节或未说完的话</span>')+'</p></div>';
+  if(s.modern.length) h+='<div class="qs-sec"><h4>时代/语境风险词 <span class="qs-n">HP 1980s 语境</span></h4><ul class="qs-list">'+
+      s.modern.map(function(w){ return '<li class="qs-bad">'+esc(w)+'</li>'; }).join('')+'</ul></div>';
+  return h;
+}
+function qsAiPlaceholder(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre">点右下「开始 AI 审稿」：会用一次低温调用，把本章正文＋本卷档案交给模型，检查<b>结构硬伤（前后矛盾/设定冲突/时间线）</b>、<b>人物漂移（性格、说话方式、关系越界）</b>、<b>节奏问题（拖沓/跳脱/信息重复）</b>，并给出可执行的改法。\n\n消耗约 1 次调用（短输出），比整章重写便宜得多。结果可一键写进「本章专属指令」。</p></div>';
+}
+function qsDeslopPlaceholder(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre">点右下「生成重写对照」：先本地扫出含套话的句子（最多 10 句），交给 AI 逐句重写——要求保留原意与信息，只把空泛表达换成具体的动作/细节/感官，人称与语气不变。\n\n返回后你在对照里确认，再点「应用到正文」才会改稿；不想用就点关闭，正文一个字都不动。</p></div>';
+}
+async function qsAiReview(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  const ai=load("ai",{});
+  if(!ai.base){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">还没配置 AI。请到「AI 生成设置」填好 Base URL 与 Key 再回来。</p></div>'; return; }
+  const cur=qsCurrentText();
+  if(cur.text.replace(/\s/g,"").length<80){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-warn">正文太短（不足 80 字），审稿意义不大。</p></div>'; return; }
+  const btn=document.getElementById("qsRunBtn"); const old=btn.textContent;
+  btn.disabled=true; btn.textContent="审稿中…";
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-k">正在审稿…（约 10–30 秒）</p></div>';
+  try{
+    const num=Number((document.getElementById("chNum")||{}).value)||0;
+    const prior=collectPrior(num, 9000);
+    const sys="你是资深中文小说编辑，负责长篇连载的审稿。只输出问题清单，禁止客套与夸奖。必须严格按四段输出，段首用【硬伤】【人物】【节奏】【改法】标注：\n"+
+      "【硬伤】前后矛盾、设定冲突、时间线错乱、信息与前面章节不符（指出与哪章哪句冲突）\n"+
+      "【人物】性格漂移、说话方式不符、关系越界（只列有依据的，不要臆测）\n"+
+      "【节奏】拖沓、跳脱、信息重复、场景切换生硬、该收不收\n"+
+      "【改法】3–6 条可直接执行的修改动作（改哪句、删哪段、补什么）\n"+
+      "每条不超过两行，用原文片段定位；没有问题的段落写「未发现明显问题」。总长不超过 600 字。不要输出与四段无关的话。";
+    let user="【本章】"+qsChapterLabel()+"\n\n"+cur.text.slice(0,12000);
+    if(prior.syn&&prior.syn.length) user+="\n\n【前文梗概（据此判断前后矛盾）】\n"+prior.syn.join("\n").slice(0,3000);
+    if(prior.curVolDigest&&prior.curVolDigest.trim()) user+="\n\n【本卷档案（人物/伏笔/事件）】\n"+prior.curVolDigest.slice(0,2500);
+    const out=await callAI({sys:sys, user:user, temperature:0.3, max_tokens:1600});
+    if(!out||!out.trim()) throw new Error("接口返回为空");
+    _qsScan=_qsScan||qsScanLocal(cur.text);
+    _qsScan.aiText=out.trim();
+    box.innerHTML='<div class="qs-sec"><h4>AI 审稿结论 <span class="qs-n">'+qsChapterLabel()+'</span></h4><pre class="qs-pre">'+esc(out.trim())+'</pre></div>';
+    toast("审稿完成，可「写入本章指令」");
+  }catch(e){
+    box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">审稿失败：'+esc((e&&e.message)||String(e))+'</p></div>';
+  }finally{ btn.disabled=false; btn.textContent=old; }
+}
+function qsPickSentences(scan, text, limit){
+  const out=[]; const seen={};
+  const sents=_qsSents(text);
+  sents.forEach(function(s){
+    if(s.length<8||s.length>160) return;
+    for(let i=0;i<scan.hit.length;i++){
+      if(s.indexOf(scan.hit[i].w)>=0 && !seen[s]){ seen[s]=1; out.push(s); return; }
+    }
+  });
+  return out.slice(0, limit||10);
+}
+async function qsRunDeslop(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  const ai=load("ai",{});
+  if(!ai.base){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">还没配置 AI。请到「AI 生成设置」填好 Base URL 与 Key 再回来。</p></div>'; return; }
+  const cur=qsCurrentText();
+  if(!cur.text.trim()){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-warn">当前章节没有正文。</p></div>'; return; }
+  const scan=_qsScan&&_qsScan.chars? _qsScan : qsScanLocal(cur.text);
+  const picks=qsPickSentences(scan, cur.text, 10);
+  if(!picks.length){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-ok">没有挑出需要重写的句子（没命中套话词表）。</p></div>'; return; }
+  const btn=document.getElementById("qsRunBtn"); const old=btn.textContent;
+  btn.disabled=true; btn.textContent="重写中…";
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-k">正在重写 '+picks.length+' 句…</p></div>';
+  try{
+    const sys="你是中文小说文字编辑。任务：逐句改写给定句子，去掉套话与空泛表达，换成具体的动作、细节或感官；保持原意、信息量、人称与时态；每句长度与原文接近（±30%）；不添加新情节，不解释，不夸奖。只输出 JSON 数组，格式：[{\"old\":\"原句\",\"new\":\"改写句\"}]，不要 markdown 代码块，不要任何多余文字。";
+    const user="待改写句子（共 "+picks.length+" 句，务必逐句返回）：\n"+picks.map(function(s,i){ return (i+1)+". "+s; }).join("\n");
+    const out=await callAI({sys:sys, user:user, temperature:0.5, max_tokens:2000});
+    const arr=_qsParseRewrites(out, picks);
+    if(!arr.length) throw new Error("模型返回的不是可解析的对照 JSON");
+    _qsRewrites=arr;
+    box.innerHTML='<div class="qs-sec"><h4>重写对照 <span class="qs-n">'+arr.length+' 句</span></h4><div class="qs-diff">'+
+      arr.map(function(x){ return '<div class="row"><div class="old">'+esc(x.old)+'</div><div class="new">'+esc(x.new)+'</div></div>'; }).join('')+
+      '</div><p class="qs-pre qs-k" style="margin-top:8px;">确认后点下方「应用到正文」——只替换这些原句，其余一个字不动。</p></div>';
+    btn.textContent="应用到正文";
+    btn.onclick=qsApplyRewrites;
+    return;
+  }catch(e){
+    box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">重写失败：'+esc((e&&e.message)||String(e))+'</p></div>';
+  }finally{ btn.disabled=false; if(btn.textContent==="重写中…") btn.textContent=old; }
+}
+function _qsParseRewrites(raw, picks){
+  let txt=String(raw||"").replace(/```json/gi,"").replace(/```/g,"").trim();
+  const a=txt.indexOf("["), b=txt.lastIndexOf("]");
+  if(a>=0&&b>a) txt=txt.slice(a,b+1);
+  let arr=null;
+  try{ arr=JSON.parse(txt); }catch(e){ arr=null; }
+  if(!Array.isArray(arr)){
+    /* 兜底：按行解析「1. 原句 → 新句」这种格式 */
+    arr=[];
+    String(raw||"").split(/\n+/).forEach(function(line){
+      const m=line.match(/^\s*\d+[.、)]\s*(.+?)\s*(?:→|->|=>)\s*(.+)$/);
+      if(m) arr.push({old:m[1].trim(), new:m[2].trim()});
+    });
+  }
+  return (arr||[]).filter(function(x){ return x&&x.old&&x.new&&String(x.old).length>3; });
+}
+function qsApplyRewrites(){
+  if(!_qsRewrites||!_qsRewrites.length) return;
+  const ta=document.getElementById("chBody"); if(!ta) return;
+  let txt=ta.value||"", n=0;
+  _qsRewrites.forEach(function(x){
+    if(txt.indexOf(x.old)>=0){ txt=txt.split(x.old).join(x.new); n++; }
+  });
+  if(!n){ toastErr("没有匹配到原句（可能正文已被改动），未做修改"); return; }
+  ta.value=txt;
+  const cc=document.getElementById("chCount"); if(cc) cc.textContent="字数："+txt.length;
+  try{ autoSaveChapter(); }catch(e){}
+  closeAiEditSafe();
+  const btn=document.getElementById("qsRunBtn");
+  btn.onclick=qsRun; btn.textContent="生成重写对照";
+  toast("已替换 "+n+" 句，其余未动（已自动保存）");
+  qsSwitch("local");
+}
+function closeAiEditSafe(){ try{ if(document.getElementById("aiEditMask")) document.getElementById("aiEditMask").classList.remove("on"); }catch(e){} }
+function qsToBrief(){
+  const cur=qsCurrentText();
+  const scan=_qsScan||(cur.text.trim()?qsScanLocal(cur.text):null);
+  if(!scan&&!_qsExtra){ toastErr("先体检一次再写入"); return; }
+  const lines=[];
+  if(scan&&scan.hit.length) lines.push("规避套话："+scan.hit.slice(0,8).map(function(x){return x.w;}).join("、"));
+  if(scan&&scan.repeats.length) lines.push("避免反复使用："+scan.repeats.slice(0,5).map(function(x){return "「"+x.p+"」";}).join(""));
+  if(scan&&scan.avgLen>35) lines.push("句子偏长（平均 "+scan.avgLen+" 字），多用短句断句");
+  if(scan&&!scan.hookStrong) lines.push("结尾要留钩子：未解决的问题/异常细节/没说完的话");
+  if(scan&&scan.tellRatio>0.28) lines.push("少用「她知道/他明白」这类直接下结论的写法（当前占 "+Math.round(scan.tellRatio*100)+"%），改成让人物用动作表现出来");
+  if(scan&&scan.modern.length) lines.push("禁止出现时代不符的词："+scan.modern.join("、"));
+  if(scan&&scan.aiText) lines.push("本轮审稿意见：\n"+scan.aiText.slice(0,600));
+  if(_qsExtra) lines.push(_qsExtra);
+  if(!lines.length){ toast("体检没发现需要规避的问题"); return; }
+  const el=document.getElementById("chBrief");
+  if(!el){ toastErr("找不到「本章专属指令」输入框"); return; }
+  const add="【体检结论 · 生成时规避】\n"+lines.map(function(x){return "· "+x;}).join("\n");
+  el.value=el.value&&el.value.trim()? (el.value.trim()+"\n\n"+add) : add;
+  toast("已写入「本章专属指令」，下次生成自动生效");
+}
+/* ---- v98：开篇拆解（story-long-analyze） ---- */
+function qsFirstChapter(){
+  const chs=(load("chapters",[])||[]).slice();
+  const ok=chs.filter(function(c){ return String(c.body||"").replace(/\s/g,"").length>=200; });
+  if(!ok.length) return null;
+  ok.sort(function(a,b){ return (Number(a.num)||0)-(Number(b.num)||0); });
+  return ok[0];
+}
+function qsOpenMetrics(t){
+  const head=String(t||"").slice(0,1200);
+  const chars=head.replace(/\s/g,"").length;
+  const sents=_qsSents(head);
+  const firstDlg=head.search(/[“「]/);
+  const SIG=/(血|尸|死|喊|叫|哭|枪|刀|碎|裂|冷|门|锁|信|名单|失踪|逃|追|打|撕|烧|不该|没人|不见|秘密|谎)/;
+  const m=head.match(SIG);
+  const firstSig=m? head.indexOf(m[0]) : -1;
+  const dlg=(head.match(/[“「][^”」]*[”」]/g)||[]).join("").length;
+  return {chars:chars, sents:sents.length, firstSent:sents[0]||"", firstDlg:firstDlg, firstSig:firstSig,
+          dlgRatio: chars? dlg/chars : 0, head:head};
+}
+function qsOpenPlaceholder(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  const fc=qsFirstChapter();
+  const info=fc? '<p class="qs-pre qs-k">分析对象：第'+(fc.num||"?")+'章《'+esc(String(fc.title||"未命名"))+'》的前 1200 字。开篇指的是读者第一次接触的那个入口，所以固定取本书第一章（不是你现在打开的那一章）。</p>'
+                : '<p class="qs-pre qs-warn">这本书还没有正文超过 200 字的章节，先写出一章再来拆解。</p>';
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre">点右下「拆解开篇」：先在本地量出前 1200 字里发生了什么（第一句是什么、第一句对话在第几个字、第一个异常信号在第几个字），再让 AI 按<b>【钩子】【节奏节点】【信息投放】【改法】</b>四段拆开。\n\n核心只问一件事：读者在第几个字得到一个「必须继续读」的理由。</p>'+info+'</div>';
+}
+async function qsRunOpen(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  const ai=load("ai",{});
+  if(!ai.base){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">还没配置 AI。请到「AI 生成设置」填好 Base URL 与 Key 再回来。</p></div>'; return; }
+  const fc=qsFirstChapter();
+  if(!fc){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-warn">这本书还没有正文超过 200 字的章节。</p></div>'; return; }
+  const om=qsOpenMetrics(fc.body||"");
+  const btn=document.getElementById("qsRunBtn"); const old=btn.textContent;
+  btn.disabled=true; btn.textContent="拆解中…";
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-k">正在拆解第'+(fc.num||"?")+'章的开篇…（约 10–30 秒）</p></div>';
+  try{
+    const sys="你是中文长篇连载的开篇诊断师。只做拆解，不夸奖、不客套。严格按四段输出，段首用【钩子】【节奏节点】【信息投放】【改法】标注：\n"+
+      "【钩子】第一句给了读者什么？这个钩子属于哪一类（悬念/异常/情绪/画面/提问）？够不够撑住前 300 字？\n"+
+      "【节奏节点】按「第 X 字左右发生了什么」逐条列出前 1200 字的事件与情绪节点，指出哪一段读者最可能松手（流失点）。\n"+
+      "【信息投放】哪些设定是硬塞的（读者此刻不需要知道），哪些该给的没给（读到这儿会看不懂）。\n"+
+      "【改法】3–6 条可直接执行的动作：删哪句、挪哪段、第一句改成什么方向、把哪条信息往后压。\n"+
+      "每条不超过两行，要引用原文片段定位。总长不超过 600 字。";
+    const user="【章节】第"+(fc.num||"?")+"章《"+String(fc.title||"未命名")+"》\n"+
+      "【本地量测】去空白 "+om.chars+" 字 / "+om.sents+" 句 / 第一句对话出现在第 "+(om.firstDlg<0?"（无对话）":om.firstDlg+" 字")+
+      " / 第一个异常信号词出现在第 "+(om.firstSig<0?"（无）":om.firstSig+" 字")+" / 对话占比 "+Math.round(om.dlgRatio*100)+"%\n\n"+
+      "【正文前 1200 字】\n"+om.head;
+    const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:1400});
+    if(!out||!out.trim()) throw new Error("接口返回为空");
+    _qsExtra="【开篇拆解 · 第"+(fc.num||"?")+"章】\n"+out.trim().slice(0,700);
+    let h='<div class="qs-sec"><h4>开篇量测 <span class="qs-n">前 '+om.chars+' 字</span></h4><div class="qs-metrics">'+
+      '<div><b>'+om.sents+'</b><span>句子</span></div>'+
+      '<div><b class="'+(om.firstDlg<0||om.firstDlg>200?"warn":"ok")+'">'+(om.firstDlg<0?"无":om.firstDlg)+'</b><span>首句对话位置（字）</span></div>'+
+      '<div><b class="'+(om.firstSig<0||om.firstSig>150?"warn":"ok")+'">'+(om.firstSig<0?"无":om.firstSig)+'</b><span>首个异常信号（字）</span></div>'+
+      '<div><b>'+Math.round(om.dlgRatio*100)+'%</b><span>对话占比</span></div></div>'+
+      '<p class="qs-pre qs-k">第一句：'+esc(om.firstSent||"（空）")+'</p></div>';
+    h+='<div class="qs-sec"><h4>AI 拆解结论 <span class="qs-n">第'+(fc.num||"?")+'章</span></h4><pre class="qs-pre">'+esc(out.trim())+'</pre></div>';
+    box.innerHTML=h;
+    toast("开篇拆解完成，可「写入本章指令」");
+  }catch(e){
+    box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">拆解失败：'+esc((e&&e.message)||String(e))+'</p></div>';
+  }finally{ btn.disabled=false; btn.textContent=old; }
+}
+/* ---- v98：方向研判（story-long-scan）—— 本应用没有联网榜单，靠你贴材料 ---- */
+function qsDirSeed(){
+  const b=curBook()||{};
+  const vols=(b.volumes||[]).filter(function(v){ return v.id!=="none"; });
+  let s="【书名】"+(b.name||"（未命名）")+"\n";
+  if(vols.length) s+="【分卷】"+vols.map(function(v){ return v.name+(v.note?("（"+v.note+"）"):""); }).join("、")+"\n";
+  try{
+    const d=getDigest();
+    if(d&&d.global&&String(d.global).trim()) s+="【已有人物与设定】\n"+String(d.global).trim().slice(0,900)+"\n";
+  }catch(e){}
+  return s;
+}
+function qsDirPlaceholder(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre">点右下「生成方向报告」：给你三个可执行的<b>开书方向</b>——每个方向含一句话钩子、前三章节奏、与常见写法的差异点，最后给风险提示。\n\n这个应用不联网抓榜单，所以「榜单材料」要你自己贴：把同类书的书名/简介/热评，或者你想要的题材元素贴进下面的框里，模型只基于你给的素材判断，不编造数据。</p>'+
+    '<div class="qs-field">素材与构想（书名、简介、想写的元素、同类书都可以；不填就用本书现有设定）</div>'+
+    '<textarea class="qs-ta" id="qsDirText" placeholder="例：\n同类：《XX》讲……读者热评集中在……\n我想写：霍格沃茨 1970s，斯莱特林视角，主线是一场审判，元素：禁书区、家书、雪">'+esc(qsDirSeed())+'</textarea></div>';
+}
+async function qsRunDir(){
+  const box=document.getElementById("qsBody"); if(!box) return;
+  const ai=load("ai",{});
+  if(!ai.base){ box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">还没配置 AI。请到「AI 生成设置」填好 Base URL 与 Key 再回来。</p></div>'; return; }
+  const ta=document.getElementById("qsDirText");
+  const seed=ta? String(ta.value||"").trim() : "";
+  if(seed.length<10){ toastErr("先在框里写点素材或构想（至少 10 个字）"); return; }
+  const btn=document.getElementById("qsRunBtn"); const old=btn.textContent;
+  btn.disabled=true; btn.textContent="研判中…";
+  box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-k">正在研判方向…（约 15–40 秒）</p></div>';
+  try{
+    const sys="你是中文长篇连载的选题策划。基于用户给的素材（可能是榜单书名、简介、热评、或他自己的构想）做方向研判。严禁编造真实数据（不说销量、排名、收藏数），不许用「爆款」「现象级」这类空词。严格按四段输出，段首用【题材坐标】【读者预期】【三个开书方向】【风险提示】标注：\n"+
+      "【题材坐标】这份素材落在什么题材与情绪带上（用一句话定位：谁，在什么处境里，想要什么，被什么挡住）。\n"+
+      "【读者预期】读这类书的人最想先看到什么、最怕看到什么（各 3 条以内）。\n"+
+      "【三个开书方向】给 3 个互不重复的方向，每个方向 4 行：方向名 / 一句话钩子（30 字内）/ 前三章节奏（每章一句话）/ 与常见写法的差异点。三个方向的风险偏好要不同：一个稳、一个偏、一个狠。\n"+
+      "【风险提示】这 3 个方向各自的坑（写崩点、容易俗套的地方、题材固有风险）。\n"+
+      "总长不超过 900 字。不要输出四段之外的话。";
+    const out=await callAI({sys:sys, user:"【素材与构想】\n"+seed.slice(0,3000), temperature:1.1, max_tokens:2000});
+    if(!out||!out.trim()) throw new Error("接口返回为空");
+    _qsExtra="【方向研判】\n"+out.trim().slice(0,700);
+    box.innerHTML='<div class="qs-sec"><h4>方向报告 <span class="qs-n">基于你给的素材</span></h4><pre class="qs-pre">'+esc(out.trim())+'</pre>'+
+      '<p class="qs-pre qs-k" style="margin-top:8px;">挑中一个方向后，把它的「一句话钩子」和「前三章节奏」写进对应章节的「本章专属指令」，生成时就会照着走。</p></div>';
+    toast("方向报告已生成");
+  }catch(e){
+    box.innerHTML='<div class="qs-sec"><p class="qs-pre qs-bad">研判失败：'+esc((e&&e.message)||String(e))+'</p></div>';
+  }finally{ btn.disabled=false; btn.textContent=old; }
+}
+/* 本章形态 → 生成指令（v97）：不改链路，只多一句强约束，避免影响原有行为 */
+function shapePrompt(){
+  const el=document.getElementById("chShape");
+  const k=(el&&el.value)||"long";
+  return QS_SHAPE[k]||"";
+}
+
 /* ============ 应用启动（v71：IDB 就绪后再初始化，确保 books/curBook 已从 IndexedDB 载入） ============ */
 async function bootApp(){
   try{ const r=await idbInit(); BOOKS=(r.books===undefined||r.books===null)?null:r.books; curId=(r.cur===undefined||r.cur===null)?null:r.cur; }
@@ -9748,6 +10208,27 @@ window.addEventListener('load',function(){
   }
 });
 </script>
+
+<!-- v97 体检台：本地规则扫描（零消耗）+ AI 审稿 + 去套话重写 -->
+<div class="modal-mask" id="qsMask">
+  <div class="modal qs-modal">
+    <div class="qs-head"><h3>🔍 体检台</h3><span class="meta" id="qsTitle"></span></div>
+    <div class="qs-sub">本地体检＝即时规则扫描，不消耗 API；AI 审稿＝一次调用看结构硬伤与人物漂移；去套话＝只重写被标出的句子（对照后可应用）；开篇拆解＝量出读者第一次接触的入口在哪失守；方向研判＝基于你贴的素材给三个开书方向。结论都能一键写进「本章专属指令」，下次生成自动规避。</div>
+    <div class="qs-tabs">
+      <button class="qs-tab on" id="qsTabLocal" onclick="qsSwitch('local')">本地体检</button>
+      <button class="qs-tab" id="qsTabAi" onclick="qsSwitch('ai')">AI 审稿</button>
+      <button class="qs-tab" id="qsTabDeslop" onclick="qsSwitch('deslop')">去套话重写</button>
+      <button class="qs-tab" id="qsTabOpen" onclick="qsSwitch('open')">开篇拆解</button>
+      <button class="qs-tab" id="qsTabDir" onclick="qsSwitch('dir')">方向研判</button>
+    </div>
+    <div class="qs-body" id="qsBody"></div>
+    <div class="qs-foot">
+      <button onclick="qsClose()">关闭</button>
+      <button onclick="qsToBrief()" title="把体检结论写进「本章专属指令」，下次生成自动规避同样问题">写入本章指令</button>
+      <button class="primary" id="qsRunBtn" onclick="qsRun()">重新扫描</button>
+    </div>
+  </div>
+</div>
 
 <!-- 安装引导浮层 -->
 <div class="modal-mask" id="installGuide">
