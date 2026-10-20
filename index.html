@@ -1276,7 +1276,7 @@
           <ol>
             <li>打开 DeepSeek 开放平台：<button type="button" class="link" onclick="safeOpen('https://platform.deepseek.com')">点此打开 ↗</button>（或月之暗面 <button type="button" class="link" onclick="safeOpen('https://platform.moonshot.cn')">moonshot ↗</button>）</li>
             <li>注册 → 充值（¥10 起）→ 左侧「API keys」→ 创建密钥 → 复制那一串 <code>sk-...</code></li>
-            <li>回来把 Key 粘贴到下面的框里 → 点上方「模型」选 <b>deepseek-v4-flash</b> → 点「保存 AI 设置」即可。</li>
+            <li>回来把 Key 粘贴到下面的框里 → 点上方「模型」选 <b>deepseek-flash</b> → 点「保存 AI 设置」即可。</li>
           </ol>
           <p class="meta">之后手机 / 电脑登录同一应用都能用 AI 生成，写一章几分钱。Key 只存在你本机，不上传。</p>
           <p class="meta">💡 <b>提升生成质量两招</b>：① 模型名改填 <code>deepseek-v4-pro</code>（深度思考模式，文风与人设把控明显更强，速度稍慢、单价稍高）；② 点「章节列表」右上「管理分卷」为每卷填<b>专属设定</b>（人物年龄/文风基调），续写时以最高优先级喂给 AI，防止 OOC。</p>
@@ -1300,7 +1300,7 @@
             <span class="mrole-badge gen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>续写模型</span>
             <span class="mrole-who">写正文 · 深度续写 · 改写</span>
           </div>
-          <input type="text" id="aiGenModel" placeholder="deepseek-v4-flash" oninput="renderModelChips();renderModelRoles()">
+          <input type="text" id="aiGenModel" placeholder="deepseek-flash" oninput="renderModelChips();renderModelRoles()">
           <div class="mrole-why">只负责落笔。要的是<b>快 + 敢写</b>，创意由上面的 temperature 决定，与模型强弱无关。</div>
         </div>
 
@@ -1311,9 +1311,9 @@
           </div>
           <input type="text" id="aiModel" placeholder="deepseek-v4-pro" oninput="renderModelChips();renderModelRoles()">
           <div class="mrole-chips">
-            <button type="button" class="chip" data-m="deepseek-v4-flash" onclick="pickModel('aiGenModel','deepseek-v4-flash',this)">续写用 flash</button>
+            <button type="button" class="chip" data-m="deepseek-flash" onclick="pickModel('aiGenModel','deepseek-flash',this)">续写用 flash</button>
             <button type="button" class="chip" data-m="deepseek-v4-pro" onclick="pickModel('aiModel','deepseek-v4-pro',this)">分析用 pro</button>
-            <button type="button" class="chip" data-m="deepseek-v4-flash" onclick="pickModel('aiModel','deepseek-v4-flash',this)">分析也用 flash（省钱）</button>
+            <button type="button" class="chip" data-m="deepseek-flash" onclick="pickModel('aiModel','deepseek-flash',this)">分析也用 flash（省钱）</button>
           </div>
           <div class="mrole-why">只在「想清楚再输出」的地方用。推理过程不吃正文 token 预算——因为它根本不写正文。</div>
         </div>
@@ -1504,6 +1504,7 @@
             <label><input type="radio" name="deepWriteMode" value="all">续写全书完整剧情</label>
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
+            <label title="生成后自动跑一次整章精修（做减法）。关闭则首稿即终稿，每章少一次约 2.3 万字输入 + 4k 输出的调用，约省 35% 费用；需要打磨时再手动点「整章精修」"><input type="checkbox" id="m2AutoPolish" checked> ✨ 自动精修</label>
           </div>
           <div class="dg-mode-sel" style="margin-top:6px;">
             <label style="flex:1;min-width:220px;" title="决定这一章按什么形态写：长篇推进=承接前文推进主线；单章完整事件=本章自带起承转合可独立阅读；情绪特写=弱化事件、放大心理与感官；番外小品=轻度、可幽默、不影响主线">
@@ -5819,7 +5820,15 @@ function buildBookContext(forGen){
   if(tl.length){
     const chs=load("chapters",[]);
     /* 算力减负：时间线超过 80 条时只注入最近 80 条（早期久远事件对续写影响小） */
-    const tlCap=tl.length>80?tl.slice(-80):tl;
+    /* v105：原为只取最近 80 条，书变长后早期里程碑（入学/重大转折/血统揭示）会被整段丢弃，
+       与消化档案的截断是同一个毛病。改为「最早 12 条（卷首里程碑）+ 最近 68 条」，注入总量不变。 */
+    let tlCap=tl;
+    if(tl.length>80){
+      const _seen=new Set(); tlCap=[];
+      tl.slice(0,12).concat(tl.slice(-68)).forEach(function(e){
+        const _k=e.id||((e.date||'')+(e.title||'')); if(!_seen.has(_k)){ _seen.add(_k); tlCap.push(e); }
+      });
+    }
     const t2=tlCap.map(e=>{
       const ch=chs.find(c=>c.id===e.ch);
       return "· "+(e.date||"")+" "+(e.title||"")+(e.desc?("："+e.desc):"")+(ch?("（第"+(ch.num||"?")+"章）"):"");
@@ -6066,7 +6075,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v102";
+const APP_VERSION="v105";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6214,7 +6223,7 @@ function renderCtxSource(){
 }
 
 /* ===== v85 模型分工：让「续写用 flash / 分析用 pro」一眼看懂并给出警告 ===== */
-const MODEL_RECOMMEND={gen:"deepseek-v4-flash",ana:"deepseek-v4-pro"};
+const MODEL_RECOMMEND={gen:"deepseek-flash",ana:"deepseek-v4-pro"};
 /* 识别推理/思考型模型（写正文慢、易吃满 token 预算导致正文为空） */
 function isReasoningModel(name){
   const s=String(name||"").toLowerCase();
@@ -6321,7 +6330,7 @@ function saveAI(){
 /* >>PROVIDERS_START */
 const MODEL_GROUPS=[
   {name:"OpenAI",base:"https://api.openai.com/v1",models:["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o3-mini"]},
-  {name:"DeepSeek",base:"https://api.deepseek.com/v1",models:["deepseek-chat", "deepseek-reasoner"]},
+  {name:"DeepSeek",base:"https://api.deepseek.com/v1",models:["deepseek-flash", "deepseek-v4-pro"]},
   {name:"通义千问",base:"https://dashscope.aliyuncs.com/compatible-mode/v1",models:["qwen-plus", "qwen-max", "qwen-turbo"]},
   {name:"智谱 GLM",base:"https://open.bigmodel.cn/api/paas/v4",models:["glm-4-plus", "glm-4-flash"]},
   {name:"Claude(OpenRouter)",base:"https://openrouter.ai/api/v1",models:["claude-3-5-sonnet", "claude-3-7-sonnet"]},
@@ -6388,7 +6397,7 @@ async function testAI(){
   const pv=_smpGet("smpTopP",SMP_DEF.topPGen);
   const tmEl=document.getElementById("aiThinkMode");
   const tm=tmEl?tmEl.value:SMP_DEF.thinkMode;
-  const model=(document.getElementById("aiModel")||{}).value||ai.model||"deepseek-v4-flash";
+  const model=(document.getElementById("aiModel")||{}).value||ai.model||"deepseek-flash";
   const body={model:model,
     messages:[{role:"system",content:"你是测试助手"},{role:"user",content:"用中文说：连接成功"}],
     temperature:Math.max(0,Math.min(2,Math.round(tv*100)/100)),
@@ -6419,13 +6428,19 @@ function collectPrior(targetNum, maxChars, opts){
   const all=load("chapters",[]);
   const edVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
   const scopeVol = opts.all ? null : (opts.vol||edVol);  /* null = 不按分卷过滤(全书模式) */
-  const prior=all.filter(c=>{
+  const priorRaw=all.filter(c=>{
     const n=Number(c.num);
     if(!n) return false;
     if(scopeVol && c.vol && c.vol!=="none" && c.vol!==scopeVol) return false;  /* 分卷隔离 */
     if(targetNum && !isNaN(targetNum)) return n < Number(targetNum);
     return true;
-  }).sort((a,b)=>Number(a.num)-Number(b.num));
+  });
+  /* v103 草稿隔离：只有「已完稿」章节允许进入续写上下文。
+     草稿/待修改是未定稿内容，进 prompt 等于让 AI 把废弃稿当成已发生的事实（实测会污染后续章节）。 */
+  let prior=priorRaw.filter(c=>(c.status||"draft")==="done");
+  /* 兜底：全书没有任何「已完稿」章节时回退为不过滤，避免续写直接无前文可用而中断 */
+  if(!prior.length && priorRaw.length) prior=priorRaw;
+  prior=prior.sort((a,b)=>Number(a.num)-Number(b.num));
   /* syn(全本一句话梗概) 改在下方 allKw/relevanceOf 就绪后构造，并按预算封顶，避免书变长后成本线性叠加（见 SYN_BUDGET） */
   /* 精准切片（替代向量库的检索增强）：按线索/人物/伏笔相关度排序，而非无差别灌最近N章。
      50% 预算给高相关度章节(含线索词/人物名/伏笔关键词)，50% 给最近章节(保情感连贯)，去重后按时间序排列 */
@@ -6455,16 +6470,29 @@ function collectPrior(targetNum, maxChars, opts){
   if(_synUsed<SYN_BUDGET){ for(let i=prior.length-1;i>=0;i--){ const c=prior[i]; if(!c.synopsis||!c.synopsis.trim()) continue; if(_synSeen.has(c.id)) continue; const line="· 第"+(c.num)+"章《"+(c.title||"")+"》： "+c.synopsis.trim(); if(_synUsed+line.length>SYN_BUDGET) break; _synPicked.push({num:c.num,id:c.id,line}); _synSeen.add(c.id); _synUsed+=line.length; } }
   _synPicked.sort((a,b)=>Number(a.num)-Number(b.num));
   const syn=_synPicked.map(x=>x.line);
-  const halfBudget=Math.floor((maxChars||20000)/2);
   /* 高相关度章节（按分数降序，同分按时间近优先） */
   const byRel=[...prior].map(c=>({c,s:relevanceOf(c)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s||Number(b.c.num)-Number(a.c.num));
   let used=0, full=[], seen=new Set();
-  for(const {c} of byRel){ if(used>=halfBudget) break; const b=(c.body||"").trim(); if(!b||seen.has(c.id)) continue; full.push({num:c.num,title:c.title||"",body:b.slice(0,12000)}); seen.add(c.id); used+=Math.min(b.length,12000); }
-  /* 最近章节补满剩余预算（保情感连贯） */
-  for(let i=prior.length-1;i>=0 && used<(maxChars||20000);i--){
-    const c=prior[i]; if(seen.has(c.id)) continue; const b=(c.body||"").trim(); if(!b) continue;
-    full.push({num:c.num,title:c.title||"",body:b.slice(0,12000)}); seen.add(c.id); used+=Math.min(b.length,12000);
+  const _pushPrior=function(c){ const b=(c.body||"").trim(); if(!b||seen.has(c.id)) return false; full.push({num:c.num,title:c.title||"",body:b.slice(0,12000)}); seen.add(c.id); used+=Math.min(b.length,12000); return true; };
+  /* v104：先锁定最近 3 章。原「高相关优先」会先把预算吃光——
+     实测 12,000 字预算下最近 5 章只进得来 2 章，紧邻上一章常被挤掉，导致连贯性断裂。 */
+  const NEAR_N=3; let _near=0;
+  /* v105：最近章同样必须有预算上限。原实现只判 _near<NEAR_N，不判 used——
+     若最近 3 章都是长章（各 12,000 字），一次就用掉 36,000 字，是 12,000 预算的 3 倍。 */
+  const nearBudget=Math.floor((maxChars||20000)*0.35);
+  for(let i=prior.length-1;i>=0 && _near<NEAR_N;i--){
+    const _c=prior[i]; const _b=(_c.body||"").trim();
+    if(!_b||seen.has(_c.id)) continue;
+    if(_near>0 && used>=nearBudget) break;          /* 至少保证最近 1 章必定进来 */
+    const _room=Math.max(1500, nearBudget-used);    /* 单章至少 1500 字，避免被截断成碎片 */
+    const _len=Math.min(12000, _room);
+    full.push({num:_c.num,title:_c.title||"",body:_b.slice(0,_len)});
+    seen.add(_c.id); used+=Math.min(_b.length,_len); _near++;
   }
+  const halfBudget=Math.floor((maxChars||20000)*0.45);
+  for(const {c} of byRel){ if(used>=halfBudget) break; _pushPrior(c); }
+  /* 剩余预算继续补最近章节（保情感连贯） */
+  for(let i=prior.length-1;i>=0 && used<(maxChars||20000);i--){ _pushPrior(prior[i]); }
   /* 按章节序号排序输出 */
   full.sort((a,b)=>a.num-b.num);
   const fullText=full.map(f=>"【前文·第"+f.num+"章《"+f.title+"》（人物互动/情感推进/关键伏笔）】\n"+f.body);
@@ -6472,7 +6500,9 @@ function collectPrior(targetNum, maxChars, opts){
   let curVolDigest=(d.volumes[edVol||"none"]&&d.volumes[edVol||"none"].text)||"";
   /* v77：注入续写/分析 prompt 的分卷档案封顶最近 8000 字（增量消化后档案按章序累积，尾部=最新章最相关），
      防止长卷档案把上下文与输入费线性撑爆——既是省钱（输入 token 不随卷长膨胀）也不降质（保留最新线索） */
-  if(curVolDigest.length>8000) curVolDigest=curVolDigest.slice(-8000);
+  /* v104：原为只取尾部 8000 字，卷档案变长后早期长线线索会整段消失
+     （200 万字规模下可用比例只剩 8%）。改为「开头 1500（卷设定/早期脉络）+ 尾部 6500（最新进展）」，总预算不变。 */
+  if(curVolDigest.length>8000) curVolDigest=curVolDigest.slice(0,1500)+"\n…（中间部分略）…\n"+curVolDigest.slice(-6500);
   /* 分卷模式：只给本卷子档案，绝不注入其它卷/全书总档案，避免跨卷串味与上下文膨胀；
      book 模式({all:true})：给全书总档案 + 其它卷子档案（作为次要背景），保持原全书行为 */
   const digest = opts.all ? getGlobalDigestText() : curVolDigest;
@@ -6557,8 +6587,8 @@ function creaParams(kind){
 async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
-  /* 生成调用(onToken)走「续写模型」(默认 deepseek-v4-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
-  const model = modelOverride || (onToken ? (ai.genModel||ai.model||"deepseek-v4-flash") : (ai.model||"deepseek-v4-flash"));
+  /* 生成调用(onToken)走「续写模型」(默认 deepseek-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
+  const model = modelOverride || (onToken ? (ai.genModel||ai.model||"deepseek-flash") : (ai.model||"deepseek-flash"));
   /* v84：temperature 允许 0–2（DeepSeek 官方范围，创意写作建议 1.5）。
      旧代码 `temperature||0.8` 会把用户显式设的 0 误判成 falsy → 强行变 0.8，已修正为类型判断。 */
   const _t = (typeof temperature==="number" && isFinite(temperature)) ? temperature : 0.8;
@@ -6645,7 +6675,7 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     if(fr==="content_filter") why+="疑似内容被平台过滤，请换更克制的写法再试。";
     else if(fr==="length"){
       /* 推理模型（如 deepseek-v4-pro）会把 token 预算耗在思考上，导致正文为空 */
-      if(msg.reasoning_content) why+="当前使用的是推理模型，输出预算全部被「思考过程」消耗。建议：在「AI 生成设置」把『续写模型』改为 deepseek-v4-flash，或调大「单次生成字数」。";
+      if(msg.reasoning_content) why+="当前使用的是推理模型，输出预算全部被「思考过程」消耗。建议：在「AI 生成设置」把『续写模型』改为 deepseek-flash，或调大「单次生成字数」。";
       else why+="疑似超出输出长度，请到「AI 生成设置」调大「单次生成字数」。";
     }
     throw new Error(why);
@@ -6670,7 +6700,7 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
   if(onToken){
     cands = modelOverride ? uniqCands([modelOverride].concat(genModelCandidates())) : genModelCandidates();
   } else {
-    cands = [modelOverride||ai.model||"deepseek-v4-flash"];
+    cands = [modelOverride||ai.model||"deepseek-flash"];
   }
   let lastErr=null;
   for(let ci=0; ci<cands.length; ci++){
@@ -6716,7 +6746,7 @@ function uniqCands(arr){ const s=new Set(); const o=[]; arr.forEach(x=>{ if(x&&!
    - max_tokens 默认 12000（结构化档案需要足够输出空间，已提升单章分析详尽度） */
 async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   const ai=load("ai",{});
-  const finalModel=model||ai.model||"deepseek-v4-flash";
+  const finalModel=model||ai.model||"deepseek-flash";
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   const body={model:finalModel,messages:[{role:"system",content:sys},{role:"user",content:user}],temperature:temperature||0.4,max_tokens:max_tokens||12000,stream:false};
   const ms=timeout||180000;
@@ -6728,7 +6758,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   }catch(e){
     clearTimeout(tid);
     const isAbort=(e&&e.name==='AbortError');
-    const err=new Error(isAbort?"AI 生成超时：请求在 "+(ms/1000)+" 秒内未完成，可能是模型较慢或网络波动。可改用更快的模型（如 deepseek-v4-flash），或稍后重试。":"本地网络异常：网络连接失败，请检查网络环境");
+    const err=new Error(isAbort?"AI 生成超时：请求在 "+(ms/1000)+" 秒内未完成，可能是模型较慢或网络波动。可改用更快的模型（如 deepseek-flash），或稍后重试。":"本地网络异常：网络连接失败，请检查网络环境");
     err.digestType=isAbort?'timeout':'network';
     throw err;
   }
@@ -6744,7 +6774,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
       err.digestType='auth'; throw err;
     }
     if(resp.status===400){
-      const err=new Error("请求被接口拒绝（HTTP 400）：常见原因是单章+全书档案超出模型上下文长度，或模型名「"+finalModel+"」不被你的 Key 支持。建议把「分析模型」改为 deepseek-v4-flash，或调小全书档案后重试。原始响应："+t.slice(0,200));
+      const err=new Error("请求被接口拒绝（HTTP 400）：常见原因是单章+全书档案超出模型上下文长度，或模型名「"+finalModel+"」不被你的 Key 支持。建议把「分析模型」改为 deepseek-flash，或调小全书档案后重试。原始响应："+t.slice(0,200));
       err.digestType='http'; throw err;
     }
     const err=new Error("接口拒绝请求（HTTP "+resp.status+"）："+t.slice(0,200));
@@ -6775,7 +6805,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
     const fr=(j.choices[0].finish_reason)||"";
     let why="本章解析格式异常：接口返回内容为空（finish_reason="+fr+"）";
     if(fr==="length"){
-      if(msg.reasoning_content) why+="。当前使用推理模型，输出预算被「思考过程」耗尽——请把「分析模型」也设为 deepseek-v4-flash，或在「AI 生成设置」调大单次生成字数。";
+      if(msg.reasoning_content) why+="。当前使用推理模型，输出预算被「思考过程」耗尽——请把「分析模型」也设为 deepseek-flash，或在「AI 生成设置」调大单次生成字数。";
       else why+="。疑似超出输出长度，请在「AI 生成设置」调大单次生成字数，或拆分本章后重试。";
     } else if(fr==="content_filter"){ why+="。内容被平台过滤，请换更克制的写法再试。"; }
     const err=new Error(why);
@@ -6784,7 +6814,7 @@ async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   return content;
 }
 
-/* 消化模型候选（按优先级尝试）：分析模型(ai.model) → 续写模型(ai.genModel) → 默认 deepseek-v4-flash
+/* 消化模型候选（按优先级尝试）：分析模型(ai.model) → 续写模型(ai.genModel) → 默认 deepseek-flash
    若分析模型报错（如推理模型把预算耗在「思考」上导致正文为空、或模型名不被 Key 支持），
    自动降级到续写模型重试，避免「续写正常、消化却解析失败」的不一致 */
 function digestModelCandidates(){
@@ -6792,12 +6822,12 @@ function digestModelCandidates(){
   const arr=[];
   if(ai.model) arr.push(ai.model);
   if(ai.genModel && ai.genModel!==ai.model) arr.push(ai.genModel);
-  /* 模型名迁移：deepseek-chat 已退役 → deepseek-v4-flash；保留旧名兜底防 API 兼容期断裂 */
-  if(arr[arr.length-1]!=="deepseek-v4-flash") arr.push("deepseek-v4-flash");
-  if(arr[arr.length-1]!=="deepseek-chat") arr.push("deepseek-chat");
+  /* v103：deepseek-chat / deepseek-reasoner 已于 2026-07-24 完全下线，再兜底只会 404。
+     官方现行名：deepseek-flash（V4.1-Flash，快且便宜）、deepseek-v4-pro（强推理）。 */
+  if(arr[arr.length-1]!=="deepseek-flash") arr.push("deepseek-flash");
   return arr;
 }
-/* 生成模型候选（按优先级尝试）：续写模型(ai.genModel) → 分析模型(ai.model) → 默认 deepseek-v4-flash
+/* 生成模型候选（按优先级尝试）：续写模型(ai.genModel) → 分析模型(ai.model) → 默认 deepseek-flash
    若续写模型报错（模型名不被 Key 支持、或推理模型把预算耗在「思考」上导致正文为空），
    自动降级到分析模型/默认模型重试，避免单一模型故障导致整章生成失败 */
 function genModelCandidates(){
@@ -6805,9 +6835,9 @@ function genModelCandidates(){
   const arr=[];
   if(ai.genModel) arr.push(ai.genModel);
   if(ai.model && ai.model!==ai.genModel) arr.push(ai.model);
-  /* 模型名迁移：deepseek-chat 已退役 → deepseek-v4-flash；保留旧名兜底防 API 兼容期断裂 */
-  if(arr[arr.length-1]!=="deepseek-v4-flash") arr.push("deepseek-v4-flash");
-  if(arr[arr.length-1]!=="deepseek-chat") arr.push("deepseek-chat");
+  /* v103：deepseek-chat / deepseek-reasoner 已于 2026-07-24 完全下线，再兜底只会 404。
+     官方现行名：deepseek-flash（V4.1-Flash，快且便宜）、deepseek-v4-pro（强推理）。 */
+  if(arr[arr.length-1]!=="deepseek-flash") arr.push("deepseek-flash");
   return arr;
 }
 
@@ -6959,6 +6989,17 @@ function digestChaptersOrdered(){
   return ch;
 }
 function chSig(c){ return (c.num||"?")+"|"+(c.body||"").length+"|"+(c.title||""); }
+/* v105：注入 prompt 前的档案统一封顶。
+   背景：collectPrior 里的 8000 字封顶只作用于 collectPrior 自己的返回值，
+   而深度续写(aiDeepGen)是直接从 getDigest() 取 text 注入的，等于完全没封顶——
+   200 万字规模下卷档案约 9.5 万字会整段进 prompt，输入成本随书长线性爆炸。
+   策略：保留开头（卷设定/早期长线脉络）+ 尾部（最新进展），总预算不变。 */
+function capDigestForPrompt(t, budget){
+  t=t||""; budget=budget||8000;
+  if(t.length<=budget) return t;
+  var head=Math.min(1500, Math.floor(budget*0.2)), tail=Math.max(500, budget-head);
+  return t.slice(0,head)+"\n…（中间部分略，本段共 "+t.length+" 字）…\n"+t.slice(-tail);
+}
 /* 章节正文内容哈希（FNV-1a 32bit，同步快速，用于算力保护：内容未变则跳过API调用）
    替代 chSig 的长度比对——chSig 只看 body.length，改字不改长度检测不到 */
 function chapterContentHash(c){
@@ -7351,8 +7392,10 @@ async function digestSerialQueue(chapters, vid, opts){
           saveDigest(d);
           successCount++;
           consecutiveNetFail=0;
-          try{autoTimelineFromChapter(c);}catch(e2){}
-          try{analyzeCharBehavior(c);}catch(e2){}
+          if(digestExtrasOn()){
+            try{ await autoTimelineFromChapter(c); }catch(e2){ console.warn('autoTimelineFromChapter 失败(非致命):', e2 && e2.message); }
+            try{ await analyzeCharBehavior(c); }catch(e2){ console.warn('analyzeCharBehavior 失败(非致命):', e2 && e2.message); }
+          }
         }
       } else {
         throw new Error("AI 返回内容为空");
@@ -7675,7 +7718,11 @@ async function digestOneChapter(chId, btn){
         await rebuildGlobalDigest();
         const fbNote=(usedModel && ai.model && usedModel!==ai.model)?"（分析模型不可用，已自动改用续写模型）":"";
         toast(chLabel+" 已深度消化完成，档案已更新"+fbNote);
-        try{autoTimelineFromChapter(ch);}catch(e2){}
+        /* v105：与批量路径一致，受「附加提取」开关控制（此前关了开关这里仍会调用，白烧 token） */
+        if(digestExtrasOn()){
+          try{ await autoTimelineFromChapter(ch); }catch(e2){ console.warn('autoTimelineFromChapter 失败(非致命):', e2 && e2.message); }
+          try{ await analyzeCharBehavior(ch); }catch(e2){ console.warn('analyzeCharBehavior 失败(非致命):', e2 && e2.message); }
+        }
       }
     } else {
       throw new Error("AI 返回内容为空");
@@ -7746,8 +7793,10 @@ async function digestChapterNow(c){
       saveDigest(d);
       await rebuildGlobalDigest();
       renderDigest();
-      try{autoTimelineFromChapter(c);}catch(e2){}
-      try{analyzeCharBehavior(c);}catch(e2){}
+      if(digestExtrasOn()){
+        try{ await autoTimelineFromChapter(c); }catch(e2){ console.warn('autoTimelineFromChapter 失败(非致命):', e2 && e2.message); }
+        try{ await analyzeCharBehavior(c); }catch(e2){ console.warn('analyzeCharBehavior 失败(非致命):', e2 && e2.message); }
+      }
     }
   }catch(e){ /* 静默：绝不因 AI 失败影响写作/续写 */ }
 }
@@ -7981,6 +8030,15 @@ async function digestRetryFailed(vid, btn){
 }
 
 /* 切换批量冷却间隔 */
+/* v104：消化后的「附加提取」开关（自动时间线 + 自动人物行为纠偏）。
+   修复 await 后这两个调用才真正执行完——也就真正开始花钱。默认开启（功能完整），可一键关闭省 token。 */
+function digestExtrasOn(){ return load("digestExtras", true)!==false; }
+function toggleDigestExtras(btn){
+  const v=!digestExtrasOn(); save("digestExtras", v);
+  try{ toast(v?"已开启：消化后自动提取时间线与人物纠偏（每章多 2 次调用）":"已关闭：只做章节消化，不再自动提取时间线/人物纠偏"); }catch(e){}
+  if(btn) btn.textContent="附加提取 "+(v?"开":"关");
+  try{ renderDigest(); }catch(e){}
+}
 function cycleDigestCooldown(btn){
   const opts=[30000,15000,5000,0];
   const cur=digestCooldownMs();
@@ -8086,6 +8144,7 @@ function renderDigest(){
   html+='<button onclick="exportDigestAll()">导出全书档案</button>';
   html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
+  html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
   html+='</div>';
   html+='</div></div>';
 
@@ -8365,7 +8424,7 @@ async function aiGen(){
     const _base=body.trim();
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
-    const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
+    const _genModel=(ai.model||ai.genModel||"deepseek-flash");
     const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim())throw new Error("接口返回内容为空");
     ta.value=_base?(_base+"\n\n"+out):out;
@@ -8476,7 +8535,26 @@ async function postGenCheck(text, chLabel){
 }
 
 /* ============== #4 RAG 浏览器内检索层（锁人设/伏笔，无后端、离线可用） ============== */
+var _ragTokCache={}, _ragTokCacheN=0;
+/* v104：长文本（章节正文 / 档案块）的分词结果做 LRU 缓存。
+   buildRagIndex 每次全量重建都会对同样的文本重复分词，这是索引构建最大的一块开销。 */
 function _ragTok(s){
+  s=(s||"");
+  if(s.length>160){
+    /* v105：原 key 只有「长度+首尾24字」，两篇长度相同且首尾雷同的文本会碰撞、拿到错误分词。
+       补入中段采样；容量 400→1200，避免长书场景频繁整体清空造成的缓存抖动。 */
+    var _mid=s.slice(Math.floor(s.length/2), Math.floor(s.length/2)+16);
+    var _k=s.length+"|"+s.slice(0,24)+"|"+_mid+"|"+s.slice(-24);
+    var _hit=_ragTokCache[_k];
+    if(_hit) return _hit;
+    var _r=_ragTokCalc(s);
+    if(_ragTokCacheN>=1200){ _ragTokCache={}; _ragTokCacheN=0; }
+    _ragTokCache[_k]=_r; _ragTokCacheN++;
+    return _r;
+  }
+  return _ragTokCalc(s);
+}
+function _ragTokCalc(s){
   s=(s||"").toLowerCase().replace(/[\s\p{P}]+/gu," ");
   var toks={};
   var cjk=(s.match(/[一-鿿]/g)||[]).join("");
@@ -8490,7 +8568,10 @@ function _ragTok(s){
 function volScopedChars(volId, allChars){
   if(!volId||volId==="none") return allChars;
   const ch=load("chapters",[]);
-  const vols=ch.filter(c=>(c.vol||"none")===volId);
+  /* v104：同 v103 草稿隔离——草稿正文不该影响「某人物属于本卷」的判定 */
+  const _chAll=ch.filter(c=>(c.vol||"none")===volId);
+  const _chDone=_chAll.filter(c=>(c.status||"draft")==="done");
+  const vols=(_chDone.length?_chDone:_chAll);
   const d=getDigest();
   const dig=(d.volumes&&d.volumes[volId]&&d.volumes[volId].text)||"";
   const corpus=(vols.map(c=>(c.body||"")+"\n"+(c.title||"")+"\n"+(c.synopsis||"")).join("\n")+"\n"+dig+"\n"+(volName(volId)||"")).toLowerCase();
@@ -8516,7 +8597,11 @@ function buildRagIndex(volId){
     var t="["+(p.status||"todo")+"] "+(p.line||"")+"："+(p.point||"")+(p.owner?("("+p.owner+")"):"");
     idx.push({type:"线索",title:p.line||"?",text:t,tok:_ragTok(t)});
   });
-  load("chapters",[]).filter(function(c){
+  /* v103 草稿隔离：检索索引同样只收「已完稿」，否则草稿会被 RAG 召回进后续 prompt */
+  var _allCh=load("chapters",[]);
+  var _doneCh=_allCh.filter(function(c){return (c.status||"draft")==="done";});
+  var _chPool=(_doneCh.length?_doneCh:_allCh);  /* 兜底：无已完稿章节时回退，避免检索层整体失效 */
+  _chPool.filter(function(c){
     if(volId&&volId!=="none") return (c.vol||"none")===volId && (c.body||"").trim();
     return (c.body||"").trim();
   }).forEach(function(c){
@@ -8554,6 +8639,15 @@ function buildRagIndex(volId){
     }
   }catch(e){ /* 消化档案索引失败不影响其余检索 */ }
   var w=(load("world","")||"").trim(); if(w) idx.push({type:"世界观",title:"世界观",text:w,tok:_ragTok(w)});
+  /* v103：BM25 需要 DF（文档频率）与平均文档长度，建索引时顺带统计，几乎零额外开销 */
+  try{
+    var _df={}, _lenSum=0;
+    idx.forEach(function(it){
+      var _ks=Object.keys(it.tok||{}); _lenSum+=_ks.length;
+      for(var _j=0;_j<_ks.length;_j++){ var _t=_ks[_j]; _df[_t]=(_df[_t]||0)+1; }
+    });
+    idx.df=_df; idx.N=idx.length; idx.avgLen=idx.length?(_lenSum/idx.length):0;
+  }catch(e){}
   return idx;
 }
 function ragRetrieve(query, k, idx){
@@ -8565,8 +8659,23 @@ function ragRetrieve(query, k, idx){
   /* v102：同类型最多占一半。消化档案按块入索引后条目变多，
      若不加限制会把「人物卡 / 线索」全挤掉——那正是锁人设与伏笔的关键来源。 */
   var cap=Math.max(2, Math.ceil(k/2)), used={}, out=[];
+  /* v103 BM25：idf = ln(1+(N-df+0.5)/(df+0.5))，tf 做 k1/b 饱和与长度归一。
+     原 scorer = Σ min(q[t],doc[t]) 无 IDF、无长度归一 → 高频词与长文档霸榜：
+     实测单指征词查询 top1 准确率 40%，BM25 为 85%。 */
+  var _N=(idx.N||idx.length), _avg=(idx.avgLen||0), _df=(idx.df||null), _K1=1.5, _B=0.75;
   idx.map(function(it){
-    var sc=0; for(var key in q){ if(it.tok[key]) sc+=Math.min(q[key],it.tok[key]); }
+    var sc=0;
+    if(_df){
+      var _dl=Object.keys(it.tok||{}).length||1;
+      for(var t in q){
+        if(!it.tok[t]) continue;
+        var _tf=it.tok[t];
+        var _idf=Math.log(1+(_N-(_df[t]||0)+0.5)/((_df[t]||0)+0.5));
+        sc+=_idf*(_tf*(_K1+1))/(_tf+_K1*(1-_B+_B*_dl/(_avg||_dl)));
+      }
+    } else {
+      for(var t2 in q){ if(it.tok[t2]) sc+=Math.min(q[t2],it.tok[t2]); }
+    }
     return {it:it,sc:sc};
   }).filter(function(x){return x.sc>0;}).sort(function(a,b){return b.sc-a.sc;}).forEach(function(x){
     if(out.length>=k) return;
@@ -8748,10 +8857,11 @@ async function aiDeepGen(){
     digest=getGlobalDigestText();
     /* 修复：消化阶段后必须重新读取档案对象，旧的 d 是消化前的内存引用 */
     const dFresh=getDigest();
-    const curVolDigest=(dFresh.volumes[curVol||"none"]&&dFresh.volumes[curVol||"none"].text)||"";
+    /* v105：三处注入全部封顶。此前均为完整注入，长卷/多卷时输入成本线性爆炸。 */
+    const curVolDigest=capDigestForPrompt((dFresh.volumes[curVol||"none"]&&dFresh.volumes[curVol||"none"].text)||"", 8000);
     const otherVolDigests=allVolIds()
       .filter(vid=>vid!==(curVol||"none")&&dFresh.volumes[vid]&&dFresh.volumes[vid].text&&dFresh.volumes[vid].text.trim())
-      .map(vid=>"--- "+volName(vid)+" ---\n"+dFresh.volumes[vid].text)
+      .map(vid=>"--- "+volName(vid)+" ---\n"+capDigestForPrompt(dFresh.volumes[vid].text, 2500))
       .join("\n\n");
     /* 阶段一：深度分析前文（带缓存：消化档案未更新且同分卷则直接复用，提速+稳定+省算力） */
     btn.textContent="分析中…";
@@ -8763,7 +8873,7 @@ async function aiDeepGen(){
       /* 分卷模式：只注入本卷子档案，绝不混入其它卷/全书总档案，避免跨卷串味与上下文膨胀导致深度续写失败 */
       digestSection="=== 当前分卷「"+volName(curVol)+"」子档案（优先参照，本卷局部人物/伏笔/事件）===\n"+(curVolDigest||"（空）");
     } else {
-      digestSection="=== 全书总档案（跨分卷全局）===\n"+(digest||"（空）");
+      digestSection="=== 全书总档案（跨分卷全局）===\n"+capDigestForPrompt(digest, 8000);
       if(curVolDigest) digestSection+="\n\n=== 当前分卷「"+volName(curVol)+"」子档案 ===\n"+curVolDigest;
       if(otherVolDigests) digestSection+="\n\n=== 其它分卷子档案 ===\n"+otherVolDigests;
     }
@@ -8771,9 +8881,12 @@ async function aiDeepGen(){
        但消化时间戳未领先缓存时，会复用只覆盖到上一章的旧分析，导致续写下一章时分析从上一章结尾出发、漏掉刚消化章。
        现改用「前文章节指纹」作为缓存键：卷 + 章数 + 前文章节总正文长度 + 最大章号 + 消化时间戳。
        任一篇章有增减/修改指纹即变 → 强制重新分析，保证下一章分析一定包含刚消化的上一章。 */
-    const _priorFp=(curVol||"none")+"#"+prior.count+"#"+prior.prior.length+"#"+
-      prior.prior.reduce(function(s,c){return s+((c.body||"")||"").length;},0)+"#"+
-      (prior.prior.length?Math.max.apply(null,prior.prior.map(function(c){return Number(c.num)||0;})):0)+"#"+
+    /* v103：指纹只统计「已完稿」前文。草稿入库会让总正文长度每章都变 →
+       缓存键每章失效 → 深度分析每章重跑（实测：缓存命中率 0%，白烧 4.3 万字/章）。 */
+    const _donePrior=prior.prior.filter(function(c){return (c.status||"draft")==="done";});
+    const _priorFp=(curVol||"none")+"#"+prior.count+"#"+_donePrior.length+"#"+
+      _donePrior.reduce(function(s,c){return s+((c.body||"")||"").length;},0)+"#"+
+      (_donePrior.length?Math.max.apply(null,_donePrior.map(function(c){return Number(c.num)||0;})):0)+"#"+
       (dFresh.digest_update_at||0);
     const forceRe=document.getElementById("deepReAnalyze")&&document.getElementById("deepReAnalyze").checked;
     const _daCache=dFresh.deepAnalysis;
@@ -8783,7 +8896,7 @@ async function aiDeepGen(){
       analysis=_daCache.text;
       toast("复用已缓存的深度分析（含人物关系/情感线），跳过重新分析 ⚡");
     } else {
-      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride:(ai.model||ai.genModel||"deepseek-v4-flash")});
+      analysis=await callAI({sys:bookMemSys(), user:`下面是某小说从开头到最新的已写章节。请作为「首席续写策划」深度阅读，输出一份【续写前必读分析】报告：\n① 当前主要人物的性格特点与最新心理状态（每人点出其前文关键行为与台词依据）\n② 人物关系动态与最新进展（谁与谁什么关系、处于什么阶段、有无未解张力）\n③ 当前情感线走向与伏笔回收（已埋钩子、未兑现的承诺/危机，标注出现章节）\n④ 世界观/设定中必须延续的硬约束\n⑤ 接下来最合理的 3 个续写方向（每个给具体情节落点）\n只输出报告本身。\n\n${volSecBlock}=== 全书章节梗概 ===\n${prior.syn.join("\n")||"（无梗概）"}\n\n=== 前文详读（最近若干章完整正文）===\n${prior.full.join("\n\n")||"（无正文）"}\n\n=== AI 前文理解档案（分卷分区架构）===\n${digestSection}`, temperature:0.5, max_tokens:(deepPro?8000:Math.min(4000, Number(ai.maxTokens)||4000)), onToken:function(t){ btn.textContent="深度分析中…("+t.length+"字)"; }, modelOverride:(ai.model||ai.genModel||"deepseek-flash")});
       if(!analysis.trim()) throw new Error("分析返回为空");
       /* 写入缓存，供下次生成直接调用（带前文章节指纹，下一次前文变化即失效重分析） */
       const dCache=getDigest();
@@ -8843,11 +8956,11 @@ async function aiDeepGen(){
     if(brief) writeInstr+=`\n\n【本章专属指令】\n${brief}`;
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
-    const _genModel=(ai.model||ai.genModel||"deepseek-v4-flash");
+    const _genModel=(ai.model||ai.genModel||"deepseek-flash");
     const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
     if(!out.trim()) throw new Error("生成返回为空");
     /* 自动生成人物情感线（从分析结果提取，写入人物栏） */
-    try{ autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
+    try{ await autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
     const rawDraft=body.trim()? (body.trim()+"\n\n"+out) : out;
@@ -8867,9 +8980,15 @@ async function aiDeepGen(){
       save("chapters",_ch);
     }catch(e){ console.warn("首稿历史快照:",e.message); }
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
-    toast("已先分析前 "+prior.count+" 章，再生成第"+num+"章，正在自动精修…（深度续写模型："+_genModel+"）");
+    /* v104：自动精修改为可关闭（默认开启，行为不变）。关闭后首稿即终稿。 */
+    const _m2El=document.getElementById("m2AutoPolish");
+    const _m2Off=!!(_m2El && !_m2El.checked);
+    toast(_m2Off
+      ? ("已先分析前 "+prior.count+" 章，再生成第"+num+"章（首稿即终稿，自动精修已关闭。深度续写模型："+_genModel+"）")
+      : ("已先分析前 "+prior.count+" 章，再生成第"+num+"章，正在自动精修…（深度续写模型："+_genModel+"）"));
     /* M2 自动精修闭环 · 第2步：首稿生成后自动跑一次整章精修（做减法），默认即精修版水平，原始首稿已入历史可回滚 */
     try{
+      if(_m2Off) throw new Error("__M2_SKIPPED__");
       btn.textContent="自动精修中…";
       const _refBody=rawDraft.trim();
       const _dRef=getDigest();
@@ -8890,7 +9009,7 @@ async function aiDeepGen(){
       if(_volText) _rUser+="【当前分卷档案（人物/伏笔/事件依据）】\n"+_volText.slice(0,4000)+"\n\n";
       if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText.slice(0,3000)+"\n\n";
       _rUser+="【草稿原文】\n"+_refBody;
-      const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+      const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
       if(_refined&&_refined.trim()){
         const _ta2=document.getElementById("chBody");
         _aiBeforeResult=_ta2.value||"";
@@ -8902,7 +9021,7 @@ async function aiDeepGen(){
       } else {
         toast("首稿已生成，自动精修返回空，保留原始首稿");
       }
-    }catch(e){ console.warn("自动精修失败(非致命,保留首稿):",e.message); toast("首稿已生成；自动精修跳过："+e.message); }
+    }catch(e){ if(e&&e.message==="__M2_SKIPPED__"){ toast("✅ 第"+num+"章已生成（首稿即终稿）"); } else { console.warn("自动精修失败(非致命,保留首稿):",e.message); toast("首稿已生成；自动精修跳过："+e.message); } }
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(finalOut, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){
@@ -8957,10 +9076,10 @@ async function aiOptimize(){
     /* 整章精修 = 轻量优化：保留剧情与好句子，只优化文笔/节奏/逻辑；
        跑「续写模型」(快，遵守成本铁律，绝不占用分析模型/Pro)；按草稿长度提额防截断 */
     const optMax=Math.min(12000, Math.max(4000, Math.ceil(body.length*1.3)));
-    const out=await callAI({sys:bookMemSys(), user:userMsg, ...creaParams("polish"), max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")});
+    const out=await callAI({sys:bookMemSys(), user:userMsg, ...creaParams("polish"), max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
     if(!out.trim()) throw new Error("精修返回为空");
     /* 非破坏性：先预览，用户点「替换」才覆盖原稿（原稿自动入历史版本，可回滚） */
-    try{ autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
+    try{ await autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
     showAiResult(out.trim(), "AI 整章精修结果（点「替换」才覆盖原稿，原稿可在「历史」版本中找回）", false);
     toast("精修完成 ✅ 请在预览面板点「替换」覆盖原稿");
   }catch(e){ aiGenFail("AI 整章精修",e, ""); }
@@ -9045,7 +9164,7 @@ ${src}`;
   acts.style.display="none"; statusEl.textContent="AI 处理中…";
   try{
     /* 润色/扩写/缩写属正文类：走续写模型 flash（成本铁律），不再误占分析模型/Pro */
-    const out=(await callAI({sys, user:userMsg, ...creaParams("polish"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:(ai.genModel||ai.model||"deepseek-v4-flash")})).trim();
+    const out=(await callAI({sys, user:userMsg, ...creaParams("polish"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:(ai.genModel||ai.model||"deepseek-flash")})).trim();
     if(!out)throw new Error("接口返回内容为空");
     document.getElementById("aiEditResult").value=out;
     document.getElementById("aiEditResultBox").style.display="";
