@@ -1990,6 +1990,12 @@
       <div class="dp-dg-list" id="dgIndexList"><div class="dp-dg-meta">正在读取索引…</div></div>
       <div class="dp-dg-meta" id="dgIndexMeta"></div>
     </div>
+    <div class="dp-dg" style="margin-top:12px;">
+      <div class="dp-dg-h">档案体检（v110）<span>档案里若残留指向「已删除 / 被重建过」的章节记录，「已消化章数」会统计得偏少——这里可查出并一键清理</span></div>
+      <div class="dp-dg-list" id="dgGhostList"><div class="dp-dg-meta">点「体检」开始</div></div>
+      <div class="dp-dg-meta" id="dgGhostMeta"></div>
+      <div style="margin-top:8px;"><button onclick="renderDigestGhost()">体检</button></div>
+    </div>
     <div class="dp-danger">
       <button class="danger" onclick="clearAll()">清空全部数据</button>
       <div class="meta">高危操作，会删除当前书全部内容，需二次确认。建议先「导出JSON备份」留底。</div>
@@ -2976,6 +2982,11 @@ function renderVolMgr(){
     <div class="vnote">
       <textarea placeholder="「${esc(v.name)}」专属设定（喂给AI，可留空）：本卷人物年龄/年级、时代背景、文风基调、叙事禁忌……&#10;例：本卷为詹姆斯线，主角11岁一年级：语言天真直白、幽默来自儿童视角；严禁成人化抒情、网络流行语；人物关系称谓须符合HP原著（如纳西莎是西里斯的堂姐）。" onchange="updVolNote('${v.id}',this.value)">${esc(v.note||"")}</textarea>
     </div>
+    <div class="vnote" style="padding-top:6px;">
+      <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:4px;">叙事人称（v110 · 最高优先级，留空则不限）</div>
+      <input value="${esc(v.pov||"")}" placeholder="例：严格以薇拉·奎克第三人称视角进行创作　／　全程第一人称「我」的口吻" onchange="updVolPov('${v.id}',this.value)" style="width:100%;box-sizing:border-box;min-height:32px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;background:var(--card);color:var(--ink);">
+      <div style="font-size:11.5px;line-height:1.6;color:var(--sub);margin-top:4px;">设定后会以【本卷人称铁律】注入本卷每一次生成与消化，分卷之间人称不同也不会再串篇；生成前还会按这个设定先校验一遍。</div>
+    </div>
     <div class="vmove">
       <span>本卷 <b>${(load("chapters",[])||[]).filter(function(c){return (c.vol||"none")===v.id;}).length}</b> 章</span>
       <span>→ 整卷搬到</span>
@@ -2984,6 +2995,9 @@ function renderVolMgr(){
     </div>`).join("");
 }
 function updVolNote(id,val){const b=curBook();const v=(b.volumes||[]).find(x=>x.id===id);if(v){v.note=val;rawSave("books",BOOKS);toast("「"+v.name+"」专属设定已保存");}}
+/* v110：保存分卷人称设定。此前 pov 只存在于数据里、没有任何入口也没有任何读取方，
+   所以西里斯篇写了「第三人称」却形同虚设。 */
+function updVolPov(id,val){const b=curBook();const v=(b.volumes||[]).find(x=>x.id===id);if(v){v.pov=String(val||"").trim();rawSave("books",BOOKS);toast("「"+v.name+"」叙事人称已保存："+(v.pov?v.pov:"（不限）"));}}
 /* v92 分卷搬家：把某卷的章节整体搬到另一卷（修「章节被错分到别的卷」）
    连消化档案一起迁，避免「已消化」统计留在旧卷名下。 */
 function volMoveChapters(fromId,toId){
@@ -3018,7 +3032,56 @@ function volMoveChapters(fromId,toId){
 /* 获取分卷专属设定文本（供 AI 生成/消化注入） */
 function getVolSetting(vid){
   const b=curBook(); const v=(b.volumes||[]).find(x=>x.id===(vid||"none"));
-  return (v&&v.note?v.note:"").trim();
+  const _note=(v&&v.note?v.note:"").trim();
+  const _pov=getVolPov(vid);
+  /* v110：把人称铁律并进「分卷专属设定」一起注入。
+     这样所有已经消费 getVolSetting 的注入点（深度续写 / 单章生成 / 单章深度解析 /
+     分卷子档案 / 生成指令模板）一次性全部生效，不必逐个改，也不必担心漏掉某条生成路径。 */
+  if(!_pov) return _note;
+  const _line=volPovLine(_pov);
+  return _note ? (_note+"\n"+_line) : _line;
+}
+/* v110：分卷人称设定（volumes[].pov）。
+   此前这个字段只存在于数据里，代码从未读取——西里斯篇写着「严格以…第三人称视角进行创作」，
+   却从来没被喂给 AI，续写自然串成詹姆斯篇的第一人称。 */
+function getVolPov(vid){
+  try{
+    const b=curBook(); const v=(b.volumes||[]).find(x=>x.id===(vid||"none"));
+    return (v&&v.pov?String(v.pov):"").trim();
+  }catch(e){ return ""; }
+}
+/* v110：把人称设定转成不可协商的铁律文案（最高优先级） */
+function volPovLine(pov){
+  pov=String(pov||"").trim();
+  if(!pov) return "";
+  return "【本卷人称铁律 · 最优先级，与任何人设/文风冲突时以此为准】"+pov+
+    "。全篇须自始至终严格遵守：不得混入其它分卷的叙事人称，不得中途切换视角与口吻，叙述者身份一旦确定就不再变。";
+}
+/* v110：人称体检。粗判一段文字是第一人称还是第三人称，用于生成前校验与生成后自检。
+   只看「我」的密度与常见第三人称指代，不做语义理解——目的是抓「整段串篇」这种明显偏差。 */
+function povHeuristic(text){
+  try{
+    const t=String(text||"");
+    if(t.length<200) return {kind:"unknown", first:0, third:0};
+    const first=(t.match(/我/g)||[]).length;
+    const third=(t.match(/薇拉|维拉|她|他|西里斯|詹姆斯/g)||[]).length;
+    const kind = first>third*1.2 ? "first" : (third>first*1.2 ? "third" : "mixed");
+    return {kind:kind, first:first, third:third};
+  }catch(e){ return {kind:"unknown", first:0, third:0}; }
+}
+/* v110：本卷人称与给定文本是否冲突。pov 为空则一律视为不冲突（不打扰没设人称的用户）。 */
+function povConflict(vid, text){
+  try{
+    const pov=getVolPov(vid);
+    if(!pov) return {conflict:false, pov:pov, want:"", got:""};
+    const h=povHeuristic(text);
+    if(h.kind==="unknown") return {conflict:false, pov:pov, want:"", got:h.kind};
+    const wantThird=/第三人称|他称|上帝视角/.test(pov);
+    const wantFirst=/第一人称|我的口吻|以我的视角/.test(pov);
+    if(wantThird && h.kind==="first") return {conflict:true, pov:pov, want:"third", got:"first"};
+    if(wantFirst && h.kind==="third") return {conflict:true, pov:pov, want:"first", got:"third"};
+    return {conflict:false, pov:pov, want:wantThird?"third":(wantFirst?"first":""), got:h.kind};
+  }catch(e){ return {conflict:false, pov:"", want:"", got:""}; }
 }
 function moveVol(id,dir){
   const b=curBook(); const vs=b.volumes; const i=vs.findIndex(v=>v.id===id); if(i<0)return;
@@ -3582,7 +3645,25 @@ function resetChapterForm(){
   ["chId","chNum","chTitle","chBody","chDue","chHook","chBrief"].forEach(i=>document.getElementById(i).value="");
   document.getElementById("chStatus").value="draft";
   document.getElementById("chTpl").value="";
-  document.getElementById("chVol").value=(curBook().curVol!=="all"?curBook().curVol:"none");
+  /* v110：新建章时若处于「全书」视图，旧逻辑一律置成「未分卷」，新章就默默落进未分卷
+     （v108 及更早「未分卷」哨兵恰好挂着詹姆斯篇，表现为「西里斯篇的章被写进詹姆斯篇」）。
+     现在回退到最近一章所属的分卷。 */
+  var _dv=curBook().curVol;
+  if(!_dv||_dv==="all"){
+    try{
+      const _all=load("chapters",[])||[];
+      /* 优先用编辑器里当前打开的那章的卷；没有再回退到最近写完的一章 */
+      const _cid=document.getElementById("chId")?document.getElementById("chId").value:"";
+      const _open=_cid?_all.filter(function(c){ return c.id===_cid; })[0]:null;
+      if(_open && _open.vol && _open.vol!=="none"){ _dv=_open.vol; }
+      else{
+        const _lc=_all.filter(function(c){ return c.vol && c.vol!=="none" && c.vol!=="all"; })
+          .sort(function(a,b){ return Number(b.num)-Number(a.num); })[0];
+        if(_lc) _dv=_lc.vol;
+      }
+    }catch(e){}
+  }
+  document.getElementById("chVol").value=_dv||"none";
   document.getElementById("chCount").textContent="";
 }
 /* 行内快速修改章节状态（草稿/待修改/已完稿） */
@@ -6556,7 +6637,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v109";
+const APP_VERSION="v110";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6566,6 +6647,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v110","① 修【人称串篇】：分卷的「人称设定（pov）」此前写了却从未被任何代码读取——西里斯篇明明写着「严格以薇拉·奎克第三人称视角进行创作」，生成时压根没注入，续写于是串成詹姆斯篇的第一人称口吻。现在 pov 会以【本卷人称铁律 · 最优先级】注入生成与消化，分卷管理里可直接编辑；深度续写开始前会先校验本卷人称，若待续写正文的人称与设定冲突会先问你一句再生成。② 修【续写章落错卷】：新章的所属分卷取自编辑器下拉，而下拉在「全书」视图下会被置成「未分卷」——v108 及更早「未分卷」恰好挂着詹姆斯篇，于是西里斯篇的第 15 章被写进詹姆斯篇、行文分析却引用西里斯篇前 14 章。现在下拉为空/未分卷时自动回退到紧邻上一章所属的分卷并明确提示，续写前若与上一章分卷不一致会先确认。③ 修【消化状态显示 74 章未消化】：根因是档案里的章节记录用的是旧 id——章节被重建/替换后旧 id 留在档案里匹配不上，詹姆斯篇 59 条记录里 56 条是失效 id，真实只认到 3 章。新增「档案体检」：可查出各卷有多少失效记录并一键清理（清理前自动备份、需二次确认）；同时在数据面板给出「零 token 补消化」入口，用服务端已消化好的整卷档案一次性补齐，全程不调用 AI、不消耗额度。④ 上述三项均只做数据补全与提示，不改正文、不改存储结构（IDB_VER 仍为 1）。"],
   ["v109","① 修【找不到詹姆斯篇 / 章节全挂在未分卷】的根因：代码里 none 是「未分卷」的内部哨兵值，而你真实数据里「詹姆斯篇」这个分卷的 id 恰好就叫 none，于是它名下 74 章一律显示成「未分卷」，装入的消化档案也只能写进这个假未分卷，詹姆斯篇名下永远一片空白。现在首次启动会自动把它挂到正规 id（james），并把该卷已经消化好的前文档案一并迁过去；迁移前的整份数据会另存一份备份（键 books_bak_volfix_v109），你原有的 books 存储结构一个字段都没动。同时做了三处加固：新建分卷不会再撞上 none、也不允许和已有分卷重名、已有分卷不能再改名叫「未分卷」。② 人物卡「语言体系 & 思维模式」新增「📊 本地归纳（0 token）」：只从你已经写好的正文里按角色名抽取台词做统计（句长分布、高频口头禅、标点习惯、自称与对他人的称呼、比喻/反问密度、常见情绪词），给出「原值 → 建议值」的可编辑对照面板，确认后才写入人物卡，全程不调用 AI、不消耗任何 token。③ AI 生成设置新增「单日花费上限（元）」：任何会产生费用的调用在发起前都会先校验「当日已累计 + 本次预估」，超出上限就中止并明确告诉你当日已用了多少、上限是多少、去哪里调整，不再出现你没点过头却被扣费的情况（金额按 DeepSeek 公开单价估算，属估算值，非官方账单）。"],
   ["v101","修「文件消化」链路，并在服务端闭环：① 根因——消化档案此前从未进入任何搜索/检索索引（顶栏搜索与全书检索都只扫章节/人物/线索/灵感/世界观），档案明明在库里却搜不到；现在消化档案纳入顶栏搜索（新增「消化档案」分组，点击直接跳到对应分卷）与全书检索（AI 生成时能读到已消化好的前文档案）。② 索引缺失——项目里从来没有「消化档案索引文件」，现由服务端脚本生成 import/digest_index.json，登记全部可用档案（分卷/章数/文件名/更新时间）。③ 录入→消化断点——导入正文后原本只入队却不会消化（未配 AI 时更是静默返回，看不出原因）；现在录入完成会按来源自动匹配配套档案并询问装载，未配 AI 也会明确提示零消耗方案。④ 后端消化——新增 tools/digest_build.js：读取手稿或工作台备份，在服务端产出 __digestPack 摘要包并自动维护索引，支持本地规则抽取（零 token）与 AI 两种模式；前端「数据备份 → 后端消化档案」一键装载，全程不调用本机 AI、不消耗你的额度"],  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
   ["v94","章节列表标题栏适配窄屏：标题文字可省略、徽章不换行、智能分卷/管理分卷收进独立按钮组，手机上整组落到第二行右对齐，不再顶出标题栏。数据层：消化档案支持自带「与XX的关联」标签（西里斯篇用「与西里斯」）；导入消化档案时分卷名允许模糊匹配（去空格互相包含、或去掉篇/卷部后的关键词），找不到会列出你当前的分卷名"],
@@ -7673,6 +7755,64 @@ function volDigestStatusCount(vid){
     else undigested++;
   });
   return {total:ch.length, digested, failed, degraded, undigested};
+}
+/* v110：档案「幽灵记录」体检。
+   aiDigest.volumes[vid].chapters 以「章节 id」为 key。章节若曾被重建 / 替换 / 重新导入，
+   旧 id 会一直留在档案里，统计时匹配不上真实章节——表现为「整卷几十章都显示未消化」，
+   而档案文本其实一直躺在库里（实测詹姆斯篇 59 条记录里 56 条是失效 id，真实只认到 3 章）。
+   本函数只读不写。 */
+function digestGhostAudit(vid){
+  try{
+    const d=getDigest(); const v=(d.volumes||{})[vid]||{};
+    const ids=Object.keys(v.chapters||{});
+    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=1; });
+    const ghost=ids.filter(function(id){ return !live[id]; });
+    return {total:ids.length, live:ids.length-ghost.length, ghost:ghost.length, ghostIds:ghost};
+  }catch(e){ return {total:0, live:0, ghost:0, ghostIds:[]}; }
+}
+/* v110：清理幽灵记录。只删「档案里指向已不存在章节」的条目，
+   不动正文、不动真实章节的消化记录；清理前自动备份一份档案，且需二次确认。 */
+function pruneDigestGhosts(vid){
+  try{
+    const a=digestGhostAudit(vid);
+    if(!a.ghost){ toast("「"+volName(vid)+"」档案里没有失效记录，无需清理"); return false; }
+    if(!confirm("「"+volName(vid)+"」的档案里有 "+a.ghost+" 条失效记录（共 "+a.total+" 条，指向已不存在或被重建过的章节）。\n\n这些记录只影响「已消化章数」的统计，不占用正文，也不会让档案内容变少。清理后统计会回到真实值。\n\n清理前会自动备份一份档案。确定清理？")) return false;
+    const d=getDigest();
+    try{ idbSet("digest_bak_ghostprune_"+Date.now(), JSON.stringify(d)); }catch(e){}
+    const v=(d.volumes||{})[vid]; if(!v) return false;
+    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=1; });
+    Object.keys(v.chapters||{}).forEach(function(id){ if(!live[id]) delete v.chapters[id]; });
+    if(v.sig) Object.keys(v.sig).forEach(function(id){ if(!live[id]) delete v.sig[id]; });
+    saveDigest(d);
+    toast("已清理 "+a.ghost+" 条失效记录（清理前的档案已备份）");
+    try{ renderDigest(); }catch(e){}
+    try{ renderDigestGhost(); }catch(e){}
+    return true;
+  }catch(e){ try{ toast("清理失败："+(e&&e.message)); }catch(e2){} return false; }
+}
+/* v110：档案体检面板渲染（数据备份面板内） */
+function renderDigestGhost(){
+  try{
+    const box=document.getElementById("dgGhostList");
+    if(!box) return;
+    const vids=allVolIds();
+    let rows="", anyGhost=0;
+    vids.forEach(function(vid){
+      const a=digestGhostAudit(vid);
+      anyGhost+=a.ghost;
+      const st=volDigestStatusCount(vid);
+      rows+='<div class="dp-dg-row" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);">'+
+        '<div style="flex:1;min-width:0;"><b>'+esc(volName(vid))+'</b>'+
+        '<div class="dp-dg-meta">真实已消化 '+st.digested+'/'+st.total+' 章　·　档案记录 '+a.total+' 条（有效 '+a.live+' / 失效 '+a.ghost+'）</div></div>'+
+        (a.ghost?('<button class="ghost" onclick="pruneDigestGhosts(\''+vid+'\')">清理 '+a.ghost+' 条</button>'):'<span class="dp-dg-meta">干净</span>')+
+        '</div>';
+    });
+    box.innerHTML=rows||'<div class="dp-dg-meta">还没有分卷</div>';
+    const meta=document.getElementById("dgGhostMeta");
+    if(meta) meta.innerHTML = anyGhost
+      ? ('共 '+anyGhost+' 条失效记录。它们只让「已消化章数」看起来偏少，不会丢正文。<br>想把整卷一次性补齐成已消化：用上面的「后端消化档案（零 token）」装载对应卷的档案即可，全程不调用 AI、不消耗额度。')
+      : '各卷档案记录均与现有章节对得上，没有失效记录。';
+  }catch(e){}
 }
 /* 全书三类状态计数 */
 function globalDigestStatusCount(){
@@ -9802,7 +9942,46 @@ async function aiDeepGen(){
   /* 续写模式：续写当前分卷 vs 续写全书完整剧情（提前确定，供 collectPrior 分卷隔离使用） */
   const writeModeEl=document.querySelector('input[name="deepWriteMode"]:checked');
   const writeMode=writeModeEl?writeModeEl.value:"vol";
-  const curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
+  let curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
+  /* v110：续写章归属纠偏。下拉停在「未分卷 / 空」时（例如当前是全书视图、或刚清过表单），
+     旧逻辑直接把新章写进「未分卷」——而 v108 及更早「未分卷」这个哨兵恰好挂着詹姆斯篇，
+     于是西里斯篇的续写章被写进詹姆斯篇，行文分析却引用西里斯篇前 14 章（上下文与归属两套口径）。
+     现在回退到紧邻上一章所属的分卷，并同步写回下拉，保证「归属 / 前文 / 卷档案」三者同一卷。 */
+  try{
+    if(!curVol||curVol==="none"||curVol==="all"){
+      const _cands=(ch||[]).filter(function(c){
+        return Number(c.num)>0 && c.vol && c.vol!=="none" && c.vol!=="all";
+      }).sort(function(a,b){ return Number(b.num)-Number(a.num); });
+      const _pv=_cands[0];
+      if(_pv){
+        curVol=_pv.vol;
+        const _sel=document.getElementById("chVol");
+        if(_sel) _sel.value=curVol;
+        toast("续写章将归入「"+volName(curVol)+"」（沿用第"+_pv.num+"章的归属）");
+      }
+    }
+  }catch(e){}
+  /* v110：生成前人称校验。本卷设了叙事人称就先核对待续写正文，读起来串篇时先问一句再生成。 */
+  try{
+    const _pc=povConflict(curVol||"none", body);
+    if(_pc.conflict){
+      const _wantTxt=_pc.want==="third"?"第三人称":"第一人称";
+      const _gotTxt=_pc.got==="third"?"第三人称":"第一人称";
+      if(!confirm("人称可能串篇：本分卷「"+volName(curVol)+"」设定为"+_wantTxt+"，而当前待续写的正文读起来像"+_gotTxt+"。\n\n本卷人称设定："+_pc.pov+"\n\n继续生成会以【本卷人称铁律】强制约束成本卷人称；点「取消」可先回去确认分卷与正文。")) return;
+    }
+  }catch(e){}
+  /* v110：与紧邻上一章不同卷时先确认归属，避免把西里斯篇的续写写进詹姆斯篇。
+     注意：两卷的章号是从各自 1 开始编号的（詹姆斯篇 1-74、西里斯篇 1-14），
+     所以「第 num-1 章」必须优先在本卷内找，否则会拿詹姆斯篇的第 14 章去比对西里斯篇的续写。 */
+  try{
+    if(num>1){
+      let _pv2=(ch||[]).filter(function(c){ return Number(c.num)===num-1 && c.vol===curVol; })[0];
+      if(!_pv2) _pv2=(ch||[]).filter(function(c){ return Number(c.num)===num-1; })[0];
+      if(_pv2 && _pv2.vol && _pv2.vol!==curVol && _pv2.vol!=="none"){
+        if(!confirm("归属确认：第"+(num-1)+"章属于「"+volName(_pv2.vol)+"」，而本次将写入「"+volName(curVol)+"」。\n\n如果这是跨卷续写请点「确定」；如果是串篇了，点「取消」后先把下拉切到第"+(num-1)+"章所在的卷。")) return;
+      }
+    }
+  }catch(e){}
   const prior=collectPrior(num, (deepPro||ai.eco===false)?24000:12000, {all: writeMode==="book"});
   if(!prior.count){ alert("你还没有任何「已写章节」（序号小于 "+num+" 的章）可供分析。请先导入 / 添加前面的章节，再到这里生成新章。"); return; }
   /* 诊断：紧邻的上一章(num-1)若存在章节库却被排除在前文之外(分卷不一致/正文为空/未保存)，明确提示，避免静默漏掉上下文 */
@@ -11194,7 +11373,7 @@ function clearSample(){
 }
 function openModal(t,x){document.getElementById("mTitle").textContent=t;document.getElementById("mText").textContent=x;document.getElementById("mask").classList.add("on");}
 function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);try{save("trash",[]);}catch(e){}const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
-function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}}
+function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}try{renderDigestGhost();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}
