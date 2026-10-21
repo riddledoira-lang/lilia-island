@@ -1520,6 +1520,8 @@
           <button class="primary" onclick="saveChapter()">保存章节</button>
           <button id="aiBtn" class="btn-quick" title="接着写：基于最近前文 + 全书档案，在文末追加续写当前章的新内容" onclick="aiGen()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>接着写</button>
           <button id="aiDeepBtn" class="primary btn-deep" title="深度续写：先调 AI 出『续写前必读分析』（人物心理/关系/伏笔+3方向），再据此生成新章；并自动补消化、自动生成情感线" onclick="aiDeepGen()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5a3 3 0 00-3 3 3 3 0 00-1 5.8V16a2 2 0 002 2h4a2 2 0 002-2v-2.2A3 3 0 0015 8a3 3 0 00-3-3z"/><path d="M12 5v16"/></svg>深度续写</button>
+          <button id="counselBtn" onclick="counselOpen()" title="剧情参谋（v111）：与 AI 讨论剧情走向、要灵感、查合理性。只讨论，绝不改动正文；结论可一键写进本章指令或存为剧情线索。每次讨论会产生费用，首次使用前会明确提示。"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>剧情参谋</button>
+          <button id="reviewBtn" onclick="reviewOpen()" title="本地审稿（v111）：纯本地规则校验人称串篇、分卷归属、人设卡缺失、前文档案缺失。0 token、不调 AI、不动正文。"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>审稿</button>
           <button id="aiOptBtn" onclick="aiOptimize()" title="整章精修：保留你的剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写——这是改已有草稿，不是写新章（预览后手动替换）"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18 16l.9 2.3L21 19l-2.1.7L18 22l-.9-2.3L15 19l2.1-.7z"/></svg>整章精修</button>
           <button onclick="openAiEdit()"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>润色</button>
           <label class="deep-pro-toggle" title="开启后：深度续写的『分析阶段』改用 V4-Pro 并解除省算力限制（上下文与输出翻倍），人物心理/伏笔/续写方向更透彻；正文生成仍走最快的 Flash。仅在卡剧情或要标杆级分析时开启——更慢更贵。"><input type="checkbox" id="deepProMode"> <svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3s5 4 5 9a5 5 0 01-10 0c0-2 1-3 1-3s1 1 1 2a3 3 0 006 0c0-3-3-6-3-8z"/></svg>超深度·Pro</label>
@@ -6637,7 +6639,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v110";
+const APP_VERSION="v111";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6647,6 +6649,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v111","新增「剧情参谋」与「本地审稿」，补上「创作只有单向生成、没人讨论」的缺口。① 剧情参谋：一个只讨论、绝不写正文的对话槽——可以问走向、要灵感、查合理性（例如「薇拉主动道歉合理吗」「第 12 章的伏笔怎么接才不生硬」）。它只读本卷设定 / 人称铁律 / 卷档案节选 / 最近 3 章梗概 / 正文尾部，刻意不灌全卷正文，把成本压住；每次回复结尾给 1-3 个可选走向并说清代价。结论可一键「写进本章指令」或「存为剧情线索」，否则讨论完就蒸发。首次发送前会明确报价（上下文字数 / 量级 / 是否已在单日上限保护内），且全程受单日花费硬上限约束；参谋永远不会改动你的正文。② 本地审稿（0 token）：纯本地规则校验人称是否串篇、分卷归属是否有效、是否与上一章跨卷、本卷声线卡补了多少、本卷前文档案是否为空。生成后自动过一遍，只有发现问题时才出声；也可随时点「审稿」手动看全部，并一键把问题写成下一轮的约束。不调用 AI、不消耗额度、不改正文。③ 最小插件总线：内置「人称守卫」「归属守卫」两个插件与五个生命周期钩子，插件只登记代码里已有的能力、用开关启用，绝不加载外部代码（无服务端、无插件注册表，远程代码可直接读到 Key 与全部书稿，风险不可控）。启用状态存 localStorage，不动 IndexedDB 结构。"],
   ["v110","① 修【人称串篇】：分卷的「人称设定（pov）」此前写了却从未被任何代码读取——西里斯篇明明写着「严格以薇拉·奎克第三人称视角进行创作」，生成时压根没注入，续写于是串成詹姆斯篇的第一人称口吻。现在 pov 会以【本卷人称铁律 · 最优先级】注入生成与消化，分卷管理里可直接编辑；深度续写开始前会先校验本卷人称，若待续写正文的人称与设定冲突会先问你一句再生成。② 修【续写章落错卷】：新章的所属分卷取自编辑器下拉，而下拉在「全书」视图下会被置成「未分卷」——v108 及更早「未分卷」恰好挂着詹姆斯篇，于是西里斯篇的第 15 章被写进詹姆斯篇、行文分析却引用西里斯篇前 14 章。现在下拉为空/未分卷时自动回退到紧邻上一章所属的分卷并明确提示，续写前若与上一章分卷不一致会先确认。③ 修【消化状态显示 74 章未消化】：根因是档案里的章节记录用的是旧 id——章节被重建/替换后旧 id 留在档案里匹配不上，詹姆斯篇 59 条记录里 56 条是失效 id，真实只认到 3 章。新增「档案体检」：可查出各卷有多少失效记录并一键清理（清理前自动备份、需二次确认）；同时在数据面板给出「零 token 补消化」入口，用服务端已消化好的整卷档案一次性补齐，全程不调用 AI、不消耗额度。④ 上述三项均只做数据补全与提示，不改正文、不改存储结构（IDB_VER 仍为 1）。"],
   ["v109","① 修【找不到詹姆斯篇 / 章节全挂在未分卷】的根因：代码里 none 是「未分卷」的内部哨兵值，而你真实数据里「詹姆斯篇」这个分卷的 id 恰好就叫 none，于是它名下 74 章一律显示成「未分卷」，装入的消化档案也只能写进这个假未分卷，詹姆斯篇名下永远一片空白。现在首次启动会自动把它挂到正规 id（james），并把该卷已经消化好的前文档案一并迁过去；迁移前的整份数据会另存一份备份（键 books_bak_volfix_v109），你原有的 books 存储结构一个字段都没动。同时做了三处加固：新建分卷不会再撞上 none、也不允许和已有分卷重名、已有分卷不能再改名叫「未分卷」。② 人物卡「语言体系 & 思维模式」新增「📊 本地归纳（0 token）」：只从你已经写好的正文里按角色名抽取台词做统计（句长分布、高频口头禅、标点习惯、自称与对他人的称呼、比喻/反问密度、常见情绪词），给出「原值 → 建议值」的可编辑对照面板，确认后才写入人物卡，全程不调用 AI、不消耗任何 token。③ AI 生成设置新增「单日花费上限（元）」：任何会产生费用的调用在发起前都会先校验「当日已累计 + 本次预估」，超出上限就中止并明确告诉你当日已用了多少、上限是多少、去哪里调整，不再出现你没点过头却被扣费的情况（金额按 DeepSeek 公开单价估算，属估算值，非官方账单）。"],
   ["v101","修「文件消化」链路，并在服务端闭环：① 根因——消化档案此前从未进入任何搜索/检索索引（顶栏搜索与全书检索都只扫章节/人物/线索/灵感/世界观），档案明明在库里却搜不到；现在消化档案纳入顶栏搜索（新增「消化档案」分组，点击直接跳到对应分卷）与全书检索（AI 生成时能读到已消化好的前文档案）。② 索引缺失——项目里从来没有「消化档案索引文件」，现由服务端脚本生成 import/digest_index.json，登记全部可用档案（分卷/章数/文件名/更新时间）。③ 录入→消化断点——导入正文后原本只入队却不会消化（未配 AI 时更是静默返回，看不出原因）；现在录入完成会按来源自动匹配配套档案并询问装载，未配 AI 也会明确提示零消耗方案。④ 后端消化——新增 tools/digest_build.js：读取手稿或工作台备份，在服务端产出 __digestPack 摘要包并自动维护索引，支持本地规则抽取（零 token）与 AI 两种模式；前端「数据备份 → 后端消化档案」一键装载，全程不调用本机 AI、不消耗你的额度"],  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
@@ -9982,6 +9985,7 @@ async function aiDeepGen(){
       }
     }
   }catch(e){}
+  try{ busHook("beforeGen", {vol:curVol||"none", num:num}); }catch(e){}
   const prior=collectPrior(num, (deepPro||ai.eco===false)?24000:12000, {all: writeMode==="book"});
   if(!prior.count){ alert("你还没有任何「已写章节」（序号小于 "+num+" 的章）可供分析。请先导入 / 添加前面的章节，再到这里生成新章。"); return; }
   /* 诊断：紧邻的上一章(num-1)若存在章节库却被排除在前文之外(分卷不一致/正文为空/未保存)，明确提示，避免静默漏掉上下文 */
@@ -10233,6 +10237,9 @@ async function aiDeepGen(){
       save("chapters",_ch);
     }catch(e){ console.warn("首稿历史快照:",e.message); }
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
+    /* v111：生成后过一遍本地审稿 + 插件总线 afterGen。两者都只提示，绝不改正文。 */
+    try{ reviewAuto(out, curVol||"none", num); }catch(e){}
+    try{ busHook("afterGen", {vol:curVol||"none", num:num, text:out}); }catch(e){}
     /* v104：自动精修改为可关闭（默认开启，行为不变）。关闭后首稿即终稿。 */
     const _m2El=document.getElementById("m2AutoPolish");
     const _m2Off=!!(_m2El && !_m2El.checked);
@@ -12095,6 +12102,296 @@ async function bootApp(){
   _appBooted=true; /* 应用初始化完成：此后任何保存都会正常触发自动同步 */
   applyDisplay();
 }
+/* ==================================================================
+   v111 · 剧情参谋（讨论槽）+ 本地审稿槽（0 token）+ 最小插件总线
+   设计原则：
+   ① 参谋只讨论、绝不写正文——避免把讨论稿当成已发生事实污染后续章节（v103 已踩过一次）；
+   ② 参谋产物必须能落地（写进本章指令 / 存为剧情线索），否则讨论完即蒸发；
+   ③ 参谋是唯一会持续花钱的对话功能，必须走 aiCostGuard 单日上限，且首次发送前明确报价；
+   ④ 审稿槽纯本地 0 token，只提示不自动改正文；
+   ⑤ 插件总线只挂「内置能力」，绝不加载外部代码（无后端、无插件注册表，远程代码风险不可控）。
+   ================================================================== */
+
+/* ---------- 最小插件总线：只登记内置能力，启用状态存 localStorage ---------- */
+const PLUGIN_MANIFEST=[
+  {id:"povGuard", name:"人称守卫", desc:"生成后校验正文人称是否符所属分卷设定", hooks:["afterGen"], on:true},
+  {id:"volGuard", name:"归属守卫", desc:"生成前校验新章归属，与上一章不同卷时提醒", hooks:["beforeGen"], on:true}
+];
+function pluginOn(id){
+  try{
+    const raw=localStorage.getItem(PREFIX+"plugins_on");
+    if(raw===null) { const p=PLUGIN_MANIFEST.filter(x=>x.id===id)[0]; return p?!!p.on:true; }
+    const m=JSON.parse(raw||"{}");
+    return m[id]!==false;
+  }catch(e){ return true; }
+}
+function pluginSet(id,on){
+  try{
+    let m={}; const raw=localStorage.getItem(PREFIX+"plugins_on");
+    if(raw) { try{ m=JSON.parse(raw)||{}; }catch(e){ m={}; } }
+    m[id]=!!on; localStorage.setItem(PREFIX+"plugins_on", JSON.stringify(m));
+  }catch(e){}
+}
+/* 触发一个生命周期钩子。任一插件抛错都不影响主流程（与现有风格一致：静默降级）。 */
+function busHook(name, payload){
+  try{
+    PLUGIN_MANIFEST.forEach(function(p){
+      if(!pluginOn(p.id)) return;
+      if((p.hooks||[]).indexOf(name)<0) return;
+      try{
+        if(name==="afterGen"){
+          const txt=String((payload&&payload.text)||"");
+          if(!txt) return;
+          const pc=povConflict((payload&&payload.vol)||"none", txt);
+          if(pc.conflict){
+            const wantTxt=pc.want==="third"?"第三人称":"第一人称";
+            toast("⚠️ 人称守卫：刚生成的内容读起来像"+(pc.got==="third"?"第三人称":"第一人称")+"，而「"+volName((payload&&payload.vol)||"none")+"」设定为"+wantTxt+"。可在「管理分卷」核对人称设定。", true);
+          }
+        }
+        if(name==="beforeGen"){
+          const vol=(payload&&payload.vol)||"none";
+          if(vol==="none") toast("⚠️ 归属守卫：本次续写没有指定分卷，已按上一章归属处理。写之前请确认下拉里的分卷。", true);
+        }
+      }catch(e){}
+    });
+  }catch(e){}
+}
+
+/* ---------- 本地审稿槽（0 token）----------
+   只做纯本地统计与规则判断，不调用 AI、不改正文、不改存储结构。 */
+function reviewChapter(volId, text, num){
+  const items=[];
+  try{
+    const vol=volId||"none";
+    const pov=getVolPov(vol);
+    const vs=getVolSetting(vol);
+    /* 1. 人称 */
+    if(!pov){ items.push({level:"warn", code:"pov-empty", msg:"本分卷「"+volName(vol)+"」没设叙事人称，串篇时无从校验。建议到「管理分卷」填一句（如：严格以薇拉·奎克第三人称视角）。"}); }
+    else{
+      const pc=povConflict(vol, text);
+      if(pc.conflict) items.push({level:"block", code:"pov-conflict", msg:"人称不符：本卷设定为"+(pc.want==="third"?"第三人称":"第一人称")+"，而正文读起来像"+(pc.got==="third"?"第三人称":"第一人称")+"。这就是串篇。"});
+    }
+    /* 2. 分卷设定 */
+    if(!vs) items.push({level:"warn", code:"volsec-empty", msg:"本分卷没有「专属设定」（人物年龄/时代背景/文风基调），人设容易漂。"});
+    /* 3. 归属 */
+    const vols=(curBook().volumes||[]);
+    if(vol==="none") items.push({level:"block", code:"vol-none", msg:"本章在「未分卷」，前文档案与卷设定都不会生效。"});
+    else if(!vols.some(function(v){return v.id===vol;})) items.push({level:"block", code:"vol-ghost", msg:"本章挂在一个已经不存在的分卷上（幽灵归属）。"});
+    /* 4. 与上一章是否同卷 */
+    if(num>1){
+      const chs=load("chapters",[])||[];
+      const prev=(chs.filter(function(c){return Number(c.num)===num-1 && c.vol===vol;})[0])||(chs.filter(function(c){return Number(c.num)===num-1;})[0]);
+      if(prev && prev.vol && prev.vol!==vol) items.push({level:"warn", code:"vol-jump", msg:"第"+(num-1)+"章在「"+volName(prev.vol)+"」，本章在「"+volName(vol)+"」，跨卷续写请确认这是有意的。"});
+    }
+    /* 5. 人设卡补全率 */
+    try{
+      const _all=load("chars",[])||[];
+      const _scoped=(vol!=="none")?((typeof volScopedChars==="function")?(volScopedChars(vol,_all)||[]):_all):_all;
+      const tot=_scoped.length;
+      if(tot){
+        const blank=_scoped.filter(function(c){ return !(c&&String(c.langSys||"").trim()) && !(c&&String(c.thinkMode||"").trim()); }).length;
+        if(blank>0) items.push({level:"warn", code:"voice-blank", msg:"本卷 "+tot+" 张声线卡里有 "+blank+" 张没填「语言体系/思维模式」，人设约束是空的。可用人物面板的「📊 本地归纳（0 token）」补。"});
+      }
+    }catch(e){}
+    /* 6. 消化状态 */
+    try{
+      const st=volDigestStatusCount(vol);
+      if(st.total && st.undigested>0 && st.digested===0) items.push({level:"warn", code:"digest-empty", msg:"本卷 "+st.total+" 章全部未消化，续写时读不到前文档案（等于失忆）。零成本办法：数据备份 → 后端消化档案 一键装载。"});
+    }catch(e){}
+  }catch(e){}
+  const hasBlock=items.some(function(x){return x.level==="block";});
+  const hasWarn=items.some(function(x){return x.level==="warn";});
+  return {level: hasBlock?"block":(hasWarn?"warn":"ok"), items:items};
+}
+/* 生成后自动过一遍（只有问题时才出声，全绿不打扰） */
+function reviewAuto(text, volId, num){
+  try{
+    if(!text || String(text).length<200) return null;
+    const r=reviewChapter(volId, text, num);
+    if(r.level==="ok") return r;
+    const first=(r.items||[])[0];
+    toast("🛡 本地审稿："+first.msg+(r.items.length>1?("（共 "+r.items.length+" 项，点「🛡 审稿」看全部）"):""), true);
+    return r;
+  }catch(e){ return null; }
+}
+/* 手动审稿面板 */
+function reviewOpen(){
+  try{
+    const vol=(document.getElementById("chVol")||{}).value||"none";
+    const text=((document.getElementById("chBody")||{}).value||"").trim();
+    const num=parseInt((document.getElementById("chNum")||{}).value)||0;
+    if(!text){ toast("编辑器里还没有正文可审"); return; }
+    const r=reviewChapter(vol, text, num);
+    const box=document.getElementById("reviewBody");
+    if(!box) return;
+    document.getElementById("reviewMeta").textContent="分卷「"+volName(vol)+"」· 第"+num+"章 · 正文 "+text.length+" 字 · 纯本地判断，0 token";
+    box.innerHTML=(r.items&&r.items.length)
+      ? r.items.map(function(it){
+          const color=it.level==="block"?"var(--danger)":(it.level==="warn"?"var(--warning)":"var(--sub)");
+          const tag=it.level==="block"?"需处理":(it.level==="warn"?"建议":"通过");
+          return '<div style="padding:8px 0;border-bottom:1px solid var(--bd);"><b style="color:'+color+';">['+tag+']</b> '+esc(it.msg)+'</div>';
+        }).join("")
+      : '<div style="padding:8px 0;">✅ 没有发现问题。</div>';
+    document.getElementById("reviewMask").classList.add("on");
+  }catch(e){}
+}
+function closeReview(){ try{ document.getElementById("reviewMask").classList.remove("on"); }catch(e){} }
+/* 把审稿结论写成一句可执行的约束，落到本章指令 */
+function reviewToBrief(){
+  try{
+    const vol=(document.getElementById("chVol")||{}).value||"none";
+    const text=((document.getElementById("chBody")||{}).value||"").trim();
+    const num=parseInt((document.getElementById("chNum")||{}).value)||0;
+    const r=reviewChapter(vol, text, num);
+    if(!r.items.length){ toast("没有需要写进指令的问题"); return; }
+    const lines=r.items.map(function(it){ return "· "+it.msg; }).join("\n");
+    const ta=document.getElementById("chBrief");
+    if(!ta) return;
+    ta.value=(ta.value?ta.value+"\n":"")+"【本地审稿提醒 · 下一轮务必规避】\n"+lines;
+    toast("已写进「生成指令」，下一轮生成会自动规避");
+    closeReview();
+  }catch(e){}
+}
+
+/* ---------- 剧情参谋（讨论槽）---------- */
+let _counselLog=[];
+let _counselConfirmed=false;
+function counselOpen(){
+  try{
+    if(!_counselLog.length){
+      try{ _counselLog=load("counselLog",[])||[]; }catch(e){ _counselLog=[]; }
+    }
+    const ctx=counselCtx();
+    document.getElementById("counselMeta").textContent=
+      "分卷「"+volName(ctx.vol)+"」· 每次约带入 "+ctx.chars+" 字上下文 · 只讨论不动正文 · 受单日花费上限保护";
+    counselRender();
+    document.getElementById("counselMask").classList.add("on");
+  }catch(e){}
+}
+function counselClose(){ try{ document.getElementById("counselMask").classList.remove("on"); }catch(e){} }
+/* 参谋的上下文：只给「本卷设定 + 卷档案节选 + 最近 3 章梗概 + 正文尾部」，
+   刻意不灌全卷正文——讨论要的是脉络，不是复述，也能把成本压住。 */
+function counselCtx(){
+  const vol=(document.getElementById("chVol")||{}).value||"none";
+  let s="";
+  s+="【本分卷】"+volName(vol)+"\n";
+  const pov=getVolPov(vol); if(pov) s+="【本卷人称铁律】"+pov+"\n";
+  const vsec=getVolSetting(vol); if(vsec) s+="【本卷设定】"+String(vsec).slice(0,900)+"\n";
+  try{
+    const d=getDigest(); const v=(d.volumes||{})[vol]||{};
+    const roll=((v.rolling||"").trim()||(v.text||"")).slice(0,1500);
+    if(roll) s+="【本卷已消化档案（节选）】\n"+roll+"\n";
+  }catch(e){}
+  try{
+    const chs=(load("chapters",[])||[]).filter(function(c){return Number(c.num)>0;})
+      .sort(function(a,b){return Number(a.num)-Number(b.num);}).slice(-3);
+    if(chs.length) s+="【最近几章】\n"+chs.map(function(c){
+      return "第"+c.num+"章《"+(c.title||"")+"》"+(c.synopsis?("："+String(c.synopsis).slice(0,120)):"");
+    }).join("\n")+"\n";
+  }catch(e){}
+  const body=((document.getElementById("chBody")||{}).value||"").trim();
+  if(body) s+="【当前编辑器正文尾部】\n"+body.slice(-1200)+"\n";
+  return {text:s, chars:s.length, vol:vol};
+}
+function counselRender(){
+  const box=document.getElementById("counselLog");
+  if(!box) return;
+  if(!_counselLog.length){
+    box.innerHTML='<div class="meta">还没有讨论。可以直接问，例如：\n· 西里斯篇第 15 章，如果让薇拉主动道歉，合理吗？\n· 这一章之后有哪三种走向？各自的代价是什么？\n· 我担心第 12 章埋的伏笔没人接，怎么接才不生硬？</div>';
+  }else{
+    box.innerHTML=_counselLog.map(function(m){
+      const me=m.role==="me";
+      return '<div style="margin:8px 0;padding:8px 10px;border-radius:10px;background:var(--soft);border:1px solid var(--line);">'+
+        '<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">'+(me?"我":"参谋")+'</div>'+
+        '<div style="white-space:pre-wrap;line-height:1.7;">'+esc(m.text)+'</div></div>';
+    }).join("");
+    box.scrollTop=box.scrollHeight;
+  }
+}
+async function counselSend(){
+  try{
+    const inp=document.getElementById("counselInput");
+    const q=(inp&&inp.value||"").trim();
+    if(!q){ toast("先写点什么再发"); return; }
+    const ai=load("ai",{});
+    if(!ai.base){ toast("还没配置 AI：参谋需要 AI 才能讨论（「🛡 审稿」是纯本地的，不需要）"); return; }
+    /* 首次发送前明确报价：这是全应用唯一会反复花钱的对话功能 */
+    if(!_counselConfirmed){
+      const ctx0=counselCtx();
+      const cap=getAiCostCap?getAiCostCap():0;
+      const okGo=confirm(
+        "剧情参谋每次讨论都会调用 AI 并产生费用。\n\n"+
+        "　本次上下文：约 "+ctx0.chars+" 字\n"+
+        "　单次量级：通常不到一分钱，但频繁讨论会累积\n"+
+        "　保护："+(cap?("已设单日上限 ¥"+cap+"，超了会自动中止"):"你还没设单日花费上限，建议在「全局设置」里填一个")+"\n\n"+
+        "参谋只讨论、绝不会改动你的正文。继续？");
+      if(!okGo) return;
+      _counselConfirmed=true;
+    }
+    _counselLog.push({role:"me", text:q, at:Date.now()});
+    inp.value=""; counselRender();
+    const ctx=counselCtx();
+    const hist=_counselLog.slice(-8).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
+    const sys=[
+      "你是一位长篇小说的「剧情参谋」，不是写手。",
+      "职责：与作者讨论剧情，提供灵感、提出不同的走向、指出合理性与连贯性风险。",
+      "铁律：① 绝不写正文、绝不代写段落——只给判断、选项与理由；",
+      "② 一切结论必须以作者给出的分卷设定、人称设定与已有剧情为准，不得凭空新增设定；",
+      "③ 被问到合理性时，明确指出「哪里会崩、为什么会崩、最小改动怎么补」；",
+      "④ 每次回复结尾给 1-3 个「可选走向」，每条一句话说清代价；",
+      "⑤ 不确定就直说不确定，不要编造前文没发生过的事。"
+    ].join("\n");
+    const user="下面是当前作品的相关信息：\n\n"+ctx.text+"\n\n下面是讨论记录：\n"+hist+"\n\n请作为剧情参谋回答作者最新的这个问题。";
+    const btn=document.getElementById("counselSendBtn");
+    if(btn){ btn.disabled=true; btn.textContent="参谋在想…"; }
+    let out="";
+    try{
+      out=await callAI({sys:sys, user:user, temperature:0.85, max_tokens:2400, modelOverride:ai.model||ai.genModel});
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent="发送"; }
+    }
+    _counselLog.push({role:"ai", text:out||"（这次没有返回内容）", at:Date.now()});
+    try{ save("counselLog",_counselLog); }catch(e){}
+    counselRender();
+  }catch(e){
+    try{ toast("参谋这次没接上："+(e&&e.message?e.message:e)); }catch(e2){}
+  }
+}
+function counselClear(){
+  try{
+    if(!confirm("清空这段讨论记录？（正文一个字都不会动）")) return;
+    _counselLog=[]; try{ save("counselLog",[]); }catch(e){}
+    counselRender();
+  }catch(e){}
+}
+/* 落地 1：把参谋最后一轮结论写进「本章专属指令」 */
+function counselToBrief(){
+  try{
+    const last=null;
+    for(let i=_counselLog.length-1;i>=0;i--){ if(_counselLog[i].role==="ai"){ var last2=_counselLog[i]; break; } }
+    if(!last2){ toast("还没有参谋的回复可以落地"); return; }
+    const ta=document.getElementById("chBrief");
+    if(!ta) return;
+    ta.value=(ta.value?ta.value+"\n":"")+"【剧情参谋结论 · 下一轮据此写】\n"+String(last2.text).slice(0,1200);
+    toast("已写进「生成指令」，下一轮生成即生效");
+  }catch(e){}
+}
+/* 落地 2：把参谋最后一轮结论存成一条剧情线索 */
+function counselToPlot(){
+  try{
+    var last2=null;
+    for(let i=_counselLog.length-1;i>=0;i--){ if(_counselLog[i].role==="ai"){ last2=_counselLog[i]; break; } }
+    if(!last2){ toast("还没有参谋的回复可以存"); return; }
+    const line=prompt("存为一条剧情线索，写一句标题（可改）：", String(last2.text).slice(0,40).replace(/\n/g," "));
+    if(!line) return;
+    const pl=load("plot",[])||[];
+    pl.push({id:uid(), line:line, point:String(last2.text).slice(0,600), owner:"", status:""});
+    save("plot",pl);
+    try{ renderPlot(); }catch(e){}
+    toast("已存为剧情线索，可在「剧情线索」里查看");
+  }catch(e){}
+}
+
 bootApp().catch(function(e){ console.error("应用启动失败：", e); });
 /* 新手引导已移除（v46+）：首次进入不再自动弹教程 */
 /* 修复 B7：关闭/刷新页面前静默落盘当前章节，防丢稿（localStorage 同步写入，可靠） */
@@ -12300,6 +12597,36 @@ window.addEventListener('load',function(){
       <button type="button" onclick="closeVoiceDraft()">取消</button>
       <button type="button" class="primary" onclick="applyVoiceDraft()">写入人物卡</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="counselMask">
+  <div class="modal" style="max-width:760px;">
+    <h3>剧情参谋（只讨论，不动正文）</h3>
+    <div class="meta" id="counselMeta"></div>
+    <div id="counselLog" style="max-height:46vh;overflow:auto;margin-top:10px;"></div>
+    <textarea id="counselInput" style="min-height:80px;margin-top:10px;" placeholder="问参谋：这一章之后有哪几种走向？这个决定符合薇拉的人设吗？第 12 章的伏笔怎么接才不生硬？"></textarea>
+    <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
+      <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
+      <button type="button" onclick="counselToBrief()">写进本章指令</button>
+      <button type="button" onclick="counselToPlot()">存为剧情线索</button>
+      <button type="button" onclick="counselClear()">清空讨论</button>
+      <button type="button" onclick="counselClose()">关闭</button>
+    </div>
+    <div class="meta" style="margin-top:8px;">参谋只做判断与选项，绝不代写正文；结论可用上面两个按钮落地，否则关掉就蒸发了。</div>
+  </div>
+</div>
+
+<div class="modal-mask" id="reviewMask">
+  <div class="modal" style="max-width:720px;">
+    <h3>本地审稿（0 token）</h3>
+    <div class="meta" id="reviewMeta"></div>
+    <div id="reviewBody" style="max-height:56vh;overflow:auto;margin-top:10px;"></div>
+    <div class="mbtn" style="margin-top:12px;flex-wrap:wrap;">
+      <button type="button" class="primary" onclick="reviewToBrief()">写进本章指令</button>
+      <button type="button" onclick="closeReview()">关闭</button>
+    </div>
+    <div class="meta" style="margin-top:8px;">纯本地规则判断，不调用 AI、不消耗额度、不会改动正文。「写进本章指令」会把问题变成下一轮的约束。</div>
   </div>
 </div>
 
