@@ -742,6 +742,24 @@
   .ai-usage-tip{display:inline-block;margin-top:6px;font-size:11.5px;line-height:1.6;color:var(--sub);white-space:normal;}
   .ai-usage-btn{margin-top:8px;font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--sub);cursor:pointer;font-family:inherit;}
   .ai-usage-btn:hover{color:var(--brand);border-color:var(--brand);}
+  /* v109：单日花费硬上限（疑点5 隐藏扣费） */
+  .ai-cap{margin:0 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg,#fff);}
+  .ai-cap-h{font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+  .ai-cap-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .ai-cap-row input{width:120px;padding:6px 8px;font-size:13px;font-family:inherit;border:1px solid var(--line);border-radius:6px;background:var(--soft);color:var(--ink);}
+  .ai-cap-row button{margin-top:0;}
+  .ai-cap-on{color:var(--brand);font-weight:600;}
+  /* v109：声线卡本地归纳对照面板 */
+  .vd-row{border-top:1px dashed var(--line);padding:10px 0;}
+  .vd-row:first-child{border-top:0;padding-top:0;}
+  .vd-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+  .vd-lab{font-size:11.5px;color:var(--sub);margin:6px 0 3px;}
+  .vd-row textarea{width:100%;box-sizing:border-box;font-size:12.5px;line-height:1.7;font-family:inherit;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:var(--soft);color:var(--ink);resize:vertical;}
+  .vd-old{opacity:.78;}
+  .vd-new{border-color:var(--brand);}
+  .vd-samples{max-height:180px;overflow:auto;font-size:12px;line-height:1.8;color:var(--sub);}
+  .vd-s{padding:3px 0;border-bottom:1px dotted var(--line);}
+  .vd-check{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12.5px;color:var(--ink);}
   button.link{display:inline;background:none;border:none;color:var(--brand);text-decoration:underline;cursor:pointer;padding:0;font-size:13px;font-family:inherit;}
   button.link:hover{color:var(--gold);}
   #chBody{background:var(--editor-bg);border:1px solid var(--input-bd);line-height:1.85;border-radius:10px;}
@@ -1276,6 +1294,16 @@
       <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「接着写 / 深度续写 / 整章精修 / 润色」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
       <!-- v107：AI 用量账本（自查费用去向） -->
       <div class="ai-usage" id="aiUsageBox"></div>
+      <!-- v109：单日花费硬上限（疑点5：你没点过头却在扣费） -->
+      <div class="ai-cap">
+        <div class="ai-cap-h">💰 单日花费上限（元）</div>
+        <div class="ai-cap-row">
+          <input type="number" id="aiCostCapInput" min="0" step="0.5" placeholder="留空＝不限制">
+          <button type="button" class="ai-usage-btn" onclick="saveAiCostCap(document.getElementById('aiCostCapInput').value)">保存上限</button>
+          <button type="button" class="ai-usage-btn" onclick="clearAiCostCap()">取消上限</button>
+        </div>
+        <div class="ai-usage-tip">设了上限后，任何会产生费用的调用在发出前都会先校验「当日已累计 + 本次预估」；超出就直接中止并弹窗告诉你已用了多少、上限多少、在哪里改，不会偷偷帮你跑掉，也不会假装成功。留空即完全不限制（与旧版一致）。金额按上面的用量估算，属估算值、非官方账单。</div>
+      </div>
       <div class="ai-help">
         <div class="ai-help-h" onclick="toggleAIHelp()">
           <span>📌 没有 Key？3 步获取（推荐 DeepSeek，充 ¥10 够写很久）</span>
@@ -2674,6 +2702,144 @@ function ensureBooks(){
   rawSave("books",BOOKS);
   curId=BOOKS[0].id; rawSave("curBook",curId);
 }
+/* ============ v109：卷 id「哨兵冲突」一次性修复 ============
+   根因：代码里 id==="none" 是「未分卷」的哨兵值（defaultBook / volName / 删除分卷时
+   「移入未分卷」、各处 (c.vol||"none") 判定都依赖它）。但真实数据里「詹姆斯篇」这个正牌
+   分卷的 id 恰好就是 "none"（第二本书的「马修卷」同理），于是：
+     ① 章节列表 / 目录里它名下全显示成「未分卷」；
+     ② 装载 digested 档案时更隐蔽的 BUG：applyDigestPack 里 `vid!=="none"` 不成立，
+        这些章永远不会被归入目标卷，档案被写进 blocks["none"]，
+        → 「詹姆斯篇」名下永远空，用户就找不到这个分卷。
+   做法（一次性数据修复 + 代码加固，不在各处打补丁）：
+     · 把占了哨兵位、且名字确实不是「未分卷」的卷改挂到正规 id；
+     · 该名下章的全部 c.vol 跟着改；
+     · 该卷已经消化好的前文档案（d.volumes["none"]）一起迁到新 id，否则档案留在旧 id 下依旧不可见；
+     · 迁移前把整份 BOOKS 另存到 kv 的新备份键，原 books 结构与 IDB_VER 完全不动；
+     · 迁移成功后打标记 b.__volFix="v109"，重复启动 / 重复导入档案都不会二次迁移。
+   全程 try/catch：任何异常都静默降级，绝不阻止应用启动。 */
+function _volFixNorm(s){
+  try{
+    return String(s||"")
+      .replace(/[\u200B\u200C\u200D\uFEFF\u00AD\u180E\u2060]/g,"")  /* 零宽 / BOM / 软连字符 */
+      .replace(/\s+/g,"")
+      .toLowerCase();
+  }catch(e){ return String(s||"").toLowerCase(); }
+}
+const _VOLFIX_NONE_NAME=_volFixNorm("未分卷");
+const _VOLFIX_BAK_KEY="books_bak_volfix_v109";
+/* 为新卷挑一个语义化且未被占用的 id */
+function _volFixPickId(b, name){
+  const taken={}; (b.volumes||[]).forEach(function(v){ if(v&&v.id) taken[v.id]=1; });
+  const nm=String(name||"");
+  let cand="";
+  if(nm.indexOf("詹姆斯")>=0||nm.indexOf("詹姆")>=0) cand="james";
+  else if(nm.indexOf("西里斯")>=0) cand="sirius";
+  else if(nm.indexOf("莱姆斯")>=0||nm.indexOf("卢平")>=0) cand="remus";
+  if(cand && cand!=="none" && !taken[cand]) return cand;
+  let id="v"+uid();
+  let _g=0;
+  while(taken[id] && _g<200){ id="v"+uid(); _g++; }
+  return id;
+}
+async function fixVolIdCollision(){
+  let _movedVols=0, _movedChs=0, _movedDig=0;
+  const _names=[];
+  try{
+    if(!BOOKS || !Array.isArray(BOOKS) || !BOOKS.length) return 0;
+    /* 先只算不算账，确认真的要改才做备份，避免每次启动都写一份备份 */
+    let plan=null;
+    for(let bi=0; bi<BOOKS.length; bi++){
+      const b=BOOKS[bi];
+      if(!b) continue;
+      if(b.__volFix==="v109") continue;
+      const hit=(b.volumes||[]).filter(function(v){ return v && v.id==="none" && _volFixNorm(v.name) && _volFixNorm(v.name)!==_VOLFIX_NONE_NAME; });
+      if(hit.length){ plan=plan||[]; plan.push({b:b, hit:hit}); }
+    }
+    if(!plan){ BOOKS.forEach(function(b){ if(b) b.__volFix="v109"; }); return 0; }
+    /* 迁移前备份：只新增一个 kv 键，不动 books / 不动 IDB_VER / 不覆盖已有备份 */
+    try{
+      const _exist=await idbGet(_VOLFIX_BAK_KEY);
+      if(_exist===undefined || _exist===null){
+        await idbSet(_VOLFIX_BAK_KEY, JSON.stringify({at:Date.now(), app:APP_VERSION, books:BOOKS}));
+      }
+    }catch(e){ /* 备份失败不阻断修复：原数据仍在旧 key 上，只是少一份快照 */ }
+    for(let pi=0; pi<plan.length; pi++){
+      const b=plan[pi].b, hit=plan[pi].hit;
+      try{
+        for(let hi=0; hi<hit.length; hi++){
+          const v=hit[hi];
+          const _oldId=v.id;                     /* 恒为 "none" */
+          const newId=_volFixPickId(b, v.name);
+          v.id=newId;
+          _names.push(String(v.name||"").trim()||newId);
+          _movedVols++;
+          /* ① 该卷名下的章节跟着改 */
+          let _cnt=0;
+          (b.chapters||[]).forEach(function(c){
+            if(String(c.vol||"").trim()==="none"){ c.vol=newId; _cnt++; }
+          });
+          _movedChs+=_cnt;
+          /* ② 该卷已经消化好的前文档案跟着迁（否则档案仍留在旧 id 下，UI 依旧看不见）。
+                目标卷正常情况下不存在；万一存在就合并块（按 chId 幂等去重）。 */
+          try{
+            const d=(b.aiDigest)||null;
+            if(d && d.volumes && d.volumes[_oldId]){
+              const _old=d.volumes[_oldId];
+              const _has=(_old && ((_old.text||"").trim()||(_old.rolling||"").trim()||
+                        (Array.isArray(_old.blocks)?_old.blocks.length:Object.keys(_old.blocks||{}).length)||
+                        Object.keys(_old.chapters||{}).length));
+              const _tg=d.volumes[newId];
+              if(_has && !_tg){
+                d.volumes[newId]=_old;
+                delete d.volumes[_oldId];
+                _movedDig++;
+              }else if(_has && _tg){
+                try{
+                  const _oldArr=Array.isArray(_old.blocks)?_old.blocks:Object.keys(_old.blocks||{}).map(function(k){return _old.blocks[k];});
+                  const _tgArr =Array.isArray(_tg.blocks) ?_tg.blocks :Object.keys(_tg.blocks||{}).map(function(k){return _tg.blocks[k];});
+                  const _seen={}; const _out=[];
+                  _tgArr.concat(_oldArr).forEach(function(bl){
+                    if(!bl) return;
+                    const k=String(bl.chId||bl.id||bl.seq||("b"+_out.length));
+                    if(_seen[k]) return; _seen[k]=1; _out.push(bl);
+                  });
+                  _tg.blocks=_out;
+                  const _cm=Object.assign({}, _old.chapters||{}); Object.assign(_cm, _tg.chapters||{});
+                  _tg.chapters=_cm;
+                  _tg.sig=Object.assign({}, _old.sig||{}, _tg.sig||{});
+                  if(!(_tg.rolling||"").trim() && (_old.rolling||"").trim()) _tg.rolling=_old.rolling;
+                  try{ _tg.text=renderVolText(_tg); }catch(e2){ _tg.text=((_tg.text||"")+"\n"+((_old.text||""))).trim(); }
+                  delete d.volumes[_oldId];
+                  _movedDig++;
+                }catch(e2){ /* 合并失败就保持原状，至少不丢数据 */ }
+              }
+            }
+          }catch(e){}
+          /* ③ 当前选中卷若指着这个 id，一起改 */
+          if(b.curVol===_oldId) b.curVol=newId;
+        }
+        /* ④ 迁走后必须补上真正的「未分卷」哨兵卷，否则删除分卷时「移入未分卷」会丢卷 */
+        if(!(b.volumes||[]).some(function(v){ return v && v.id==="none"; })){
+          (b.volumes=b.volumes||[]).unshift({id:"none",name:"未分卷"});
+        }
+        b.__volFix="v109";
+      }catch(e){ console.warn("[fixVolIdCollision] 单本书修复失败(非致命)：", e && e.message); }
+    }
+    BOOKS.forEach(function(b){ if(b && b.__volFix!=="v109") b.__volFix="v109"; });
+    if(_movedVols){
+      rawSave("books",BOOKS);
+      try{
+        const _nmTxt=_names.slice(0,3).join("、")+(_names.length>3?" 等":"");
+        toast("已自动修复 "+_movedVols+" 个分卷的归属（"+_nmTxt+"），"+_movedChs+" 章已归位"+
+              (_movedDig?("，"+_movedDig+" 份前文档案随之迁到新卷"):"")+"，迁移前的数据已备份");
+      }catch(e){}
+    }else{
+      rawSave("books",BOOKS);
+    }
+  }catch(e){ console.warn("[fixVolIdCollision] 跳过（非致命）：", e && e.message); }
+  return _movedVols;
+}
+window.fixVolIdCollision=fixVolIdCollision;
 /* 以下初始化（ensureBooks / 主题迁移 / 预警 / 首屏渲染）已统一收进 bootApp()，在 idbInit() 完成后异步执行，见文件末尾 */
 
 function curBook(){ return BOOKS && BOOKS.length ? (BOOKS.find(b=>b.id===curId) || BOOKS[0]) : null; }
@@ -2740,10 +2906,20 @@ function renderVolChips(){
   document.getElementById("volChips").innerHTML=html;
 }
 function setVol(id){ curBook().curVol=id; rawSave("books",BOOKS); renderVolChips(); renderChapters(); }
+/* v109 加固：① id 绝不能是哨兵值 "none"（否则整套「未分卷」判定会集错）；
+   ② 不允许和已有分卷重名（归一化比较：去空白 / 零宽字符 / 大小写），避免又造出一个
+   「名字一样但 id 不同」的孪生卷，让按名匹配的分卷逻辑抽签抽错。 */
 function addVolume(){
   const n=prompt("新分卷名称（如：莉莉篇 / 番外篇）"); if(!n)return;
+  const _nn=String(n||"").trim();
+  if(!_nn)return;
   const b=curBook(); b.volumes=b.volumes||[{id:"none",name:"未分卷"}];
-  b.volumes.push({id:"v"+uid(),name:n.trim()}); rawSave("books",BOOKS);
+  if(_volFixNorm(_nn)===_VOLFIX_NONE_NAME){ toast("「未分卷」是系统保留卷，请换个名字"); return; }
+  const _dup=(b.volumes||[]).some(function(v){ return v && _volFixNorm(v.name)===_volFixNorm(_nn); });
+  if(_dup){ toast("已经有叫「"+_nn+"」的分卷了，请不要重复创建"); return; }
+  let id="v"+uid();
+  if(id==="none" || (b.volumes||[]).some(function(v){return v.id===id;})) id="v"+uid()+"x";
+  b.volumes.push({id:id,name:_nn}); rawSave("books",BOOKS);
   popVolSelect(); refreshChapterViews();
 }
 let _delVolId=null;
@@ -2850,7 +3026,24 @@ function moveVol(id,dir){
   const t=vs[i]; vs[i]=vs[j]; vs[j]=t;
   rawSave("books",BOOKS); renderVolMgr(); refreshChapterViews();
 }
-function renameVol(id,val){const b=curBook();const v=b.volumes.find(x=>x.id===id);if(v){v.name=val.trim()||v.name;rawSave("books",BOOKS);renderVolMgr();refreshChapterViews();}}
+/* v109 加固：不允许把任意分卷改名为「未分卷」——那会让它和系统哨兵卷重名，
+   按卷名匹配档案 / 判断归属的地方会同时命中两个卷，行为不可预测。
+   哨兵卷本身（id==="none"）本就叫这个名字，改别的名字同样不允许，保持原名不落盘。 */
+function renameVol(id,val){
+  try{
+    const b=curBook(); if(!b) return;
+    const v=(b.volumes||[]).find(x=>x.id===id); if(!v) return;
+    const nm=String(val||"").trim();
+    if(!nm) return;   /* 空值视为放弃修改，保留原名 */
+    if(id!=="none" && _volFixNorm(nm)===_VOLFIX_NONE_NAME){
+      toast("不能把分卷改名为「未分卷」"); renderVolMgr(); refreshChapterViews(); return;
+    }
+    if(id==="none" && _volFixNorm(nm)!==_VOLFIX_NONE_NAME){
+      toast("「未分卷」是系统保留卷名，不能改名"); renderVolMgr(); refreshChapterViews(); return;
+    }
+    v.name=nm; rawSave("books",BOOKS); renderVolMgr(); refreshChapterViews();
+  }catch(e){}
+}
 let _vdragId=null;
 function vdragStart(id){_vdragId=id;}
 function vdragOver(e){e.preventDefault();}
@@ -3349,7 +3542,10 @@ function renderTrash(){
   if(!t.length){ box.innerHTML='<div class="meta">回收站是空的。删除章节会自动保留最近 '+TRASH_MAX+' 条，可随时恢复。</div>'; return; }
   box.innerHTML=t.map(function(it,i){
     const c=it.ch||{};
-    const vname=(c.vol&&c.vol!=="none")?esc(volName(c.vol)):"未分卷";
+    /* v109：改成「查表优先」——原先 `c.vol!=="none"` 直接短路成「未分卷」，
+       一旦某卷的 id 真的是 none（真实数据里的「詹姆斯篇」），它名下所有章都会被误标。
+       现在统一交给 volName() 查 volumes 表：查得到就用卷名，查不到（含真·未分卷 / 幽灵卷）才显示「未分卷」。 */
+    const vname=esc(volName(c.vol));
     return '<div class="trash-item">'+
       '<div class="trash-main"><div class="trash-t">'+esc(c.title||("第"+(c.num||"?")+"章"))+'</div>'+
       '<div class="trash-m">'+_fmtTrashTime(it.at)+' 删除 · '+((c.body||"").length)+' 字 · '+vname+'</div></div>'+
@@ -5410,6 +5606,9 @@ function renderCharEditor(){
     '</div>';
   html+='<div class="ce-lang">'+
     '<div class="ce-lang-head"><span>🗣️ 语言体系 & 🧠 思维模式'+(c.protagonist?'（主角·最高优先级）':'')+'</span>'+
+      /* v109：本地归纳入口（0 token）。绝大多数人物卡这三项是全空的，AI 提取要花钱还要联网，
+         这里先用本机统计给一版可编辑的草稿，用户确认后才写入。 */
+      '<button type="button" class="ghost" title="不调用 AI、不消耗 token：从正文台词做本地统计，给出可编辑的「原值→建议值」对照草稿" onclick="openVoiceDraft(\''+cid+'\')">📊 本地归纳（0 token）</button>'+
       '<button type="button" class="ghost" onclick="analyzeCharLang(\''+cid+'\',this)">🤖 AI 提取</button></div>'+
     '<label class="ce-lang-flag"><input type="checkbox" '+(c.protagonist?'checked':'')+' onchange="updCharField(\''+cid+'\',\'protagonist\',this.checked)"> 设为主角（其语言/思维以最高优先级注入续写，精准锁定声音签名）</label>'+
     '<label>语言体系（说话方式：称谓/口头禅、句式、修辞、知识来源、禁止措辞）<textarea placeholder="例：第一人称主动观察；多用神奇生物/麻瓜影视/烹饪比喻；口头禅『老实说』；忌平淡陈述与破折号解释" onchange="updCharField(\''+cid+'\',\'langSys\',this.value)">'+esc(c.langSys||'')+'</textarea></label>'+
@@ -5552,6 +5751,259 @@ async function analyzeCharLang(cid, btn){
   }catch(e){ aiFail("AI 提取语言体系",e); }
   finally{ if(btn){btn.disabled=false; btn.textContent=_ot;} }
 }
+/* ============ v109：声线卡「本地归纳器」（0 token） ============
+   背景（P0-4 生成质量）：52 张人物卡里 51 张的 langSys / thinkMode / taboos 三项全空，
+   buildBookContext() 注入的【人物声音规格】【人物行为禁区】【人物心理设定】因此整段为空，
+   第 15 章前后出现明显人设漂移。原来的补齐入口只有「🤖 AI 提取」，要花钱、要联网、还要多本书逐张跑。
+   做法：纯本地统计——从当前书正文中按角色名（含 aliases 与名字拆分后的昵称）抽取该角色的台词句，
+   统计句长分布 / 高频惯用语 / 标点习惯 / 自称与对他人的称呼 / 比喻·反问密度 / 情绪词，
+   拼成 langSys、thinkMode、taboos 三段草稿。
+   铁律：① 绝不调用 AI，零 token；② 绝不自动写入——必须弹可编辑的「原值 → 建议值」对照面板，
+   用户点确认后才 save("chars")；③ 任何异常都包 try/catch，抽不到素材时给友好提示而不是静默失败。 */
+const VOICE_EMO_WORDS=["喜欢","讨厌","害怕","生气","难过","开心","担心","紧张","害羞","委屈","后悔","期待","失望","心虚","得意","不安","心疼"];
+const VOICE_META_WORDS=["仿佛","宛如","好似","犹如","似的","像"];
+const VOICE_RHET_WORDS=["难道","莫非","岂有","怎么可能","哪有","谁说","才怪","话说回来"];
+const VOICE_NEG_WORDS=["绝不","决不","从不","从未","永不","不屑","不愿","不肯","不可能","休想","别想"];
+const VOICE_SELF_WORDS=["我","我们"];
+function _cntOcc(h,n){ if(!h||!n) return 0; let c=0,i=0; while((i=h.indexOf(n,i))>=0){ c++; i+=n.length; } return c; }
+function _pct(a,b){ const x=Number(a)||0, y=Number(b)||0; return y?Math.round(x*1000/y)/10:0; }
+/* 角色名的所有可匹配写法：全名 / 别名 / 「名·姓」拆出来的昵称或姓 */
+function _voiceVariants(c){
+  const out=[];
+  const _add=function(s){ s=String(s||"").trim(); if(s && s.length>=2 && out.indexOf(s)<0) out.push(s); };
+  try{
+    _add(c&&c.name);
+    String((c&&c.aliases)||"").split(/[、,，;；\/|]+/).forEach(_add);
+    String((c&&c.name)||"").split(/[·・\s]+/).forEach(_add);
+  }catch(e){}
+  return out.filter(function(s){ return s && s.length>=2; });
+}
+/* 从当前书正文里抽该角色的台词句 + 明确的否定表述（用于归纳禁区） */
+function _voiceCorpus(c, variants){
+  const lines=[], negs=[]; let chCount=0;
+  const all=(load("chapters")||[])||[];
+  all.forEach(function(ch){
+    const body=String(ch.body||"");
+    if(!body.trim()) return;
+    let mentioned=false;
+    variants.forEach(function(v){ if(body.indexOf(v)>=0) mentioned=true; });
+    if(!mentioned) return;
+    chCount++;
+    body.split(/[\n\r]+/).forEach(function(p){
+      if(!p) return;
+      if(lines.length>=4000) return;   /* 硬上限：再长的书也不让统计失控 */
+      let hit=false;
+      variants.forEach(function(v){ if(p.indexOf(v)>=0) hit=true; });
+      if(!hit) return;
+      /* ① 台词：引号内的句子，且引号前后 32/16 字窗口内出现该角色名（说话人归属） */
+      let m=null; const re=/[“"「『]([^”"」』]{2,200})[”"」』]/g;
+      while((m=re.exec(p))!==null){
+        const q=String(m[1]||"").trim();
+        if(q.length<2) continue;
+        const before=p.slice(Math.max(0,m.index-32), m.index);
+        const after =p.slice(m.index+m[0].length, Math.min(p.length, m.index+m[0].length+16));
+        let attr=false;
+        variants.forEach(function(v){ if(before.indexOf(v)>=0||after.indexOf(v)>=0) attr=true; });
+        if(attr){ lines.push({q:q, before:before, after:after, num:ch.num}); if(lines.length>=4000) return; }
+      }
+      /* ② 禁区证据：要求「否定词紧邻角色名」——要么紧贴名字之后（西里斯从不…），
+            要么紧贴名字之前（绝不答应西里斯…）。只要求「同句里有否定词」会把大段旁白误当成禁区。 */
+      p.split(/[。！？!?…]+/).forEach(function(s){
+        s=String(s||"").trim();
+        if(s.length<4||s.length>60) return;
+        let neg=false;
+        variants.forEach(function(v){
+          if(neg) return;
+          let k=s.indexOf(v);
+          while(k>=0){
+            const after =s.slice(k, k+v.length+8);
+            const before=s.slice(Math.max(0,k-6), k);
+            VOICE_NEG_WORDS.forEach(function(w){ if(after.indexOf(w)>=0||before.indexOf(w)>=0) neg=true; });
+            if(neg) return;
+            k=s.indexOf(v, k+v.length);
+          }
+        });
+        if(neg && negs.length<40 && negs.indexOf(s)<0) negs.push(s);
+      });
+    });
+  });
+  return {lines:lines, negs:negs, chapters:chCount};
+}
+/* 高频惯用语：2–4 字 n-gram 频次统计（局部出现 >=3 次才入选，去掉被更长片段包含的重复项） */
+function _voiceTopPhrases(lines, topN){
+  const text=(lines||[]).map(function(l){return l.q;}).join("｜");
+  const gram={};
+  for(let n=2;n<=4;n++){
+    for(let i=0;i+n<=text.length;i++){
+      const g=text.slice(i,i+n);
+      if(g.indexOf("｜")>=0) continue;
+      gram[g]=(gram[g]||0)+1;
+    }
+  }
+  const cand=Object.keys(gram).filter(function(g){ return gram[g]>=3; })
+    .sort(function(a,b){ return gram[b]-gram[a] || b.length-a.length; });
+  const picked=[];
+  for(let i=0;i<cand.length && picked.length<topN;i++){
+    const g=cand[i];
+    let covered=false;
+    for(let j=0;j<picked.length;j++){ if(picked[j].w.indexOf(g)>=0 && gram[picked[j].w]>=gram[g]*0.9){ covered=true; break; } }
+    if(!covered) picked.push({w:g, c:gram[g]});
+  }
+  return picked;
+}
+function voiceMine(cid){
+  try{
+    const cs=(load("chars")||[])||[];
+    const i=cs.findIndex(function(x){ return x.id===cid; });
+    if(i<0) return {err:"找不到这张人物卡"};
+    const c=cs[i];
+    const name=String(c.name||"").trim();
+    if(!name) return {err:"请先填写人物名，再点「本地归纳」"};
+    const variants=_voiceVariants(c);
+    if(!variants.length) return {err:"人物名太短，无法在正文里定位台词"};
+    const co=_voiceCorpus(c, variants);
+    if(!co.lines.length){
+      return {err:"没能在当前书正文里抽到「"+name+"」的台词。\n可能 ta 还没正式出场，或出场段落里没有引号台词。\n让 ta 多说几句话后再来归纳即可（或用「🤖 AI 提取」）。"};
+    }
+    const lines=co.lines;
+    const n=lines.length;
+    const lens=lines.map(function(l){ return l.q.length; });
+    const sum=lens.reduce(function(a,b){ return a+b; },0);
+    const avg=Math.round(sum/n);
+    const sorted=lens.slice().sort(function(a,b){ return a-b; });
+    const med=sorted[Math.floor(n/2)]||avg;
+    const shortN=lens.filter(function(x){ return x<=10; }).length;
+    const midN  =lens.filter(function(x){ return x>10&&x<=25; }).length;
+    const longN =lens.filter(function(x){ return x>25; }).length;
+    const allText=lines.map(function(l){return l.q;}).join("｜");
+    let qm=0, ex=0, el=0;
+    lines.forEach(function(l){
+      if(/[？?]/.test(l.q)) qm++;
+      if(/[！!]/.test(l.q)) ex++;
+      if(/[…]|\.\.\./.test(l.q)) el++;
+    });
+    /* 自称 */
+    const self=VOICE_SELF_WORDS.map(function(w){ return {w:w, c:_cntOcc(allText,w)}; })
+      .filter(function(x){ return x.c>0; }).sort(function(a,b){ return b.c-a.c; });
+    /* 对他人的称呼：正文中出现过的其他人物名（含昵称），在该角色台词里被提到多少次 */
+    const others=(load("chars")||[])||[];
+    const addr=[];
+    others.forEach(function(o){
+      if(o.id===c.id) return;
+      const vs=_voiceVariants(o);
+      let cnt=0;
+      vs.forEach(function(v){ cnt+=_cntOcc(allText,v); });
+      if(cnt>0) addr.push({w:String(o.name||"").trim(), c:cnt});
+    });
+    addr.sort(function(a,b){ return b.c-a.c; });
+    /* 惯用语 */
+    const phrases=_voiceTopPhrases(lines, 10);
+    const emo=VOICE_EMO_WORDS.map(function(w){ return {w:w, c:_cntOcc(allText,w)}; })
+      .filter(function(x){ return x.c>0; }).sort(function(a,b){ return b.c-a.c; }).slice(0,6);
+    let metaN=0; lines.forEach(function(l){ VOICE_META_WORDS.forEach(function(w){ if(l.q.indexOf(w)>=0){ metaN++; return; } }); });
+    let rhetN=0; lines.forEach(function(l){ VOICE_RHET_WORDS.forEach(function(w){ if(l.q.indexOf(w)>=0){ rhetN++; return; } }); });
+    /* 组装草稿 */
+    const lenPart="平均句长 "+avg+" 字（中位 "+med+" 字）：短句(≤10字) "+_pct(shortN,n)+"%、中句(11–25字) "+_pct(midN,n)+"%、长句(>25字) "+_pct(longN,n)+"%。";
+    const cusPart=phrases.length?("高频惯用语/口头禅："+phrases.slice(0,6).map(function(x){ return "『"+x.w+"』×"+x.c; }).join("、")+"。"):"未发现稳定重复的高频惯用语。";
+    const ijePart=VOICE_INTERJ_HIT(allText)?"穿插语气词较多。":"语气词使用克制。";
+    const puncPart="标点习惯（每百句）：问句 "+_pct(qm,n)+" 句、感叹 "+_pct(ex,n)+" 句、省略号 "+_pct(el,n)+" 句。";
+    const selfPart=self.length?("自称以「"+self[0].w+"」为主（"+self[0].c+" 次）。"):"正文中几乎没有使用自称。";
+    const addrPart=addr.length?("台词中常提及/称呼："+addr.slice(0,5).map(function(x){ return x.w+"("+x.c+"次)"; }).join("、")+"。"):"台词中没有稳定指向其他角色。";
+    const rhePart="比喻密度 "+_pct(metaN,n)+"/百句，反问密度 "+_pct(rhetN,n)+"/百句。";
+    const emoPart=emo.length?("常见情绪词："+emo.map(function(x){ return x.w+"("+x.c+")"; }).join("、")+"。"):"";
+    const langSys="本地统计归纳（0 token，非 AI 生成）：共 "+n+" 句台词，出自 "+co.chapters+" 章。"+lenPart+ijePart+puncPart+selfPart+addrPart+cusPart+rhePart+emoPart;
+    /* 思维模式：只用能从统计里推出来的结论，不确定处明说“待人工确认”，不编造 */
+    const thinkParts=[];
+    thinkParts.push(_pct(rhetN,n)>=8?("偏反驳型：反问密度 "+_pct(rhetN,n)+"/百句，倾向用反问/反呛表达立场，而非直接陈述。"):("偏陈述型：反问密度 "+_pct(rhetN,n)+"/百句，多数时候直接给出判断与结论。"));
+    thinkParts.push(_pct(ex,n)>=15?("情绪外放：感叹句占比 "+_pct(ex,n)+"%，情绪上来先出口，事后才收。"):("情绪克制：感叹句占比仅 "+_pct(ex,n)+"%，更习惯把情绪压在行动与细节里。"));
+    thinkParts.push(_pct(el,n)>=8?("常有未说出的话：省略号占比 "+_pct(el,n)+"%，话说到一半会主动收住。"):("表达相对完整，较少话到嘴边又咽回去。"));
+    thinkParts.push(_pct(metaN,n)>=10?("联想活跃：比喻密度 "+_pct(metaN,n)+"/百句，习惯把眼前事换算成熟悉的体系来理解。"):("偏务实：比喻密度 "+_pct(metaN,n)+"/百句，更常直接描述事实本身。"));
+    thinkParts.push(emo.length?("情绪落点集中在："+emo.slice(0,3).map(function(x){ return x.w; }).join("、")+"。"):"情绪词样本不足，情感落点待人工补充。");
+    const thinkMode="本地统计归纳（0 token，非 AI 生成）："+thinkParts.join("");
+    /* 禁区：只有拿到 ≥2 条正文里的明确否定证据才给草稿，否则留空并注明 */
+    let taboos="", taboosNote="";
+    if(co.negs.length>=2){
+      taboos="以下表述来自正文里对该角色的明确否定/拒绝描写，可作为禁区参考（请改写为规则句）："+co.negs.slice(0,3).join("；");
+    }else{
+      taboos="";
+      taboosNote="正文里没有足够的明确否定证据（需至少 2 条），为避免编造，这里留空，建议你手动填写。";
+    }
+    const samples=lines.slice(0,6).map(function(l){ return l.q; });
+    return {ok:true, cid:cid, name:name, n:n, chapters:co.chapters, lines:lines,
+            draft:{langSys:langSys, thinkMode:thinkMode, taboos:taboos}, taboosNote:taboosNote, samples:samples,
+            stat:{avg:avg, med:med, qm:_pct(qm,n), ex:_pct(ex,n), el:_pct(el,n), meta:_pct(metaN,n), rhet:_pct(rhetN,n), addr:addr.slice(0,5)}};
+  }catch(e){
+    return {err:"本地归纳失败："+((e&&e.message)||String(e))};
+  }
+}
+function VOICE_INTERJ_HIT(t){
+  let c=0;
+  ["哎呀","哎哟","嘿","哦","嗯","啊","哇","呃","哼","啧","好吧","得了吧","拜托","天哪","老实说","说实话"].forEach(function(w){ c+=_cntOcc(t,w); });
+  return c>=3;
+}
+/* 可编辑的「原值 → 建议值」对照面板；确认前绝不写入任何东西 */
+let _voiceDraft=null;
+function openVoiceDraft(cid){
+  try{
+    const r=voiceMine(cid);
+    if(!r||r.err){ alert(r?r.err:"本地归纳失败"); return; }
+    const cs=(load("chars")||[])||[];
+    const c=cs.filter(function(x){ return x.id===cid; })[0]; if(!c) return;
+    _voiceDraft={cid:cid, r:r, old:{langSys:c.langSys||"", thinkMode:c.thinkMode||"", taboos:c.taboos||""}};
+    document.getElementById("voiceTitle").textContent="📊 本地归纳建议稿 · "+r.name;
+    document.getElementById("voiceMeta").innerHTML=
+      '样本：全书 <b>'+r.chapters+'</b> 章中抽到 <b>'+r.n+'</b> 句疑似台词 · 均长 '+r.stat.avg+' 字 · '+
+      '问句 '+r.stat.qm+'/百句 · 感叹 '+r.stat.ex+'/百句 · 比喻 '+r.stat.meta+'/百句 · 反问 '+r.stat.rhet+'/百句'+
+      '<br><span style="color:var(--sub);">⚠️ 这是<b>本机正则统计</b>出来的草稿，<b>不是 AI 生成</b>，可能混入旁白或他人台词；请逐项核对后再写入（默认勾选「只补空字段」，已有内容不会被覆盖）。</span>';
+    const row=function(key,title,tip){
+      const oldV=_voiceDraft.old[key]||"";
+      const newV=(r.draft&&r.draft[key])||"";
+      return '<div class="vd-row"><div class="vd-t">'+title+'</div>'+
+        '<div class="vd-lab">原值（人物卡当前'+(oldV?'已有内容':'为空')+'）</div>'+
+        '<textarea class="vd-old" readonly rows="3">'+esc(oldV)+'</textarea>'+
+        '<div class="vd-lab">建议值（可编辑'+(tip?' · '+esc(tip):'')+'）</div>'+
+        '<textarea class="vd-new" id="vd_'+key+'" rows="5" placeholder="留空＝不改动原值">'+esc(newV)+'</textarea></div>';
+    };
+    let html=row("langSys","🗣️ 语言体系 langSys","")+row("thinkMode","🧠 思维模式 thinkMode","");
+    html+=row("taboos","⛔ 行为禁区 taboos", r.taboosNote);
+    if(r.samples&&r.samples.length){
+      html+='<div class="vd-row"><div class="vd-t">🎞️ 抽到的台词样本（前 '+r.samples.length+' 句，用于你判断归属是否抽对）</div>'+
+        '<div class="vd-samples">'+r.samples.map(function(s){ return '<div class="vd-s">「'+esc(s)+'」</div>'; }).join("")+'</div></div>';
+    }
+    document.getElementById("voiceBody").innerHTML=html;
+    document.getElementById("voiceMask").classList.add("on");
+  }catch(e){ alert("打开归纳面板失败："+((e&&e.message)||String(e))); }
+}
+function closeVoiceDraft(){ try{ document.getElementById("voiceMask").classList.remove("on"); }catch(e){} _voiceDraft=null; }
+function applyVoiceDraft(){
+  try{
+    if(!_voiceDraft) return;
+    const cid=_voiceDraft.cid;
+    const onlyEmpty=!!(document.getElementById("voiceOnlyEmpty")||{}).checked;
+    const val=function(k){ const el=document.getElementById("vd_"+k); return el?String(el.value||"").trim():""; };
+    const got={langSys:val("langSys"), thinkMode:val("thinkMode"), taboos:val("taboos")};
+    if(!got.langSys && !got.thinkMode && !got.taboos){ toast("三项都为空，没有写入任何内容"); closeVoiceDraft(); return; }
+    const cs=(load("chars")||[])||[];
+    const i=cs.findIndex(function(x){ return x.id===cid; });
+    if(i<0){ toast("人物卡已不存在"); closeVoiceDraft(); return; }
+    const d=new Date(); const ds=d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
+    const written=[];
+    ["langSys","thinkMode","taboos"].forEach(function(k){
+      if(!got[k]) return;
+      if(onlyEmpty && String(cs[i][k]||"").trim()) return;
+      cs[i][k]=got[k]; written.push(k);
+    });
+    if(!written.length){ toast("三项原值都已有内容（勾了「只补空字段」），未改动"); closeVoiceDraft(); return; }
+    if(cs[i].langSys||cs[i].thinkMode) cs[i].langSrc="本地统计归纳 · "+ds+"（"+_voiceDraft.r.n+" 句台词）";
+    cs[i].demo=false;
+    save("chars",cs);
+    const _map={langSys:"语言体系",thinkMode:"思维模式",taboos:"行为禁区"};
+    toast("已写入 "+written.map(function(k){return _map[k];}).join(" / ")+"（本机归纳，0 token）");
+    closeVoiceDraft();
+    renderCharEditor();
+  }catch(e){ alert("写入失败："+((e&&e.message)||String(e))); }
+}
+window.voiceMine=voiceMine; window.openVoiceDraft=openVoiceDraft; window.applyVoiceDraft=applyVoiceDraft;
 function selectChar(id){ _selCharId=id; renderCharList(); renderCharEditor(); }
 function updCharField(id,field,v){
   const cs=load("chars",[]); const i=cs.findIndex(x=>x.id===id);
@@ -6104,7 +6556,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v108";
+const APP_VERSION="v109";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6114,6 +6566,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v109","① 修【找不到詹姆斯篇 / 章节全挂在未分卷】的根因：代码里 none 是「未分卷」的内部哨兵值，而你真实数据里「詹姆斯篇」这个分卷的 id 恰好就叫 none，于是它名下 74 章一律显示成「未分卷」，装入的消化档案也只能写进这个假未分卷，詹姆斯篇名下永远一片空白。现在首次启动会自动把它挂到正规 id（james），并把该卷已经消化好的前文档案一并迁过去；迁移前的整份数据会另存一份备份（键 books_bak_volfix_v109），你原有的 books 存储结构一个字段都没动。同时做了三处加固：新建分卷不会再撞上 none、也不允许和已有分卷重名、已有分卷不能再改名叫「未分卷」。② 人物卡「语言体系 & 思维模式」新增「📊 本地归纳（0 token）」：只从你已经写好的正文里按角色名抽取台词做统计（句长分布、高频口头禅、标点习惯、自称与对他人的称呼、比喻/反问密度、常见情绪词），给出「原值 → 建议值」的可编辑对照面板，确认后才写入人物卡，全程不调用 AI、不消耗任何 token。③ AI 生成设置新增「单日花费上限（元）」：任何会产生费用的调用在发起前都会先校验「当日已累计 + 本次预估」，超出上限就中止并明确告诉你当日已用了多少、上限是多少、去哪里调整，不再出现你没点过头却被扣费的情况（金额按 DeepSeek 公开单价估算，属估算值，非官方账单）。"],
   ["v101","修「文件消化」链路，并在服务端闭环：① 根因——消化档案此前从未进入任何搜索/检索索引（顶栏搜索与全书检索都只扫章节/人物/线索/灵感/世界观），档案明明在库里却搜不到；现在消化档案纳入顶栏搜索（新增「消化档案」分组，点击直接跳到对应分卷）与全书检索（AI 生成时能读到已消化好的前文档案）。② 索引缺失——项目里从来没有「消化档案索引文件」，现由服务端脚本生成 import/digest_index.json，登记全部可用档案（分卷/章数/文件名/更新时间）。③ 录入→消化断点——导入正文后原本只入队却不会消化（未配 AI 时更是静默返回，看不出原因）；现在录入完成会按来源自动匹配配套档案并询问装载，未配 AI 也会明确提示零消耗方案。④ 后端消化——新增 tools/digest_build.js：读取手稿或工作台备份，在服务端产出 __digestPack 摘要包并自动维护索引，支持本地规则抽取（零 token）与 AI 两种模式；前端「数据备份 → 后端消化档案」一键装载，全程不调用本机 AI、不消耗你的额度"],  ["v97","新增「体检台」（编辑器 · 更多操作 → 🔍 体检/审稿）：① 本地体检零消耗扫描套话词、四字重复、超长句/段、对话占比、结尾钩子、时代风险词，直接给数字与例子；② AI 审稿一次低温调用，查结构硬伤（前后矛盾/设定冲突/时间线）、人物漂移、节奏问题，产出可执行改法；③ 去套话重写：只把被标出的句子交给 AI 逐句改，给「原句→新句」对照，确认后才替换正文，其余一个字不动。体检结论可一键写进「本章专属指令」，下轮生成自动规避。另新增「本章形态」（长篇推进/单章完整事件/情绪特写/番外小品），只加一句强约束，接在原有生成链路上"],  ["v96","多窗口不再互相覆盖：同一个地址开了两个标签（或手机+电脑同时开着）时，原来是谁最后保存谁说了算，后保存的窗口会把另一个窗口刚写的内容整体盖掉，而且双方都不知道。现在每次落盘都会留一条「谁在什么时候写的」戳并广播给其它窗口，别的窗口发现后立刻暂停保存、弹出提示条，由你选「载入最新」或「以本窗口为准」——冲突期间离开页面还会拦一下，绝不静默覆盖。另：数据备份新增「导出时去掉 API Key」勾选项（记住你的选择）；清掉 1179 处设计器遗留的空属性，首屏传输体积减 27KB"],  ["v95","修功能检测查出的三处问题：① 同一份消化档案重复导入会不断叠加卷摘要（导入两次 4,693→9,393 字，喂给 AI 的上下文变脏、白烧 token），现在导入前先剔除上一次写入的整段，重复导入字数不变；② 「导入恢复」原来是覆盖式且没有二次确认，误点一次备份就把当前全部书稿替换掉，现在会弹出「合并为新增书籍 / 替换当前全部内容」让你选，选替换还要再确认一次；③ 编辑器分卷下拉若已失效，章节会被静默存进「未分卷」，现在会校验分卷是否真实存在并给出提示。另外备份面板与导出提示里注明「备份含 API Key 明文，请勿外传」"],
   ["v94","章节列表标题栏适配窄屏：标题文字可省略、徽章不换行、智能分卷/管理分卷收进独立按钮组，手机上整组落到第二行右对齐，不再顶出标题栏。数据层：消化档案支持自带「与XX的关联」标签（西里斯篇用「与西里斯」）；导入消化档案时分卷名允许模糊匹配（去空格互相包含、或去掉篇/卷部后的关键词），找不到会列出你当前的分卷名"],
   ["v93","修「移动章节会波及别的分卷」：选中某卷后，章节页其实把其它分卷的章节也混排在列表尾部（为防“保存了却看不见”），拖拽/↑↓ 又拿这个混合列表的下标去重排 order——所以「在詹姆斯篇里动一下」，西里斯篇和莱姆斯篇的章节顺序被一起重写，看着就像詹姆斯的内容被复制过去、别的卷被覆盖。现在：order 严格卷内编号、视图只返回当前卷、拖拽与上下移只在同卷内生效（跨卷拖动直接拒绝并提示走「编辑·分卷」或「管理分卷·搬运」）。同时「搬运」按钮的目标卷改为必须手动选择，不再默认第一个卷一点就生效；编辑器里改分卷会把消化记录一起迁走并切到新卷；搬运后在源卷摘要末尾留一行「已搬出」说明"],
@@ -6212,6 +6665,13 @@ function aiUsageAdd(o){
     s.byModel=s.byModel||{}; s.byModel[m]=s.byModel[m]||{calls:0,inTok:0,outTok:0,estIn:0,estOut:0};
     s.byModel[m].calls++; s.byModel[m].inTok+=iTok; s.byModel[m].outTok+=oTok;
     s.byModel[m].estIn+=iEst;  s.byModel[m].estOut+=oEst;
+    /* v109：同步累计「金额」累加值，供单日花费硬上限精确判断（按模型单价，不用统一默认价） */
+    try{
+      const _c=aiCostEst(iTok+iEst, oTok+oEst, m);
+      s.cost=(s.cost||0)+_c;
+      s.byDay[day].cost=(s.byDay[day].cost||0)+_c;
+      s.byModel[m].cost=(s.byModel[m].cost||0)+_c;
+    }catch(e2){}
     s.lastAt=Date.now(); s.lastModel=m;
     rawSave("aiUsage",s);
     try{ renderAiUsage(); }catch(e){}
@@ -6219,6 +6679,8 @@ function aiUsageAdd(o){
 }
 function aiUsageReset(){
   try{ rawSave("aiUsage",{calls:0,inTok:0,outTok:0,estIn:0,estOut:0,byDay:{},byModel:{},since:Date.now()}); renderAiUsage(); toast("用量账本已清零。"); }catch(e){}
+  /* v109b：清了账本，当日花费重新从 0 计，去重标记也一并放开——否则用户会「清完还是静默被拦」 */
+  try{ _costCapAlertDay=""; }catch(e){}
 }
 function _fmtTok(n){
   n=Number(n)||0;
@@ -6237,6 +6699,15 @@ function renderAiUsage(){
       const x=s.byModel[m];
       return "　"+m+"："+x.calls+" 次，输入 "+_fmtTok(x.inTok)+" / 输出 "+_fmtTok(x.outTok)+" token";
     }).join("\n");
+    /* v109：把「今天的钱」直接换算成元显示出来——token 数字对用户没有体感，元才有 */
+    let _capLine="", _capTip="";
+    try{
+      const _cap=getAiCostCap(), _today=aiCostToday();
+      _capLine='<br>💰 今日花费估算 <b>'+_fmtYuan(_today)+'</b>'+
+        (_cap?(' / 上限 '+_fmtYuan(_cap)+'（剩余 '+_fmtYuan(Math.max(0,_cap-_today))+'）')
+             :' · 未设上限（如需封顶请在上方填写）');
+      _capTip=_cap?('<span class="ai-cap-on">硬上限已开启</span>：超出即中止并提示，不会先扣再告诉你。'):'';
+    }catch(e2){}
     const real=(s.inTok||0)+(s.outTok||0);
     el.innerHTML=
       '<div class="ai-usage-h">🔢 本应用累计 AI 用量（自查用，非官方账单）</div>'+
@@ -6245,13 +6716,142 @@ function renderAiUsage(){
         ((d.estIn||d.estOut)?('（另含流式估算 输入 '+_fmtTok(d.estIn)+' / 输出 '+_fmtTok(d.estOut)+'）'):'')+'<br>'+
         '累计 '+s.calls+' 次 · 输入 '+_fmtTok(s.inTok)+' / 输出 '+_fmtTok(s.outTok)+' token'+
         ((s.estIn||s.estOut)?('（流式估算 输入 '+_fmtTok(s.estIn)+' / 输出 '+_fmtTok(s.estOut)+'）'):'')+
-        (mLines?('<br>'+mLines):'')+
+        (mLines?('<br>'+mLines):'')+_capLine+
         '<br><span class="ai-usage-tip">真实值来自接口返回的 usage（消化/分析/精修等）；流式生成拿不到 usage，按 1 汉字≈0.7 token 估算并单独标注。'+
-        '与官方账单对不上时，先点「清零」再跑一次单步操作，即可精确归因。deepseek-flash 现行价：输入缓存命中 ¥0.02/百万、未命中 ¥1/百万、输出 ¥8/百万。</span>'+
+        '与官方账单对不上时，先点「清零」再跑一次单步操作，即可精确归因。deepseek-flash 现行价：输入缓存命中 ¥0.02/百万、未命中 ¥1/百万、输出 ¥8/百万。'+
+        '金额为本机按用量估算，非官方账单，仅供自查封顶。</span>'+(_capTip?('<span class="ai-usage-tip">'+_capTip+'</span>'):'')+
       '</div>'+
       '<button type="button" class="ai-usage-btn" onclick="aiUsageReset()">清零账本</button>';
   }catch(e){ el.innerHTML=""; }
 }
+/* ===== v109：单日花费硬上限（疑点 5：隐藏扣费）=====
+   背景：原来只有「报价确认」（v107 为深度续写加的那两处），没有真正的硬上限——
+   批量消化整卷 / 整本书、自动时间线、自动人物行为分析这些旁路调用，
+   都是你没点过头也在扣钱的。且一旦开始批量，88 章会一路跑到熔断才停。
+   做法：在两个唯一的 AI 出口（callAI / callAIDigest）的入口加一道拦截：
+     当日累计金额（账本 byDay）+ 本次预估金额 > 上限 → 中止并 alert 明码说明，
+     既不静默执行，也绝不「静默返回空」假装跑完了。
+   金额换算：AI_PRICE 按 DeepSeek 公开刊例价填写，属【估算值，非官方账单】；
+   本机拿不到缓存命中率，一律按「输入未命中缓存」计价（宁估高、勿估低）。
+   保留并沿用 v107 已有的报价确认弹窗，一处都没有改。 */
+const AI_PRICE_DEFAULT={inY:1, outY:8};        /* 元 / 百万 token */
+const AI_PRICE={
+  "deepseek-chat":{inY:1,outY:8},
+  "deepseek-flash":{inY:1,outY:8},
+  "deepseek-reasoner":{inY:1,outY:8},
+  "v4-pro":{inY:1,outY:8},
+  "deepseek-v4-pro":{inY:1,outY:8}
+};
+function aiPriceOf(model){
+  try{
+    const m=String(model||"").toLowerCase();
+    if(AI_PRICE[m]) return AI_PRICE[m];
+    let hit=null;
+    Object.keys(AI_PRICE).forEach(function(k){ if(!hit && m.indexOf(k)>=0) hit=AI_PRICE[k]; });
+    /* 未登记的模型统一按 DeepSeek 默认价估；宁可估高也不许漏掉一道闸门 */
+    return hit||AI_PRICE_DEFAULT;
+  }catch(e){ return AI_PRICE_DEFAULT; }
+}
+function aiCostEst(inTok, outTok, model){
+  try{
+    const p=aiPriceOf(model);
+    return ((Number(inTok)||0)/1e6)*p.inY + ((Number(outTok)||0)/1e6)*p.outY;
+  }catch(e){ return 0; }
+}
+const COST_CAP_KEY="daily_cost_cap";   /* 实际键名 = PREFIX + daily_cost_cap → wb_jkd_daily_cost_cap */
+function getAiCostCap(){
+  try{
+    const v=localStorage.getItem(PREFIX+COST_CAP_KEY);
+    if(v===null||v===undefined||v==="") return 0;
+    const n=parseFloat(v);
+    return (isFinite(n)&&n>0)?n:0;
+  }catch(e){ return 0; }
+}
+function saveAiCostCap(v){
+  try{
+    const raw=String((v===null||v===undefined)?"":v).trim();
+    let n=raw?parseFloat(raw):0;
+    if(raw && (!isFinite(n)||n<0)){ toast("上限请填一个 ≥ 0 的数字（留空＝不限制）"); return; }
+    if(!isFinite(n)||n<=0){
+      try{ localStorage.removeItem(PREFIX+COST_CAP_KEY); }catch(e2){}
+      toast("已取消单日花费上限");
+    }else{
+      localStorage.setItem(PREFIX+COST_CAP_KEY, String(n));
+      toast("已设置单日花费上限 "+_fmtYuan(n)+"，超出会先停下来问你");
+    }
+    try{ const el=document.getElementById("aiCostCapInput"); if(el) el.value=(!isFinite(n)||n<=0)?"":String(n); }catch(e2){}
+    /* v109b：上限变了，当天的提示配额也重新给一次——用户撞上限后最常见的动作就是调高它 */
+    try{ _costCapAlertDay=""; }catch(e2){}
+    try{ renderAiUsage(); }catch(e2){}
+  }catch(e){}
+}
+function clearAiCostCap(){
+  try{ const el=document.getElementById("aiCostCapInput"); if(el) el.value=""; }catch(e){}
+  saveAiCostCap("");
+}
+function initAiCostCap(){
+  try{
+    const el=document.getElementById("aiCostCapInput"); if(!el) return;
+    const c=getAiCostCap();
+    el.value=c?String(c):"";
+  }catch(e){}
+}
+/* 今天的累计花费（元，估算值） */
+function aiCostToday(){
+  try{
+    const s=aiUsageGet();
+    const d=(s.byDay&&s.byDay[_aiUsageDay()])||null;
+    if(!d) return 0;
+    if(typeof d.cost==="number") return d.cost;
+    /* 兼容 v108 及更早写入的老账本（没有 cost 字段）→ 按默认单价回算 */
+    return aiCostEst((d.inTok||0)+(d.estIn||0), (d.outTok||0)+(d.estOut||0), "");
+  }catch(e){ return 0; }
+}
+function _fmtYuan(x){
+  try{
+    const n=Number(x)||0;
+    return "¥"+n.toFixed(n>0&&n<1?3:2);
+  }catch(e){ return "¥0.00"; }
+}
+/* v109b（QA 严过关 P2）：同一天只允许弹一次「已达上限」alert。
+   成因：一次 AI 请求在 callAI / callAIDigest 里会按候选模型逐个重试底座
+   （digestModelCandidates() 实测返回 3 个：v4-pro / v4-flash / flash），
+   而「当日累计是否超限」这个判断是模型无关的 —— 同一章同一份输入会连弹 3 个一模一样的 alert。
+   这里只去重「弹窗」，不去重「拦截」：err.costCap 照常抛出，digestSerialQueue 照常 pause 队列。
+   重置时机（都只清标记，不改任何计算/拦截逻辑）：换一天自动失效；调高上限（saveAiCostCap）
+   或「清零账本」（aiUsageReset）也会重开一次提示——否则用户会撞到「我改了设置却还是被静默拦住」。 */
+let _costCapAlertDay="";
+/* 产生费用的调用发起前的统一闸门。超限 → alert 明说并抛错中止；未超限 → 静默放行。 */
+function aiCostGuard(inChars, outTok, model, label){
+  const cap=getAiCostCap();
+  if(!cap) return;   /* 没设上限 = 不限制，行为与 v108 完全一致 */
+  try{
+    const est=aiCostEst(_ctxTok(inChars||0), Number(outTok)||0, model);
+    const used=aiCostToday();
+    if(used+est>cap){
+      const _day=_aiUsageDay();
+      if(_costCapAlertDay!==_day){
+        _costCapAlertDay=_day;   /* 先置再弹：避免 alert 被用户拖住时重入又弹一次 */
+        alert("已触发「单日花费上限」，本次调用已经中止，没有发出、也没有产生费用。\n\n"+
+          "　当日已用："+_fmtYuan(used)+"\n"+
+          "　本次预估："+_fmtYuan(est)+"\n"+
+          "　单日上限："+_fmtYuan(cap)+"\n\n"+
+          "本次操作："+String(label||"AI 调用")+"（模型 "+String(model||"?")+"）\n\n"+
+          "要继续就在「更多 → AI 生成设置」里把上限调高，或点「清零账本」重新计今天。\n"+
+          "（同一天只会提示一次，后续调用会直接中止，当天不再重复提示。）\n"+
+          "（金额为本机按用量估算，非官方账单；宁估高不估低。）");
+      }
+      const err=new Error("已达单日花费上限：当日已用 "+_fmtYuan(used)+" / 上限 "+_fmtYuan(cap)+"，本次调用未发出。请到「AI 生成设置 → 单日花费上限」调整。");
+      err.costCap=true; err.digestType="costcap";
+      throw err;
+    }
+  }catch(e){
+    if(e&&e.costCap) throw e;   /* 真超限：必须抛出，绝不静默降级 */
+    /* 算费用本身出任何问题都放行：这道闸门只能拦钱，不能拦住你写作 */
+  }
+}
+window.aiCostGuard=aiCostGuard; window.getAiCostCap=getAiCostCap; window.saveAiCostCap=saveAiCostCap;
+window.clearAiCostCap=clearAiCostCap; window.initAiCostCap=initAiCostCap; window.aiCostToday=aiCostToday;
 function ctxSourceStat(){
   const ai=load("ai",{});
   const eco=ai.eco!==false;
@@ -6808,6 +7408,10 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
      放在这里一次覆盖所有调用点（含以后新增的），报错文案统一且可操作。 */
   if(!ai.base || !String(ai.base).trim()) throw new Error("还没配置 AI：请到「AI 生成设置」填写 Base URL 与 Key 后再用这个功能。");
   const mt=max_tokens||Number(ai.maxTokens)||8000;
+  /* v109：单日花费硬上限拦截。放在唯一的收费出口上，callAI / callAIDigest 两条路径全覆盖；
+     放在「未配置 AI」守卫之后、候选模型循环之前——只拦一次，不会因为重试/截断续写重复算。
+     注意：这里只做中止，不改任何已有的报价确认弹窗行为。 */
+  try{ aiCostGuard((sys||"").length+(user||"").length, mt, modelOverride||(onToken?(ai.genModel||ai.model):ai.model)||"deepseek-flash", onToken?"正文生成/续写":"分析/规划"); }catch(e){ throw e; }
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
   /* v81：采样参数打包下发；未显式传入则不附加，保持旧接口兼容 */
   const extra=(top_p!==undefined||presence_penalty!==undefined||frequency_penalty!==undefined)
@@ -6864,6 +7468,9 @@ function uniqCands(arr){ const s=new Set(); const o=[]; arr.forEach(x=>{ if(x&&!
 async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
   const ai=load("ai",{});
   const finalModel=model||ai.model||"deepseek-flash";
+  const _mtD=max_tokens||12000;
+  /* v109：单日花费硬上限拦截（消化是最烧钱的路径，必须拦） */
+  try{ aiCostGuard((sys||"").length+(user||"").length, _mtD, finalModel, "消化 / 档案整理"); }catch(e){ throw e; }
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   const body={model:finalModel,messages:[{role:"system",content:sys},{role:"user",content:user}],temperature:temperature||0.4,max_tokens:max_tokens||12000,stream:false};
   const ms=timeout||180000;
@@ -7795,6 +8402,12 @@ async function digestSerialQueue(chapters, vid, opts){
         throw new Error("AI 返回内容为空");
       }
     }catch(e){
+      /* v109：撞到单日花费上限必须立刻停队列——否则剩下几十章会挨个弹窗报警并全部标记为失败 */
+      if(e && e.costCap){
+        paused=true;
+        pauseReason=(e && e.message) ? e.message : "已达单日花费上限，队列已自动暂停。";
+        break;
+      }
       const d=getDigest();
       ensureVolDigest(d, vid);
       if(!d.volumes[vid].chapters) d.volumes[vid].chapters={};
@@ -11282,6 +11895,9 @@ async function bootApp(){
   /* v96：记下磁盘上最后一次写入时间，避免刚打开就把「上个窗口留下的戳」误判成冲突 */
   try{ const _st=await idbGet("booksStamp"); if(_st&&_st.at) _myWriteAt=_st.at; }catch(e){}
   ensureBooks();
+  /* v109：卷 id「哨兵冲突」修复必须在 ensureBooks() 之后、首屏渲染之前跑，
+     保证 UI 与后续装载档案看到的是修好的 volumes / chapters 归属。 */
+  try{ await fixVolIdCollision(); }catch(e){ console.warn("卷 id 修复跳过（非致命）：", e && e.message); }
   /* 主题迁移（星空紫改版）：旧默认暖棕书色 → 新星空紫；用户手动选过的颜色不动 */
   (function(){let chg=false;BOOKS.forEach(function(b){if(b.color==="#8a5a2b"||b.color==="#7c4fc4"){b.color="#8e7cc3";chg=true;}});if(chg)rawSave("books",BOOKS);})();
   /* 首次进入若未存过 AI 设置，预填系统提示词 */
@@ -11406,7 +12022,7 @@ function showInstallGuide(){
 }
 function closeInstallGuide(){ const g=document.getElementById('installGuide'); if(g)g.classList.remove('on'); try{ localStorage.setItem(PREFIX+'install_seen','1'); }catch(e){} }
 /* 全局设置弹窗 + PWA 环境判断 + 红点 */
-function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
 function closeGlobalSettings(){ var m=document.getElementById('globalMask'); if(m)m.classList.remove('on'); }
 function pwaSupported(){ return !!_deferredPrompt || isIOS(); }
 function refreshGlobalSettings(){
@@ -11490,6 +12106,20 @@ window.addEventListener('load',function(){
       <button onclick="qsClose()">关闭</button>
       <button onclick="qsToBrief()" title="把体检结论写进「本章专属指令」，下次生成自动规避同样问题">写入本章指令</button>
       <button class="primary" id="qsRunBtn" onclick="qsRun()">重新扫描</button>
+    </div>
+  </div>
+</div>
+
+<!-- v109 声线卡本地归纳器：纯本地统计的「原值 → 建议值」对照面板（0 token，不调用 AI） -->
+<div class="modal-mask" id="voiceMask">
+  <div class="modal" style="max-width:720px;">
+    <h3 id="voiceTitle">📊 本地归纳建议稿</h3>
+    <div class="meta" id="voiceMeta"></div>
+    <div id="voiceBody" style="max-height:58vh;overflow:auto;margin-top:10px;"></div>
+    <label class="vd-check"><input type="checkbox" id="voiceOnlyEmpty" checked> 只补空字段（已有内容的不覆盖）</label>
+    <div class="mbtn" style="margin-top:12px;">
+      <button type="button" onclick="closeVoiceDraft()">取消</button>
+      <button type="button" class="primary" onclick="applyVoiceDraft()">写入人物卡</button>
     </div>
   </div>
 </div>
