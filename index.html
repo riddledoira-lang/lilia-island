@@ -6639,7 +6639,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v111";
+const APP_VERSION="v112";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6649,6 +6649,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v112","修好「剧情参谋」点了就失败、报错一闪就没。① 【根因一 · 报错看不见】参谋原先所有错误只走 toast()，2.4 秒自动消失、不留痕迹，所以你只看到屏幕闪了一下。现在弹窗顶部有常驻错误条：标题用大白话说清是什么错，正文给接口原文，点「诊断」还能看到完整的 AI 配置（Base URL / 两个模型 / 思考模式 / Key 有没有填 / 单日上限与今日已用）和针对性的排障建议。错误按 8 类自动翻译：超上限、没配置、Key 失效、余额/限流、网络超时、模型不可用、思考把预算吃光、Base URL 指错。② 【根因二 · 非流式只有一个候选模型】callAI() 的非流式分支原本只试一个模型，失败就整体抛错；而流式分支有 3 个候选兜底。参谋、深度续写的分析阶段、体检台、人物分析全走非流式，一旦模型名不被你的 Key 支持（400/404）或推理模型把预算耗在思考上导致正文为空，这些功能就一起失效。现已改为与非流式同一套候选链（deepseek-flash 兜底），失败自动换模型并提示「已自动改用模型 X」，不再整体失败。③ 【参谋换模型】参谋固定用 deepseek-flash 打头——参谋要的是稳和快，不是最强推理；v4-pro 这类推理模型容易把 2400 token 全烧在思考上，返回空正文。④ 【补上参谋缺失的记忆】此前参谋只看得到本卷设定、卷档案、最近 3 章和正文尾部，完全看不到人物卡与全书总档案——你问「薇拉这么做合理吗」它其实没有薇拉的设定，只能瞎猜。现在会把人物卡（核心特质 / 表里欲望 / 说话方式 / 思维模式 / 行为禁区，取前 8 位、主角优先）与全书总档案一并带给它，讨论结论才有依据。⑤ 讨论记录先存书内字段，失败时退回本机备份，换卷不会丢。⑥ 发送中加锁，连点不会重复计费。参谋仍然只讨论、绝不写正文——这条没变。"],
   ["v111","新增「剧情参谋」与「本地审稿」，补上「创作只有单向生成、没人讨论」的缺口。① 剧情参谋：一个只讨论、绝不写正文的对话槽——可以问走向、要灵感、查合理性（例如「薇拉主动道歉合理吗」「第 12 章的伏笔怎么接才不生硬」）。它只读本卷设定 / 人称铁律 / 卷档案节选 / 最近 3 章梗概 / 正文尾部，刻意不灌全卷正文，把成本压住；每次回复结尾给 1-3 个可选走向并说清代价。结论可一键「写进本章指令」或「存为剧情线索」，否则讨论完就蒸发。首次发送前会明确报价（上下文字数 / 量级 / 是否已在单日上限保护内），且全程受单日花费硬上限约束；参谋永远不会改动你的正文。② 本地审稿（0 token）：纯本地规则校验人称是否串篇、分卷归属是否有效、是否与上一章跨卷、本卷声线卡补了多少、本卷前文档案是否为空。生成后自动过一遍，只有发现问题时才出声；也可随时点「审稿」手动看全部，并一键把问题写成下一轮的约束。不调用 AI、不消耗额度、不改正文。③ 最小插件总线：内置「人称守卫」「归属守卫」两个插件与五个生命周期钩子，插件只登记代码里已有的能力、用开关启用，绝不加载外部代码（无服务端、无插件注册表，远程代码可直接读到 Key 与全部书稿，风险不可控）。启用状态存 localStorage，不动 IndexedDB 结构。"],
   ["v110","① 修【人称串篇】：分卷的「人称设定（pov）」此前写了却从未被任何代码读取——西里斯篇明明写着「严格以薇拉·奎克第三人称视角进行创作」，生成时压根没注入，续写于是串成詹姆斯篇的第一人称口吻。现在 pov 会以【本卷人称铁律 · 最优先级】注入生成与消化，分卷管理里可直接编辑；深度续写开始前会先校验本卷人称，若待续写正文的人称与设定冲突会先问你一句再生成。② 修【续写章落错卷】：新章的所属分卷取自编辑器下拉，而下拉在「全书」视图下会被置成「未分卷」——v108 及更早「未分卷」恰好挂着詹姆斯篇，于是西里斯篇的第 15 章被写进詹姆斯篇、行文分析却引用西里斯篇前 14 章。现在下拉为空/未分卷时自动回退到紧邻上一章所属的分卷并明确提示，续写前若与上一章分卷不一致会先确认。③ 修【消化状态显示 74 章未消化】：根因是档案里的章节记录用的是旧 id——章节被重建/替换后旧 id 留在档案里匹配不上，詹姆斯篇 59 条记录里 56 条是失效 id，真实只认到 3 章。新增「档案体检」：可查出各卷有多少失效记录并一键清理（清理前自动备份、需二次确认）；同时在数据面板给出「零 token 补消化」入口，用服务端已消化好的整卷档案一次性补齐，全程不调用 AI、不消耗额度。④ 上述三项均只做数据补全与提示，不改正文、不改存储结构（IDB_VER 仍为 1）。"],
   ["v109","① 修【找不到詹姆斯篇 / 章节全挂在未分卷】的根因：代码里 none 是「未分卷」的内部哨兵值，而你真实数据里「詹姆斯篇」这个分卷的 id 恰好就叫 none，于是它名下 74 章一律显示成「未分卷」，装入的消化档案也只能写进这个假未分卷，詹姆斯篇名下永远一片空白。现在首次启动会自动把它挂到正规 id（james），并把该卷已经消化好的前文档案一并迁过去；迁移前的整份数据会另存一份备份（键 books_bak_volfix_v109），你原有的 books 存储结构一个字段都没动。同时做了三处加固：新建分卷不会再撞上 none、也不允许和已有分卷重名、已有分卷不能再改名叫「未分卷」。② 人物卡「语言体系 & 思维模式」新增「📊 本地归纳（0 token）」：只从你已经写好的正文里按角色名抽取台词做统计（句长分布、高频口头禅、标点习惯、自称与对他人的称呼、比喻/反问密度、常见情绪词），给出「原值 → 建议值」的可编辑对照面板，确认后才写入人物卡，全程不调用 AI、不消耗任何 token。③ AI 生成设置新增「单日花费上限（元）」：任何会产生费用的调用在发起前都会先校验「当日已累计 + 本次预估」，超出上限就中止并明确告诉你当日已用了多少、上限是多少、去哪里调整，不再出现你没点过头却被扣费的情况（金额按 DeepSeek 公开单价估算，属估算值，非官方账单）。"],
@@ -7501,12 +7502,16 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
   /* v81：采样参数打包下发；未显式传入则不附加，保持旧接口兼容 */
   const extra=(top_p!==undefined||presence_penalty!==undefined||frequency_penalty!==undefined)
     ? {top_p:top_p, presence_penalty:presence_penalty, frequency_penalty:frequency_penalty} : null;
-  /* 候选模型：生成路径优先续写模型，失败降级到分析模型/默认；鉴权/网络/超时错误不重试 */
+  /* 候选模型：生成路径优先续写模型，失败降级到分析模型/默认；鉴权/网络/超时错误不重试
+     v112：非流式分支此前只有「一个候选」，模型不可用即整体失败——剧情参谋、
+     深度续写的分析阶段、体检台、人物分析全走这条分支，是「参谋点了就失败」的根因。
+     现改为与非流式同样带候选链，并保留同一套「鉴权/网络/超时不重试」判定。 */
   let cands;
   if(onToken){
     cands = modelOverride ? uniqCands([modelOverride].concat(genModelCandidates())) : genModelCandidates();
   } else {
-    cands = [modelOverride||ai.model||"deepseek-flash"];
+    /* v112：非流式也给候选链；modelOverride 打头，其后追加分析/续写/默认兜底 */
+    cands = modelOverride ? uniqCands([modelOverride].concat(digestModelCandidates())) : digestModelCandidates();
   }
   let lastErr=null;
   for(let ci=0; ci<cands.length; ci++){
@@ -7519,6 +7524,8 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
       const msg=String((e&&e.message)||"");
       /* 仅模型不可达/空内容可降级重试；401/403/网络/超时直接抛出（重试无意义） */
       if(/401|403|Authentication|Unauthorized|Failed to fetch|NetworkError|net::|timeout|abort|超时/i.test(msg)) throw e;
+      /* v112：402 余额不足、429 限流 也属于「换模型/稍后再试」可恢复的一类，
+         但要保留原错误供上层分类提示，不吞掉 */
       console.warn("[callAI] 模型「"+m+"」失败，尝试下一个候选：", msg.slice(0,120));
       continue;
     }
@@ -7536,7 +7543,7 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
         break; /* 续写失败也保留已生成内容，不整体报废 */
       }
     }
-    if(ci>0) toast("已自动改用模型「"+m+"」继续生成 ✅");
+    if(ci>0) toast("已自动改用模型「"+m+"」继续"+(onToken?"生成":"处理")+" ✅");
     return out;
   }
   throw lastErr||new Error("所有候选模型均生成失败");
@@ -12256,31 +12263,197 @@ function reviewToBrief(){
 /* ---------- 剧情参谋（讨论槽）---------- */
 let _counselLog=[];
 let _counselConfirmed=false;
+/* v112：重入锁——发送中禁止重复点，防并发叠加计费 */
+let _counselBusy=false;
+/* v112：最近一次失败的结构化记录，供「诊断」按钮展开查看（toast 只活 2.4 秒，看不清根因） */
+let _counselLastErr=null;
 function counselOpen(){
   try{
     if(!_counselLog.length){
-      try{ _counselLog=load("counselLog",[])||[]; }catch(e){ _counselLog=[]; }
+      try{ _counselLog=counselLoad()||[]; }catch(e){ _counselLog=[]; }
     }
     const ctx=counselCtx();
     document.getElementById("counselMeta").textContent=
       "分卷「"+volName(ctx.vol)+"」· 每次约带入 "+ctx.chars+" 字上下文 · 只讨论不动正文 · 受单日花费上限保护";
     counselRender();
+    counselClearErr();
     document.getElementById("counselMask").classList.add("on");
   }catch(e){}
 }
 function counselClose(){ try{ document.getElementById("counselMask").classList.remove("on"); }catch(e){} }
-/* 参谋的上下文：只给「本卷设定 + 卷档案节选 + 最近 3 章梗概 + 正文尾部」，
-   刻意不灌全卷正文——讨论要的是脉络，不是复述，也能把成本压住。 */
+/* v112：参谋的错误面板——常驻在弹窗顶部，不自动消失，可展开看原文与排障建议。
+   成因：参谋报错原先只走 toast()，2.4 秒后消失且无痕迹，用户只看到"跳了一下"。 */
+function counselShowErr(title, detail, tips){
+  try{
+    const box=document.getElementById("counselErr");
+    if(!box) return;
+    _counselLastErr={title:title, detail:detail, tips:tips||[], at:Date.now()};
+    box.style.display="block";
+    box.innerHTML=
+      '<div style="display:flex;gap:8px;align-items:flex-start;">'+
+        '<div style="flex:1;"><b style="color:var(--danger);">⚠ '+esc(title)+'</b>'+
+        '<div style="margin-top:4px;font-size:12.5px;line-height:1.6;color:var(--sub);">'+esc(detail||"")+'</div></div>'+
+        '<button type="button" onclick="counselShowDiag()" style="flex:none;">诊断</button>'+
+        '<button type="button" onclick="counselClearErr()" style="flex:none;">×</button>'+
+      '</div>';
+  }catch(e){}
+}
+function counselClearErr(){
+  try{ const box=document.getElementById("counselErr"); if(box){ box.style.display="none"; box.innerHTML=""; } }catch(e){}
+}
+function counselShowDiag(){
+  try{
+    if(!_counselLastErr){ toast("这次没有记录到错误"); return; }
+    const e=_counselLastErr;
+    const ai=counselAiCfg();
+    const lines=[
+      "【错误】"+e.title,
+      "",
+      "【接口原文】",
+      "　"+(e.detail||"（无）"),
+      "",
+      "【当前 AI 配置（仅显示是否有值，不显示 Key）】",
+      "　Base URL："+(ai.base?ai.base:"（空！）"),
+      "　分析模型(ai.model)："+(ai.model||"（空，默认 deepseek-flash）"),
+      "　续写模型(ai.genModel)："+(ai.genModel||"（空）"),
+      "　思考模式(ai.thinkMode)："+(ai.thinkMode||"（自动）"),
+      "　API Key："+(ai.key?("已填（"+String(ai.key).length+" 位）"):"（空！）"),
+      "",
+      "【单日花费上限】"+(getAiCostCap?("¥"+getAiCostCap()+"（今日已用 "+_fmtYuan(aiCostToday())+"）"):"未设置"),
+      "",
+      "【排障建议】",
+      (e.tips&&e.tips.length?e.tips.map(function(t){ return "　· "+t; }).join("\n"):"　· 稍后重试，或到「AI 生成设置」换模型")
+    ];
+    alert(lines.join("\n"));
+  }catch(err){}
+}
+/* v112：读取参谋要用到的 AI 配置（容错，任何异常都返回空对象） */
+function counselAiCfg(){
+  try{ return load("ai",{})||{}; }catch(e){ return {}; }
+}
+/* v112：把底层报错翻译成「人话 + 可执行动作」。
+   分类依据来自 _callAIOnce / callAI / aiCostGuard 的实际抛错文案。 */
+function counselExplain(e){
+  const msg=String((e&&e.message)||e||"未知错误");
+  const ai=counselAiCfg();
+  const mk=ai.model||"deepseek-flash";
+  /* 1. 单日花费上限 */
+  if(/单日花费上限|已达单日/.test(msg)){
+    return {title:"今天的花费已经到上限了（没有扣钱）",
+      detail:"参谋在发出请求前就被拦住了，本次没有花钱。",
+      tips:["到「更多 → AI 生成设置」把「单日花费上限」调高",
+            "或点「清零账本」重新计今天",
+            "同一天只会弹一次提示，之后会静默中止——所以你可能只看到一闪"]};
+  }
+  /* 2. 未配置 */
+  if(/还没配置 AI/.test(msg)){
+    return {title:"还没配置 AI，参谋没有大脑可用",
+      detail:msg,
+      tips:["到「更多 → AI 生成设置」填 Base URL 与 API Key","填完点一次「测试连接」确认通"]};
+  }
+  /* 3. 鉴权 */
+  if(/401|403|Authentication|Unauthorized|invalid.*key|incorrect.*key/i.test(msg)){
+    return {title:"API Key 失效或被拒（鉴权失败）",
+      detail:msg,
+      tips:["到「AI 生成设置」重新粘贴一次 Key（注意首尾空格、是否被复制成半截）",
+            "确认 Key 与 Base URL 属于同一家厂商（例如 DeepSeek 的 Key 不能配 OpenAI 的地址）",
+            "确认账户还有余额，未被封禁"]};
+  }
+  /* 4. 余额/限流 */
+  if(/402|Insufficient|insufficient_quota|余额|quota|429|rate.?limit|too many/i.test(msg)){
+    return {title:"账户余额不足或被限流",
+      detail:msg,
+      tips:["登录厂商控制台看余额与配额","被限流就等 1-2 分钟再试"]};
+  }
+  /* 5. 网络/超时 */
+  if(/Failed to fetch|NetworkError|net::|网络异常|超时|timeout|abort/i.test(msg)){
+    return {title:"网络没连上 AI 接口",
+      detail:msg,
+      tips:["检查手机/电脑网络，弱网下参谋的上下文较大容易超时",
+            "确认 Base URL 能打开（https 开头、结尾不带 /chat/completions）",
+            "如果填的是 localhost/内网地址，手机上永远连不通"]};
+  }
+  /* 6. 模型不存在 / 参数被拒 */
+  if(/404|400|model.*not|not.*exist|invalid.*model|does not exist|无可用渠道/i.test(msg)){
+    return {title:"模型「"+mk+"」在你这个接口上不可用",
+      detail:msg,
+      tips:["到「AI 生成设置」把「分析模型」改成 deepseek-flash（最通用、最稳）",
+            "检查模型名是否拼错，或该厂商是否真的有这个型号",
+            "v112 起参谋已自动换模型重试；还是失败说明所有候选都不可用，多半是 Base URL 或 Key 的问题"]};
+  }
+  /* 7. 输出被思考预算吃光 */
+  if(/内容为空|finish_reason=length|思考|reasoning/i.test(msg)){
+    return {title:"模型把输出预算全用在「思考」上了，正文是空的",
+      detail:msg,
+      tips:["到「AI 生成设置」把「分析模型」换成 deepseek-flash（它更少把预算耗在思考上）",
+            "把「思考模式」设为 disabled",
+            "调大「单次生成字数」"]};
+  }
+  /* 8. 返回格式异常 */
+  if(/不是合法 JSON|没有 choices|接口报错/.test(msg)){
+    return {title:"接口返回的不是正常内容，可能是 Base URL 指错了",
+      detail:msg,
+      tips:["Base URL 应该只到 /v1 这一层，不要再带 /chat/completions",
+            "确认这个地址是 OpenAI 兼容接口（多数厂商都提供 /v1/chat/completions）",
+            "如果是网页地址或文档地址，换成 API 地址"]};
+  }
+  return {title:"参谋这次没接上",
+    detail:msg,
+    tips:["点「诊断」看完整配置","到「AI 生成设置」点一次「测试连接」","换 deepseek-flash 再试"]};
+}
+/* 保存参谋讨论记录：先存书的字段，失败再退回本机全局，避免换卷就丢讨论 */
+function counselSave(){
+  try{ save("counselLog",_counselLog); return; }catch(e){}
+  try{ localStorage.setItem("lilia_counsel_bak",JSON.stringify(_counselLog.slice(-60))); }catch(e){}
+}
+function counselLoad(){
+  try{
+    const v=load("counselLog",[]);
+    if(v&&v.length) return v;
+  }catch(e){}
+  try{
+    const raw=localStorage.getItem("lilia_counsel_bak");
+    if(raw){ const a=JSON.parse(raw); if(a&&a.length) return a; }
+  }catch(e){}
+  return [];
+}
+/* 参谋的上下文：只给「本卷设定 + 人物卡 + 全书档案 + 卷档案节选 + 最近 3 章梗概 + 正文尾部」，
+   刻意不灌全卷正文——讨论要的是脉络，不是复述，也能把成本压住。
+   v112：补上此前完全缺失的两块——① 人物卡（参谋被问"某人这么做合理吗"却看不到人设，
+   等于让它瞎猜，这是讨论结论不可信的直接原因）；② 全书总档案（跨卷连贯性判断的依据）。 */
 function counselCtx(){
   const vol=(document.getElementById("chVol")||{}).value||"none";
   let s="";
   s+="【本分卷】"+volName(vol)+"\n";
   const pov=getVolPov(vol); if(pov) s+="【本卷人称铁律】"+pov+"\n";
   const vsec=getVolSetting(vol); if(vsec) s+="【本卷设定】"+String(vsec).slice(0,900)+"\n";
+  /* v112：人物卡——只取有实质字段的人，字段封顶，避免把整张卡表灌进去 */
+  try{
+    const chs=(load("chars",[])||[]).filter(function(c){
+      return c&&c.name&&((c.core||"").trim()||(c.langSys||"").trim()||(c.taboos||"").trim()||(c.desire||"").trim());
+    }).sort(function(a,b){ return (b.protagonist?1:0)-(a.protagonist?1:0); }).slice(0,8);
+    if(chs.length){
+      s+="【人物卡（判断「这个人会不会这么做」必须以此为准）】\n";
+      s+=chs.map(function(c){
+        var ln="· "+(c.protagonist?"【主角】":"")+c.name;
+        var segs=[];
+        if((c.core||"").trim()) segs.push("核心特质 "+String(c.core).trim().slice(0,120));
+        if((c.desire||"").trim()) segs.push("表层欲望 "+String(c.desire).trim().slice(0,80));
+        if((c.deepDesire||"").trim()) segs.push("深层欲望 "+String(c.deepDesire).trim().slice(0,80));
+        if((c.langSys||"").trim()) segs.push("说话方式 "+String(c.langSys).trim().slice(0,120));
+        if((c.thinkMode||"").trim()) segs.push("思维模式 "+String(c.thinkMode).trim().slice(0,100));
+        if((c.taboos||"").trim()) segs.push("行为禁区（绝不可做）"+String(c.taboos).trim().slice(0,160));
+        return ln+(segs.length?("："+segs.join("｜")):"");
+      }).join("\n")+"\n";
+    }
+  }catch(e){}
   try{
     const d=getDigest(); const v=(d.volumes||{})[vol]||{};
     const roll=((v.rolling||"").trim()||(v.text||"")).slice(0,1500);
     if(roll) s+="【本卷已消化档案（节选）】\n"+roll+"\n";
+    /* v112：全书总档案——跨卷伏笔/人物关系/时间跨度靠它判断，此前参谋完全看不到 */
+    const g=String(d.global||"").trim();
+    if(g) s+="【全书总档案（跨卷脉络，判断连贯性以此为准）】\n"+g.slice(0,1800)+"\n";
   }catch(e){}
   try{
     const chs=(load("chapters",[])||[]).filter(function(c){return Number(c.num)>0;})
@@ -12309,12 +12482,26 @@ function counselRender(){
   }
 }
 async function counselSend(){
+  /* v112：重入锁——同一时刻只允许一次在途请求，防连点重复计费 */
+  if(_counselBusy){ toast("参谋正在思考，等这一轮回来再发"); return; }
+  _counselBusy=true;
+  const btn=document.getElementById("counselSendBtn");
+  let _released=false;
+  /* v112b：释放锁必须幂等——早期版本在「没写字就发」等提前 return 的分支里没复位，
+     会把参谋永久锁死（点一次之后再也发不出去）。统一走 release()。 */
+  const _release=function(){
+    if(_released) return;
+    _released=true;
+    _counselBusy=false;
+    if(btn){ btn.disabled=false; btn.textContent="发送"; }
+  };
   try{
     const inp=document.getElementById("counselInput");
     const q=(inp&&inp.value||"").trim();
-    if(!q){ toast("先写点什么再发"); return; }
-    const ai=load("ai",{});
-    if(!ai.base){ toast("还没配置 AI：参谋需要 AI 才能讨论（「🛡 审稿」是纯本地的，不需要）"); return; }
+    if(!q){ toast("先写点什么再发"); _release(); return; }
+    const ai=counselAiCfg();
+    if(!ai.base){ counselShowErr("还没配置 AI","参谋需要 AI 才能讨论。（「🛡 审稿」是纯本地的，不需要 AI）",
+      ["到「更多 → AI 生成设置」填 Base URL 与 API Key"]); _release(); return; }
     /* 首次发送前明确报价：这是全应用唯一会反复花钱的对话功能 */
     if(!_counselConfirmed){
       const ctx0=counselCtx();
@@ -12325,42 +12512,63 @@ async function counselSend(){
         "　单次量级：通常不到一分钱，但频繁讨论会累积\n"+
         "　保护："+(cap?("已设单日上限 ¥"+cap+"，超了会自动中止"):"你还没设单日花费上限，建议在「全局设置」里填一个")+"\n\n"+
         "参谋只讨论、绝不会改动你的正文。继续？");
-      if(!okGo) return;
+      if(!okGo){ _release(); return; }
       _counselConfirmed=true;
     }
     _counselLog.push({role:"me", text:q, at:Date.now()});
-    inp.value=""; counselRender();
+    inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
     const hist=_counselLog.slice(-8).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
     const sys=[
       "你是一位长篇小说的「剧情参谋」，不是写手。",
       "职责：与作者讨论剧情，提供灵感、提出不同的走向、指出合理性与连贯性风险。",
       "铁律：① 绝不写正文、绝不代写段落——只给判断、选项与理由；",
-      "② 一切结论必须以作者给出的分卷设定、人称设定与已有剧情为准，不得凭空新增设定；",
-      "③ 被问到合理性时，明确指出「哪里会崩、为什么会崩、最小改动怎么补」；",
-      "④ 每次回复结尾给 1-3 个「可选走向」，每条一句话说清代价；",
-      "⑤ 不确定就直说不确定，不要编造前文没发生过的事。"
+      "② 一切结论必须以作者给出的分卷设定、人称设定、人物卡与已有剧情为准，不得凭空新增设定；",
+      "③ 被问到「某个角色的行为是否合理」时，必须先对照【人物卡】里的性格/说话方式/行为禁区逐条比对，指出冲突在哪；",
+      "④ 被问到合理性时，明确指出「哪里会崩、为什么会崩、最小改动怎么补」；",
+      "⑤ 每次回复结尾给 1-3 个「可选走向」，每条一句话说清代价；",
+      "⑥ 不确定就直说不确定，不要编造前文没发生过的事。",
+      "⑦ 不要输出 Markdown 标题符号（#）与加粗星号，用短句和项目符号即可——作者在手机上看。"
     ].join("\n");
     const user="下面是当前作品的相关信息：\n\n"+ctx.text+"\n\n下面是讨论记录：\n"+hist+"\n\n请作为剧情参谋回答作者最新的这个问题。";
-    const btn=document.getElementById("counselSendBtn");
     if(btn){ btn.disabled=true; btn.textContent="参谋在想…"; }
     let out="";
     try{
-      out=await callAI({sys:sys, user:user, temperature:0.85, max_tokens:2400, modelOverride:ai.model||ai.genModel});
-    }finally{
-      if(btn){ btn.disabled=false; btn.textContent="发送"; }
+      /* v112：参谋固定用「非流式」，但模型顺序改为 deepseek-flash 打头——
+         参谋要的是稳和快，不是最强推理；v4-pro 会把 token 预算耗在思考上导致正文为空。
+         若要指定模型，仍以 ai.counselModel 覆盖（设置里没有该项时为 undefined，不生效）。 */
+      const _cm = ai.counselModel || "deepseek-flash";
+      out=await callAI({sys:sys, user:user, temperature:0.85, max_tokens:2400, modelOverride:_cm});
+    }catch(e){
+      /* v112：不再只靠 2.4 秒的 toast —— 顶部留一条常驻错误条，可展开诊断 */
+      const ex=counselExplain(e);
+      counselShowErr(ex.title, ex.detail, ex.tips);
+      try{ toast("参谋这次没接上，顶部有详情"); }catch(e2){}
+      console.error("[剧情参谋] 调用失败：",e);
+      return;
     }
-    _counselLog.push({role:"ai", text:out||"（这次没有返回内容）", at:Date.now()});
-    try{ save("counselLog",_counselLog); }catch(e){}
+    out=String(out||"").trim();
+    if(!out){
+      counselShowErr("模型返回了空内容","接口通了，但没给正文——常见于推理模型把预算耗在思考上。",
+        ["到「AI 生成设置」把「分析模型」换成 deepseek-flash","把「思考模式」设为 disabled"]);
+      return;
+    }
+    _counselLog.push({role:"ai", text:out, at:Date.now()});
+    counselSave();
     counselRender();
   }catch(e){
-    try{ toast("参谋这次没接上："+(e&&e.message?e.message:e)); }catch(e2){}
+    /* 外层兜底：非 AI 环节（读配置、渲染）出的错也要让人看见 */
+    const ex=counselExplain(e);
+    counselShowErr(ex.title, ex.detail, ex.tips);
+    console.error("[剧情参谋] 异常：",e);
+  }finally{
+    _release();
   }
 }
 function counselClear(){
   try{
     if(!confirm("清空这段讨论记录？（正文一个字都不会动）")) return;
-    _counselLog=[]; try{ save("counselLog",[]); }catch(e){}
+    _counselLog=[]; counselSave();
     counselRender();
   }catch(e){}
 }
@@ -12604,6 +12812,8 @@ window.addEventListener('load',function(){
   <div class="modal" style="max-width:760px;">
     <h3>剧情参谋（只讨论，不动正文）</h3>
     <div class="meta" id="counselMeta"></div>
+    <!-- v112：常驻错误条。原先报错只走 2.4 秒的 toast，一闪就没，用户无法判断原因 -->
+    <div id="counselErr" style="display:none;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--danger);"></div>
     <div id="counselLog" style="max-height:46vh;overflow:auto;margin-top:10px;"></div>
     <textarea id="counselInput" style="min-height:80px;margin-top:10px;" placeholder="问参谋：这一章之后有哪几种走向？这个决定符合薇拉的人设吗？第 12 章的伏笔怎么接才不生硬？"></textarea>
     <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
