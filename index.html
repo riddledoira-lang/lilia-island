@@ -2574,6 +2574,8 @@ document.addEventListener("visibilitychange",function(){
   try{ checkBooksConflict(); }catch(e){}
   /* v113：切回前台时补弹「上次没处理完」的节拍卡（切走导致页面被回收时它就没了） */
   try{ _restoreBeatPlan(); }catch(e){}
+  /* v114：上次生成没跑完的话，提示已保住多少字 */
+  try{ _notifyUnfinishedGen(); }catch(e){}
 });
 setInterval(function(){ checkBooksConflict(); },8000);
 /* 处于冲突待决状态时离开页面要拦一下：本窗口改动还没落盘 */
@@ -6644,7 +6646,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v113";
+const APP_VERSION="v114";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6654,6 +6656,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v114","补上「深度续写到一半切走就丢稿」。① 【根因】流式生成期间 onToken 只做 ta.value=...，没有任何落盘。自动保存是 700ms 防抖、且依赖 input 事件或主动调用，流式写入两者都不满足，只有整章生成成功后才会写章节库。于是切到别的应用时 WebView 被回收，已生成的几千字只活在 DOM 里，进程一死全没，这次生成烧掉的 token 全部白费——这是「切后台导致 token 白烧」的真正元凶。② 【现在】流式期间按「距上次 ≥3 秒 且 新增 ≥150 字」双条件节流写入章节库，中断后重进页面，已生成的部分就在那一章里，可以接着写，不用从头再烧一遍。生成结束（无论成功还是失败）再补写一次并清标记。③ 【安全边界】落盘只写 body 与 title，绝不碰 status——新增章节固定为 draft。v103 的前文过滤依赖 status==='done'，半成品绝不能被算作已完稿而污染后续上下文。④ 【中断提示】启动或切回前台时，若上次生成没跑完，会提示「第X章生成到一半中断了，已保住约 N 字」；超过 6 小时不再提。正在生成中不会误报。⑤ 覆盖两条生成链路：接着写 与 深度续写（后者最长最贵，中断损失最大）。⑥ 仍然建议的操作不变：保持前台、单次生成字数调小、可关掉自动精修——落盘只是把损失从「全丢」降到「丢最后几秒」，不是让你可以随便切。"],
   ["v113","修好「节拍卡切走就丢」。① 【根因】深度续写里生成的 3 套节拍方案，此前只存在于内存变量与动态创建的弹窗 DOM 里，没有任何落盘。切到别的应用（如 DeepSeek 聊剧情）时，手机会回收 WebView / 重载页面，内存态清零——AI 已经生成的 3 套方案连同弹窗一起消失，这次调用的 token 全部白烧。作为对比，另一条路径「🎲 一键灵感推演」是有落盘的（存 deductions），所以那条不丢，只有深度续写内嵌的这个弹窗会丢。② 【现在】生成 3 套方案后立刻落盘（存 beatPending），页面回到前台或重新启动时自动把没处理完的弹窗原样补回来，标题会标明「上次未处理的节拍卡（已为你保留）」，方案内容一条不少。超过 24 小时的旧记录不再打扰。③ 【恢复为硬弹窗】v100 为了防止流程卡死，把「点空白处 / 按 Esc」做成了关闭——副作用是误触一下结果就没了。现在改回不可误关：唯一出口是「选一套」或「点底部按钮明确放弃」，不处理就不会消失，与旧版一致。④ 【恢复态的选择如何生效】补弹的弹窗此时已经没有生成流程在等它了，所以选一套会挂接为「灵感推演方案」（与手动推演同一个挂载点），下次点深度续写时会自动采用并提示；明确放弃则不挂接。⑤ 不影响其它交互：接着写、参谋、审稿、消化、导入导出等均未改动。"],
   ["v112","修好「剧情参谋」点了就失败、报错一闪就没。① 【根因一 · 报错看不见】参谋原先所有错误只走 toast()，2.4 秒自动消失、不留痕迹，所以你只看到屏幕闪了一下。现在弹窗顶部有常驻错误条：标题用大白话说清是什么错，正文给接口原文，点「诊断」还能看到完整的 AI 配置（Base URL / 两个模型 / 思考模式 / Key 有没有填 / 单日上限与今日已用）和针对性的排障建议。错误按 8 类自动翻译：超上限、没配置、Key 失效、余额/限流、网络超时、模型不可用、思考把预算吃光、Base URL 指错。② 【根因二 · 非流式只有一个候选模型】callAI() 的非流式分支原本只试一个模型，失败就整体抛错；而流式分支有 3 个候选兜底。参谋、深度续写的分析阶段、体检台、人物分析全走非流式，一旦模型名不被你的 Key 支持（400/404）或推理模型把预算耗在思考上导致正文为空，这些功能就一起失效。现已改为与非流式同一套候选链（deepseek-flash 兜底），失败自动换模型并提示「已自动改用模型 X」，不再整体失败。③ 【参谋换模型】参谋固定用 deepseek-flash 打头——参谋要的是稳和快，不是最强推理；v4-pro 这类推理模型容易把 2400 token 全烧在思考上，返回空正文。④ 【补上参谋缺失的记忆】此前参谋只看得到本卷设定、卷档案、最近 3 章和正文尾部，完全看不到人物卡与全书总档案——你问「薇拉这么做合理吗」它其实没有薇拉的设定，只能瞎猜。现在会把人物卡（核心特质 / 表里欲望 / 说话方式 / 思维模式 / 行为禁区，取前 8 位、主角优先）与全书总档案一并带给它，讨论结论才有依据。⑤ 讨论记录先存书内字段，失败时退回本机备份，换卷不会丢。⑥ 发送中加锁，连点不会重复计费。参谋仍然只讨论、绝不写正文——这条没变。"],
   ["v111","新增「剧情参谋」与「本地审稿」，补上「创作只有单向生成、没人讨论」的缺口。① 剧情参谋：一个只讨论、绝不写正文的对话槽——可以问走向、要灵感、查合理性（例如「薇拉主动道歉合理吗」「第 12 章的伏笔怎么接才不生硬」）。它只读本卷设定 / 人称铁律 / 卷档案节选 / 最近 3 章梗概 / 正文尾部，刻意不灌全卷正文，把成本压住；每次回复结尾给 1-3 个可选走向并说清代价。结论可一键「写进本章指令」或「存为剧情线索」，否则讨论完就蒸发。首次发送前会明确报价（上下文字数 / 量级 / 是否已在单日上限保护内），且全程受单日花费硬上限约束；参谋永远不会改动你的正文。② 本地审稿（0 token）：纯本地规则校验人称是否串篇、分卷归属是否有效、是否与上一章跨卷、本卷声线卡补了多少、本卷前文档案是否为空。生成后自动过一遍，只有发现问题时才出声；也可随时点「审稿」手动看全部，并一键把问题写成下一轮的约束。不调用 AI、不消耗额度、不改正文。③ 最小插件总线：内置「人称守卫」「归属守卫」两个插件与五个生命周期钩子，插件只登记代码里已有的能力、用开关启用，绝不加载外部代码（无服务端、无插件注册表，远程代码可直接读到 Key 与全部书稿，风险不可控）。启用状态存 localStorage，不动 IndexedDB 结构。"],
@@ -9588,14 +9591,16 @@ async function aiGen(){
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
     const _genModel=(ai.model||ai.genModel||"deepseek-flash");
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    /* v114：流式期间节流落盘，切后台被杀也能保住已生成的部分 */
+    streamSaveBegin(num, title, _vgVol, _base);
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; _streamTick(t); }});
     if(!out.trim())throw new Error("接口返回内容为空");
     ta.value=_base?(_base+"\n\n"+out):out;
     afterAiWrite(ta);
     showAiResult(out, "AI 续写结果", true);
     toast("已基于目录中前 "+prior.count+" 章生成"+(num!=="?"?("第"+num+"章"):"本章"));
   }catch(e){ aiGenFail("AI 生成",e, (document.getElementById("chBody")||{}).value); }
-  finally{ btn.disabled=false; btn.textContent=old; }
+  finally{ _streamFinish(); btn.disabled=false; btn.textContent=old; }
 }
 /* ============== 节拍卡规划阶段（最简版全链·质量提升） ==============
    深度续写前：基于分析结果+线索+人物，生成3套差异化节拍骨架（仅剧情节拍，不写正文）。
@@ -9741,6 +9746,85 @@ function _restoreBeatPlan(){
     chooseBeatPlan(p.plans,{restored:true});
   }catch(e){ console.warn("[节拍卡] 恢复失败(非致命)：",e&&e.message); }
 }
+/* ============ v114：流式生成的节流落盘（防切后台被杀、半成品丢稿） ============
+   成因：onToken 回调此前只做 ta.value=...，不触发任何落盘。
+   autoSaveChapter() 是 700ms 防抖、且依赖 input 事件或主动调用，流式写入两者都不满足，
+   只有整章生成成功后才写章节库。于是切到别的应用时 WebView 被回收 →
+   已生成的几千字只活在 DOM 里，进程一死全没，这次生成烧掉的 token 全部白费。
+   现在：流式期间按「间隔 ≥3 秒 且 新增 ≥150 字」双条件节流写入章节库，
+   中断后重进页面，已生成的部分就在章节里，可以接着写，不再从头烧一遍。 */
+let _streamSave=null;
+/* 写入/更新章节正文。只动 body 与 title，绝不碰 status——
+   v103 依赖 status==='done' 过滤前文，半成品必须保持 draft，否则会污染后续上下文。 */
+function _streamUpsert(num,title,vol,body,chId){
+  try{
+    let chs=load("chapters",[])||[];
+    let i=chs.findIndex(function(x){ return x.id===chId; });
+    if(i<0) i=chs.findIndex(function(x){ return Number(x.num)===Number(num)&&(x.vol||"none")===(vol||"none"); });
+    if(i<0){
+      const nc={id:uid(),num:Number(num)||0,title:title||"未命名草稿",body:body,status:"draft",vol:vol||"none",demo:false};
+      chs.push(nc);
+      save("chapters",chs);
+      try{ const el=document.getElementById("chId"); if(el&&!el.value) el.value=nc.id; }catch(e){}
+      return nc.id;
+    }
+    chs[i].body=body;
+    if(title) chs[i].title=title;
+    if(chs[i].status===undefined) chs[i].status="draft";
+    save("chapters",chs);
+    return chs[i].id;
+  }catch(e){ return chId||""; }
+}
+function streamSaveBegin(num,title,vol,base){
+  try{
+    const cid=(document.getElementById("chId")||{}).value||"";
+    _streamSave={num:num,title:title,vol:vol||"none",base:base||"",chId:cid,last:0,lastLen:0};
+    save("genInFlight",{num:num,title:title,vol:vol||"none",at:Date.now(),len:0});
+  }catch(e){ _streamSave=null; }
+}
+function _streamTick(text){
+  const s=_streamSave;
+  if(!s||!text) return;
+  const now=Date.now();
+  if(s.last){
+    if(now-s.last<3000) return;             /* 距上次落盘不足 3 秒 */
+    if(text.length-s.lastLen<150) return;   /* 新增不足 150 字 */
+  }
+  s.last=now; s.lastLen=text.length;
+  try{
+    const full=s.base?(s.base+"\n\n"+text):text;
+    s.chId=_streamUpsert(s.num,s.title,s.vol,full,s.chId);
+    save("genInFlight",{num:s.num,title:s.title,vol:s.vol,at:now,len:full.length});
+  }catch(e){}
+}
+/* 收尾：无论成功还是失败，都把当前正文写一次，并清掉「在途」标记 */
+function _streamFinish(){
+  try{
+    const s=_streamSave;
+    if(s){
+      const ta=document.getElementById("chBody");
+      const v=ta?(ta.value||""):"";
+      if(v.trim()) s.chId=_streamUpsert(s.num,s.title,s.vol,v,s.chId);
+    }
+  }catch(e){}
+  _streamSave=null;
+  try{ save("genInFlight",null); }catch(e){}
+}
+/* 启动 / 回前台时，若上次生成没跑完，提示已保住多少字（只提示，不自动改写任何内容） */
+function _notifyUnfinishedGen(){
+  try{
+    if(_streamSave) return;                 /* 正在生成中，不算中断 */
+    if(_beatMask) return;                   /* 有节拍卡弹窗时不打扰 */
+    const g=load("genInFlight",null);
+    if(!g) return;
+    if(g.at && (Date.now()-g.at)>21600000){ /* 超过 6 小时不再提 */
+      try{ save("genInFlight",null); }catch(e){}
+      return;
+    }
+    toast("上次第"+g.num+"章生成到一半中断了，已保住约 "+g.len+" 字（打开该章可接着写）");
+  }catch(e){}
+}
+
 /* 后置纠偏：生成完成后自动扫描 OOC/冲突/伏笔风险，结果追加到结果弹窗 */
 async function postGenCheck(text, chLabel){
   try{
@@ -10278,7 +10362,10 @@ async function aiDeepGen(){
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
     const _genModel=(ai.model||ai.genModel||"deepseek-flash");
-    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; }});
+    /* v114：流式期间节流落盘——深度续写是最长最贵的一条链，
+       在这里中断损失最大，已生成的部分必须保住 */
+    streamSaveBegin(num, title, curVol||"none", _base);
+    const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Math.min(12000, Math.max(6000, Number(ai.maxTokens)||8000)), modelOverride:_genModel, onToken:function(t){ const _ta=document.getElementById("chBody"); if(_ta)_ta.value=(_base?(_base+"\n\n"):"")+t; _streamTick(t); }});
     if(!out.trim()) throw new Error("生成返回为空");
     /* 自动生成人物情感线（从分析结果提取，写入人物栏） */
     try{ await autoGenEmotionalArcs(analysis); }catch(e){ console.warn('情感线生成:', e); }
@@ -10361,7 +10448,7 @@ async function aiDeepGen(){
       }
       }).catch(function(e){ console.warn("后置校验失败(非致命):",e.message); });
   }catch(e){ aiGenFail("AI 深度续写",e, (document.getElementById("chBody")||{}).value); }
-  finally{ btn.disabled=false; btn.textContent=old; }
+  finally{ _streamFinish(); btn.disabled=false; btn.textContent=old; }
 }
 /* AI 整章精修（原「深入分析优化」）：对正文框内的草稿做轻量优化——
    保留剧情、好句子与金句，只优化文笔／节奏／逻辑连贯，绝不推倒重写；
@@ -12657,8 +12744,12 @@ function counselToPlot(){
   }catch(e){}
 }
 
-/* v113：启动完成后补弹上次未处理的节拍卡（页面被回收重载的场景，靠这里兜底） */
-bootApp().then(function(){ try{ _restoreBeatPlan(); }catch(e){} },
+/* v113：启动完成后补弹上次未处理的节拍卡（页面被回收重载的场景，靠这里兜底）
+   v114：顺便提示上次未完成的生成已保住多少字 */
+bootApp().then(function(){
+                 try{ _restoreBeatPlan(); }catch(e){}
+                 try{ _notifyUnfinishedGen(); }catch(e){}
+               },
                function(e){ console.error("应用启动失败：", e); });
 /* 新手引导已移除（v46+）：首次进入不再自动弹教程 */
 /* 修复 B7：关闭/刷新页面前静默落盘当前章节，防丢稿（localStorage 同步写入，可靠） */
