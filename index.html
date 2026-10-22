@@ -2569,7 +2569,12 @@ function cfKeepMine(){
   toast("已以本窗口内容为准，恢复保存");
 }
 window.addEventListener("focus",function(){ checkBooksConflict(); });
-document.addEventListener("visibilitychange",function(){ if(!document.hidden) checkBooksConflict(); });
+document.addEventListener("visibilitychange",function(){
+  if(document.hidden) return;
+  try{ checkBooksConflict(); }catch(e){}
+  /* v113：切回前台时补弹「上次没处理完」的节拍卡（切走导致页面被回收时它就没了） */
+  try{ _restoreBeatPlan(); }catch(e){}
+});
 setInterval(function(){ checkBooksConflict(); },8000);
 /* 处于冲突待决状态时离开页面要拦一下：本窗口改动还没落盘 */
 window.addEventListener("beforeunload",function(e){
@@ -6639,7 +6644,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v112";
+const APP_VERSION="v113";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -6649,6 +6654,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v113","修好「节拍卡切走就丢」。① 【根因】深度续写里生成的 3 套节拍方案，此前只存在于内存变量与动态创建的弹窗 DOM 里，没有任何落盘。切到别的应用（如 DeepSeek 聊剧情）时，手机会回收 WebView / 重载页面，内存态清零——AI 已经生成的 3 套方案连同弹窗一起消失，这次调用的 token 全部白烧。作为对比，另一条路径「🎲 一键灵感推演」是有落盘的（存 deductions），所以那条不丢，只有深度续写内嵌的这个弹窗会丢。② 【现在】生成 3 套方案后立刻落盘（存 beatPending），页面回到前台或重新启动时自动把没处理完的弹窗原样补回来，标题会标明「上次未处理的节拍卡（已为你保留）」，方案内容一条不少。超过 24 小时的旧记录不再打扰。③ 【恢复为硬弹窗】v100 为了防止流程卡死，把「点空白处 / 按 Esc」做成了关闭——副作用是误触一下结果就没了。现在改回不可误关：唯一出口是「选一套」或「点底部按钮明确放弃」，不处理就不会消失，与旧版一致。④ 【恢复态的选择如何生效】补弹的弹窗此时已经没有生成流程在等它了，所以选一套会挂接为「灵感推演方案」（与手动推演同一个挂载点），下次点深度续写时会自动采用并提示；明确放弃则不挂接。⑤ 不影响其它交互：接着写、参谋、审稿、消化、导入导出等均未改动。"],
   ["v112","修好「剧情参谋」点了就失败、报错一闪就没。① 【根因一 · 报错看不见】参谋原先所有错误只走 toast()，2.4 秒自动消失、不留痕迹，所以你只看到屏幕闪了一下。现在弹窗顶部有常驻错误条：标题用大白话说清是什么错，正文给接口原文，点「诊断」还能看到完整的 AI 配置（Base URL / 两个模型 / 思考模式 / Key 有没有填 / 单日上限与今日已用）和针对性的排障建议。错误按 8 类自动翻译：超上限、没配置、Key 失效、余额/限流、网络超时、模型不可用、思考把预算吃光、Base URL 指错。② 【根因二 · 非流式只有一个候选模型】callAI() 的非流式分支原本只试一个模型，失败就整体抛错；而流式分支有 3 个候选兜底。参谋、深度续写的分析阶段、体检台、人物分析全走非流式，一旦模型名不被你的 Key 支持（400/404）或推理模型把预算耗在思考上导致正文为空，这些功能就一起失效。现已改为与非流式同一套候选链（deepseek-flash 兜底），失败自动换模型并提示「已自动改用模型 X」，不再整体失败。③ 【参谋换模型】参谋固定用 deepseek-flash 打头——参谋要的是稳和快，不是最强推理；v4-pro 这类推理模型容易把 2400 token 全烧在思考上，返回空正文。④ 【补上参谋缺失的记忆】此前参谋只看得到本卷设定、卷档案、最近 3 章和正文尾部，完全看不到人物卡与全书总档案——你问「薇拉这么做合理吗」它其实没有薇拉的设定，只能瞎猜。现在会把人物卡（核心特质 / 表里欲望 / 说话方式 / 思维模式 / 行为禁区，取前 8 位、主角优先）与全书总档案一并带给它，讨论结论才有依据。⑤ 讨论记录先存书内字段，失败时退回本机备份，换卷不会丢。⑥ 发送中加锁，连点不会重复计费。参谋仍然只讨论、绝不写正文——这条没变。"],
   ["v111","新增「剧情参谋」与「本地审稿」，补上「创作只有单向生成、没人讨论」的缺口。① 剧情参谋：一个只讨论、绝不写正文的对话槽——可以问走向、要灵感、查合理性（例如「薇拉主动道歉合理吗」「第 12 章的伏笔怎么接才不生硬」）。它只读本卷设定 / 人称铁律 / 卷档案节选 / 最近 3 章梗概 / 正文尾部，刻意不灌全卷正文，把成本压住；每次回复结尾给 1-3 个可选走向并说清代价。结论可一键「写进本章指令」或「存为剧情线索」，否则讨论完就蒸发。首次发送前会明确报价（上下文字数 / 量级 / 是否已在单日上限保护内），且全程受单日花费硬上限约束；参谋永远不会改动你的正文。② 本地审稿（0 token）：纯本地规则校验人称是否串篇、分卷归属是否有效、是否与上一章跨卷、本卷声线卡补了多少、本卷前文档案是否为空。生成后自动过一遍，只有发现问题时才出声；也可随时点「审稿」手动看全部，并一键把问题写成下一轮的约束。不调用 AI、不消耗额度、不改正文。③ 最小插件总线：内置「人称守卫」「归属守卫」两个插件与五个生命周期钩子，插件只登记代码里已有的能力、用开关启用，绝不加载外部代码（无服务端、无插件注册表，远程代码可直接读到 Key 与全部书稿，风险不可控）。启用状态存 localStorage，不动 IndexedDB 结构。"],
   ["v110","① 修【人称串篇】：分卷的「人称设定（pov）」此前写了却从未被任何代码读取——西里斯篇明明写着「严格以薇拉·奎克第三人称视角进行创作」，生成时压根没注入，续写于是串成詹姆斯篇的第一人称口吻。现在 pov 会以【本卷人称铁律 · 最优先级】注入生成与消化，分卷管理里可直接编辑；深度续写开始前会先校验本卷人称，若待续写正文的人称与设定冲突会先问你一句再生成。② 修【续写章落错卷】：新章的所属分卷取自编辑器下拉，而下拉在「全书」视图下会被置成「未分卷」——v108 及更早「未分卷」恰好挂着詹姆斯篇，于是西里斯篇的第 15 章被写进詹姆斯篇、行文分析却引用西里斯篇前 14 章。现在下拉为空/未分卷时自动回退到紧邻上一章所属的分卷并明确提示，续写前若与上一章分卷不一致会先确认。③ 修【消化状态显示 74 章未消化】：根因是档案里的章节记录用的是旧 id——章节被重建/替换后旧 id 留在档案里匹配不上，詹姆斯篇 59 条记录里 56 条是失效 id，真实只认到 3 章。新增「档案体检」：可查出各卷有多少失效记录并一键清理（清理前自动备份、需二次确认）；同时在数据面板给出「零 token 补消化」入口，用服务端已消化好的整卷档案一次性补齐，全程不调用 AI、不消耗额度。④ 上述三项均只做数据补全与提示，不改正文、不改存储结构（IDB_VER 仍为 1）。"],
@@ -9635,7 +9641,13 @@ async function planBeatCard(opts){
     plans.forEach(function(p){ if(p.beats.length>best.beats.length) best=p; });
     return best;
   }
-  /* 动态弹窗让用户选 */
+  /* 动态弹窗让用户选。
+     v113：弹窗前先把 3 套方案落盘。此前 plans 只活在闭包与 _beatMask 里——
+     切到别的应用后 WebView 被回收/重载，内存态清零，AI 已生成的方案连同弹窗一起消失，
+     这次调用的 token 全部白烧。落盘后即使进程被杀，回到前台也能原样恢复。 */
+  try{
+    save("beatPending",{plans:plans, num:opts.num, title:opts.title, volId:opts.volId||"none", at:Date.now()});
+  }catch(e){ console.warn("[节拍卡] 落盘失败(非致命)：",e&&e.message); }
   return await chooseBeatPlan(plans);
 }
 function parseBeatPlans(text){
@@ -9648,41 +9660,86 @@ function parseBeatPlans(text){
 }
 /* v100 修复：① 原实现只能点方案按钮，误触/不想选时 Promise 永远不 resolve，
       生成流程就此永久挂起；② 重复进入会覆盖 window.__pickPlan，旧遮罩永远留在页面上（且旧 Promise 卡死）。
-      现在：点空白处 / 按 Esc 即「跳过」；进入时先关掉上一个遮罩；关闭逻辑幂等。 */
+      现在：进入时先关掉上一个遮罩；关闭逻辑幂等。
+   v113：弹窗改为「硬弹窗」——不再支持点空白处 / 按 Esc 关闭。
+      成因：v100 为修 Promise 挂起把「点空白/Esc」做成了关闭，结果误触一下结果就没了；
+      叠加切后台被回收，用户根本来不及选。现在唯一出口是「选一套」或「点底部按钮明确放弃」，
+      与旧版一致：不处理就不会消失。
+      两种身份：
+      · 流程态（resolve 非空）：深度续写正在等结果 → 选择后 resolve 继续生成
+      · 恢复态（resolve 为空）：页面重载后补弹 → 选择后挂成灵感方案，下次深度续写直接采用 */
 let _beatMask=null;
 function _closeBeatPlan(i){
   if(!_beatMask) return;
   const st=_beatMask; _beatMask=null;
   try{ if(st.mask&&st.mask.parentNode) st.mask.parentNode.removeChild(st.mask); }catch(e){}
-  try{ document.removeEventListener("keydown", st.onKey); }catch(e){}
+  try{ if(st.onKey) document.removeEventListener("keydown", st.onKey); }catch(e){}
   try{ if(window.__pickPlan===st.pick) delete window.__pickPlan; }catch(e){}
-  st.resolve(i>=0?st.plans[i]:null);
+  const chosen=(i>=0)?st.plans[i]:null;
+  /* v113：无论选没选，待处理记录都已消费，必须清掉，避免下次进页面又弹一遍 */
+  try{ save("beatPending",null); }catch(e){}
+  if(!st.resolve){
+    /* 恢复态：没有 Promise 可 resolve，改为挂成灵感方案（与「🎲 一键灵感推演」同一挂载点），
+       下次深度续写会自动采用；明确放弃则什么都不挂。 */
+    try{
+      if(chosen){
+        save("activeDeduction",{idx:chosen.idx, tone:chosen.tone, beats:chosen.beats, raw:chosen.raw, at:Date.now()});
+        try{ renderBeatMount(); }catch(e){}
+        try{ renderDeductions(); }catch(e){}
+        toast("已采用方案"+chosen.idx+" → 挂接为下次深度续写的强制前置约束 ✓");
+      }else{
+        toast("已关闭节拍卡选择，本次不使用节拍卡");
+      }
+    }catch(e){ console.warn("[节拍卡] 挂接失败：",e&&e.message); }
+    return;
+  }
+  st.resolve(chosen);
 }
-function chooseBeatPlan(plans){
+function chooseBeatPlan(plans, opts){
+  opts=opts||{};
+  const restored=!!opts.restored;
   return new Promise(resolve=>{
     if(_beatMask) _closeBeatPlan(-1);
     const mask=document.createElement("div");
     mask.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
     let html='<div style="background:var(--bg,#fff);border-radius:12px;max-width:680px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">';
-    html+='<h3 style="margin:0 0 4px;font-size:16px;font-weight:500;">选择节拍卡方案</h3>';
-    html+='<p style="margin:0 0 16px;font-size:13px;color:var(--meta,#888);">选中一套作为本章生成的强制前置约束；点空白处或按 Esc = 跳过，直接生成。</p>';
+    if(restored){
+      html+='<h3 style="margin:0 0 4px;font-size:16px;font-weight:500;">⏳ 上次未处理的节拍卡（已为你保留）</h3>';
+      html+='<p style="margin:0 0 16px;font-size:13px;color:var(--meta,#888);">这是上次生成的方案，没有因为切走而丢失。选一套会挂接为下次深度续写的强制前置约束；此弹窗不会被误触关掉，选完或点底部按钮才会消失。</p>';
+    }else{
+      html+='<h3 style="margin:0 0 4px;font-size:16px;font-weight:500;">选择节拍卡方案</h3>';
+      html+='<p style="margin:0 0 16px;font-size:13px;color:var(--meta,#888);">选中一套作为本章生成的强制前置约束。此弹窗不会被误触关掉——选一套，或点底部按钮明确放弃。</p>';
+    }
     plans.forEach((p,i)=>{
       html+='<div style="border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;padding:12px;margin-bottom:10px;cursor:pointer;" onclick="window.__pickPlan('+i+')">';
-      html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(' · '+p.tone):'')+'</div>';
+      html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(' · '+esc(p.tone)):'')+'</div>';
       html+='<div style="font-size:12px;color:var(--meta,#888);line-height:1.6;">'+p.beats.map(b=>esc(b)).join('<br>')+'</div>';
       html+='</div>';
     });
-    html+='<button onclick="window.__pickPlan(-1)" style="width:100%;padding:10px;border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;background:transparent;font-size:14px;cursor:pointer;margin-top:4px;">跳过，直接生成（不用节拍卡）</button>';
+    html+='<button onclick="window.__pickPlan(-1)" style="width:100%;padding:10px;border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;background:transparent;font-size:14px;cursor:pointer;margin-top:4px;">'+
+      (restored?'关闭（不使用节拍卡）':'放弃节拍卡，直接生成')+'</button>';
     html+='</div>';
     mask.innerHTML=html;
-    mask.addEventListener("click",function(e){ if(e.target===mask) _closeBeatPlan(-1); });
+    /* v113：不再挂 mask 点击关闭、也不再监听 Esc —— 保证「不处理就不会消失」 */
     document.body.appendChild(mask);
-    const onKey=function(e){ if(e&&(e.key==="Escape"||e.key==="Esc")) _closeBeatPlan(-1); };
-    document.addEventListener("keydown",onKey);
     const pick=function(idx){ _closeBeatPlan(idx); };
     window.__pickPlan=pick;
-    _beatMask={mask:mask, resolve:resolve, plans:plans, onKey:onKey, pick:pick};
+    _beatMask={mask:mask, resolve:restored?null:resolve, plans:plans, onKey:null, pick:pick};
   });
+}
+/* v113：回到前台 / 启动完成时补弹「上次没处理完」的节拍卡。
+   只在真正需要时弹：已有弹窗不重复弹；超过 24 小时的旧记录不再打扰（多半已过时）。 */
+function _restoreBeatPlan(){
+  try{
+    if(_beatMask) return;                       /* 弹窗还在，说明没丢，不用补 */
+    const p=load("beatPending",null);
+    if(!p||!p.plans||!p.plans.length) return;
+    if(p.at && (Date.now()-p.at)>86400000){     /* 24 小时 */
+      try{ save("beatPending",null); }catch(e){}
+      return;
+    }
+    chooseBeatPlan(p.plans,{restored:true});
+  }catch(e){ console.warn("[节拍卡] 恢复失败(非致命)：",e&&e.message); }
 }
 /* 后置纠偏：生成完成后自动扫描 OOC/冲突/伏笔风险，结果追加到结果弹窗 */
 async function postGenCheck(text, chLabel){
@@ -12600,7 +12657,9 @@ function counselToPlot(){
   }catch(e){}
 }
 
-bootApp().catch(function(e){ console.error("应用启动失败：", e); });
+/* v113：启动完成后补弹上次未处理的节拍卡（页面被回收重载的场景，靠这里兜底） */
+bootApp().then(function(){ try{ _restoreBeatPlan(); }catch(e){} },
+               function(e){ console.error("应用启动失败：", e); });
 /* 新手引导已移除（v46+）：首次进入不再自动弹教程 */
 /* 修复 B7：关闭/刷新页面前静默落盘当前章节，防丢稿（localStorage 同步写入，可靠） */
 window.addEventListener('beforeunload', function(){
