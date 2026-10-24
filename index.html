@@ -1625,7 +1625,17 @@
         <div class="char-list" id="charList"></div>
         <div class="char-editor" id="charEditor"></div>
       </div>
-      <button style="margin-top:10px;" onclick="addChar()">+ 新增人物</button>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="primary" onclick="openAddCharDialog()">➕ 新建人物（手动录入）</button>
+        <button type="button" onclick="addChar()">+ 快速新增</button>
+        <button type="button" onclick="showAliasMerge()" title="同一角色的多个称呼并成一条档案">🔗 别名归并</button>
+        <button type="button" onclick="showCharIgnoreEditor()" title="误读条目与一次性边缘角色的黑名单">🚫 忽略名单</button>
+        <button type="button" onclick="toggleCharMinor(this)" title="单次出场的边缘角色是否纳入扫描候选">边缘角色 '+(charMinorOn()?"收":"不收")+'</button>
+      </div>
+      <div class="meta" style="margin-top:8px;line-height:1.7;">
+        手动录入与章节抓取完全等价：都能填别名，正文里出现任一称呼都指向同一份档案。
+        抓取时先过「忽略名单」，再把互为子串的称呼并成一人。
+      </div>
       <span class="scan-ctl">扫描范围：
         <select id="scanScope" onchange="onScanScopeChange()">
           <option value="all">全部章节</option>
@@ -4848,8 +4858,246 @@ function _buildKnownSet(){
     if(!nm)return;
     set[nm]=1;
     nm.split(/[·\s]/).forEach(function(p){ if(p&&p.length>=2)set[p]=1; }); /* 拆分「薇拉·奎克」→ 薇拉，避免重抓 */
+    try{ (c.aliases||[]).forEach(function(a){ a=String(a||"").trim(); if(a&&a.length>=2) set[a]=1; }); }catch(e){}
   });
   return set;
+}
+/* ================= v117：非人物忽略名单 =================
+   两类东西会混进人物库：
+     ① 误读 —— 把一段描述当成一个人名，例如「梦境中的众人（邦妮/莱姆斯/…）」
+        其实是多人合写在一个 who 条目里，被整体当成一个人物；
+     ② 边缘角色 —— 只出场一次、后面再也不出现的（分院帽、送信猫头鹰、某只孔雀），
+        建卡只会稀释人物档案，且给 AI 注入一堆一次性名字反而干扰判断。
+   名单可配置（人物页「🚫 忽略名单」），扫描与录入两侧同时过滤。 */
+const DEFAULT_CHAR_IGNORE=[
+  "梦境中的众人","分院帽","送信猫头鹰","松鼠妈妈","松鼠妈妈及幼崽","孔雀","鬃狮蜥",
+  "饲养员","布莱克家的来人（矮影子）","什么也没","什么都"
+];
+function charIgnoreList(){
+  let a=null;
+  try{ a=load("charIgnore",null); }catch(e){}
+  if(!Array.isArray(a)||!a.length) return DEFAULT_CHAR_IGNORE.slice();
+  return a.map(function(x){ return String(x||"").trim(); }).filter(Boolean);
+}
+function charIgnoreSet(){
+  const s={};
+  charIgnoreList().forEach(function(n){ if(n) s[n]=1; });
+  return s;
+}
+function isCharIgnored(nm){
+  nm=String(nm||"").trim(); if(!nm) return false;
+  const s=charIgnoreSet();
+  if(s[nm]) return true;
+  /* 名单里的条目本身可能带括号长尾，做包含匹配兜底 */
+  for(const k in s){ if(k.length>=3 && (nm.indexOf(k)>-1)) return true; }
+  return false;
+}
+function saveCharIgnoreList(arr){
+  try{ save("charIgnore", arr.map(function(x){return String(x||"").trim();}).filter(Boolean)); }catch(e){}
+}
+function showCharIgnoreEditor(){
+  let old=document.getElementById("ciMask"); if(old) old.remove();
+  const box=document.createElement("div"); box.id="ciMask"; box.className="cs-overlay";
+  box.innerHTML='<div class="cs-card">'+
+    '<div class="cs-head"><span>🚫 非人物忽略名单</span><button type="button" class="cs-x" onclick="document.getElementById(\'ciMask\').remove()">✕</button></div>'+
+    '<div class="cs-sub">一行一个。命中名单的名字在「从章节扫描」「档案回扫」「确认录入」三处都会被挡掉；已录入的可用下方按钮清掉。</div>'+
+    '<textarea id="ciText" style="width:100%;min-height:220px;font-size:13px;line-height:1.7;box-sizing:border-box;">'+esc(charIgnoreList().join("\n"))+'</textarea>'+
+    '<div class="cs-foot">'+
+      '<button type="button" class="ghost" onclick="cleanupIgnoredChars()">🗑 清掉已录入的名单条目</button>'+
+      '<button type="button" class="ghost" onclick="saveCharIgnoreList(DEFAULT_CHAR_IGNORE.slice());document.getElementById(\'ciMask\').remove();showCharIgnoreEditor();">恢复默认</button>'+
+      '<button type="button" class="primary" onclick="saveCharIgnoreList(document.getElementById(\'ciText\').value.split(/\\n/));document.getElementById(\'ciMask\').remove();toast(\'忽略名单已保存\')">保存</button>'+
+    '</div></div>';
+  document.body.appendChild(box);
+}
+/* ================= v117：人物档案别名归并 =================
+   同一角色在不同卷/不同章里被写成不同称呼（「莉莉」与「莉莉·伊万斯」、「邦妮」与
+   「邦妮·麦克米兰」），扫出来就是两条甚至三条独立记录，各有一半设定，彼此还可能矛盾。
+   归并做四件事：
+     ① 互为子串的条目聚成一组，选出主用名（默认取「设定最完整的那条」，同分取更长名；
+        更长名信息量更大，如「莉莉·伊万斯」优于「莉莉」）；
+     ② 合并后只剩一条记录，其余名字全部进 aliases；
+     ③ 字段冲突以「最新设定」为准 —— 依据各字段自带的来源日期（psycheSrc / appearanceSrc /
+        langSrc 里的 YYYY-M-D），没有日期但非空的排在有日期之后、空值之前；
+        被覆盖掉的旧值不直接丢，写进 xSrcNote 供你回溯；
+     ④ 正文里出现任一别名，charNamesOf/charAppearsInTextAny 都会指向同一条档案，
+        不再重复介绍设定（v116 已实现，这里只负责把历史分散记录并起来）。 */
+function _charFieldSrcDate(c){
+  /* 取该人物所有「设定来源标记」里最新的日期，用于判定谁是最新的设定 */
+  let best=0;
+  [c.psycheSrc,c.appearanceSrc,c.langSrc].forEach(function(s){
+    const m=String(s||"").match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(!m) return;
+    const t=Date.parse(m[1]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[3]).slice(-2));
+    if(isFinite(t)&&t>best) best=t;
+  });
+  return best;
+}
+const CHAR_MERGE_FIELDS=["house","appearance","core","desire","deepDesire","traits","taboos","langSys","thinkMode"];
+function findAliasGroups(){
+  const cs=load("chars",[])||[];
+  const groups=[], used={};
+  const sorted=cs.slice().sort(function(a,b){
+    const fa=CHAR_MERGE_FIELDS.filter(function(f){ return String(a[f]||"").trim(); }).length;
+    const fb=CHAR_MERGE_FIELDS.filter(function(f){ return String(b[f]||"").trim(); }).length;
+    if(fb!==fa) return fb-fa;                       /* 设定更完整的优先当主条目 */
+    const da=_charFieldSrcDate(b), db2=_charFieldSrcDate(a);
+    if(da!==db2) return da-db2;                     /* 再按设定日期新的优先 */
+    return String(b.name||"").length-String(a.name||"").length;  /* 最后取更长的名字 */
+  });
+  sorted.forEach(function(c){
+    const nm=String(c.name||"").trim(); if(!nm||used[nm]) return;
+    const g={main:c, members:[c]}; used[nm]=1;
+    sorted.forEach(function(o){
+      const on=String(o.name||"").trim(); if(!on||used[on]) return;
+      const A=nm,B=on;
+      if(A===B) return;
+      const sub=(A.length>=2&&B.length>=2)&&(A.indexOf(B)>-1||B.indexOf(A)>-1);
+      if(sub){ g.members.push(o); used[on]=1; }
+    });
+    /* 已在同一张卡里的别名也要参与匹配 */
+    cs.forEach(function(o){
+      const on=String(o.name||"").trim(); if(!on||used[on]) return;
+      if(g.members.indexOf(o)>=0) return;
+      let hit=false;
+      g.members.forEach(function(m){
+        (m.aliases||[]).forEach(function(a){
+          a=String(a||"").trim(); if(!a) return;
+          if(a===on||(a.length>=2&&on.length>=2&&(a.indexOf(on)>-1||on.indexOf(a)>-1))) hit=true;
+        });
+      });
+      if(hit){ g.members.push(o); used[on]=1; }
+    });
+    if(g.members.length>1) groups.push(g);
+  });
+  return groups;
+}
+function mergeCharGroup(members, mainId){
+  const cs=load("chars",[])||[];
+  const keep=cs.filter(function(c){ return members.some(function(m){ return m.id===c.id; }); });
+  if(keep.length<2) return null;
+  let main=keep.filter(function(c){ return c.id===mainId; })[0];
+  if(!main){
+    keep.sort(function(a,b){
+      const fa=CHAR_MERGE_FIELDS.filter(function(f){ return String(a[f]||"").trim(); }).length;
+      const fb=CHAR_MERGE_FIELDS.filter(function(f){ return String(b[f]||"").trim(); }).length;
+      if(fb!==fa) return fb-fa;
+      return _charFieldSrcDate(b)-_charFieldSrcDate(a);
+    });
+    main=keep[0];
+  }
+  const others=keep.filter(function(c){ return c.id!==main.id; });
+  const notes=[];
+  CHAR_MERGE_FIELDS.forEach(function(f){
+    const mine=String(main[f]||"").trim();
+    /* 候选：非空即可；有多个时取「设定日期最新」的那条，其次取更长的（信息量更大） */
+    const cands=keep.filter(function(c){ return String(c[f]||"").trim(); }).sort(function(a,b){
+      const da=_charFieldSrcDate(b), db2=_charFieldSrcDate(a);
+      if(da!==db2) return da-db2;
+      return String(b[f]||"").length-String(a[f]||"").length;
+    });
+    if(!cands.length) return;
+    const win=cands[0];
+    if(!mine || String(win[f]||"").trim()!==mine){
+      if(mine) notes.push(f+"：原「"+String(mine).slice(0,20)+"」→ 采用「"+String(win[f]).trim().slice(0,20)+"」（来自 "+String(win.name)+"）");
+      main[f]=String(win[f]||"").trim();
+    }
+  });
+  const al={};
+  keep.forEach(function(c){
+    const nm=String(c.name||"").trim(); if(nm&&nm!==main.name) al[nm]=1;
+    try{ (c.aliases||[]).forEach(function(a){ a=String(a||"").trim(); if(a&&a!==main.name) al[a]=1; }); }catch(e){}
+  });
+  main.aliases=Object.keys(al);
+  if(notes.length) main.mergeNote=(main.mergeNote?main.mergeNote+"\n":"")+notes.join("\n");
+  main.mergedAt=Date.now();
+  const ids=others.map(function(c){ return c.id; });
+  const next=cs.filter(function(c){ return ids.indexOf(c.id)<0; });
+  const i=next.findIndex(function(c){ return c.id===main.id; });
+  if(i>=0) next[i]=main; else next.push(main);
+  save("chars",next);
+  /* 关系图里的连线跟着迁到主条目，避免出现悬空关系 */
+  try{
+    let rels=getRels();
+    rels=rels.map(function(r){ return {id:r.id, a:(ids.indexOf(r.a)>=0?main.id:r.a), b:(ids.indexOf(r.b)>=0?main.id:r.b), label:r.label, color:r.color}; });
+    const seen={}; rels=rels.filter(function(r){ if(r.a===r.b) return false; const k=r.a+"|"+r.b; if(seen[k])return false; seen[k]=1; return true; });
+    setRels(rels);
+  }catch(e){}
+  return {main:main, removed:others.map(function(c){ return c.name; })};
+}
+function showAliasMerge(){
+  try{
+    const groups=findAliasGroups();
+    let old=document.getElementById("amMask"); if(old) old.remove();
+    const box=document.createElement("div"); box.id="amMask"; box.className="cs-overlay";
+    if(!groups.length){
+      box.innerHTML='<div class="cs-card"><div class="cs-head"><span>🔗 别名归并</span>'+
+        '<button type="button" class="cs-x" onclick="document.getElementById(\'amMask\').remove()">✕</button></div>'+
+        '<div class="cs-empty">没有发现需要归并的别名（人物库里没有互为子串的重复条目）。</div></div>';
+      document.body.appendChild(box); return;
+    }
+    const rows=groups.map(function(g,i){
+      const mainName=String(g.main.name||"");
+      const opts=g.members.map(function(m){
+        const filled=CHAR_MERGE_FIELDS.filter(function(f){ return String(m[f]||"").trim(); }).length;
+        return '<label class="cs-row" style="cursor:default;"><input type="radio" name="amg_'+i+'" value="'+esc(m.id)+'" '+(m.id===g.main.id?"checked":"")+'>'+
+          '<span class="cs-name" style="border:none;background:transparent;">'+esc(String(m.name||""))+'</span>'+
+          '<span class="cs-meta">设定 '+filled+' 项</span></label>';
+      }).join("");
+      return '<div style="margin-bottom:14px;padding:10px;border:1px solid rgba(127,127,127,.25);border-radius:10px;">'+
+        '<div style="font-size:13px;font-weight:500;margin-bottom:6px;">第 '+(i+1)+' 组（'+g.members.length+' 条 → 1 条）· 选主用名</div>'+
+        opts+'</div>';
+    }).join("");
+    box.innerHTML='<div class="cs-card">'+
+      '<div class="cs-head"><span>🔗 别名归并（'+groups.length+' 组）</span>'+
+      '<button type="button" class="cs-x" onclick="document.getElementById(\'amMask\').remove()">✕</button></div>'+
+      '<div class="cs-sub">同一角色的多个称呼会并成一条档案：主用名之外的全部写进「别名」，正文里出现任一称呼都指向同一份设定。字段冲突取设定日期最新的那条，被覆盖的旧值会记在备注里。</div>'+
+      rows+
+      '<div class="cs-foot">'+
+        '<button type="button" class="ghost" onclick="document.getElementById(\'amMask\').remove()">取消</button>'+
+        '<button type="button" class="primary" onclick="doAliasMerge()">合并这 '+groups.length+' 组</button>'+
+      '</div></div>';
+    document.body.appendChild(box);
+  }catch(e){ toastErr("归并失败："+(e&&e.message)); }
+}
+function doAliasMerge(){
+  try{
+    const groups=findAliasGroups(); if(!groups.length) return;
+    let merged=0, removedNames=[];
+    groups.forEach(function(g,i){
+      const sel=document.querySelector('input[name="amg_'+i+'"]:checked');
+      const r=mergeCharGroup(g.members, sel?sel.value:null);
+      if(r){ merged++; removedNames=removedNames.concat(r.removed); }
+    });
+    document.getElementById("amMask").remove();
+    try{ renderChars(); }catch(e){}
+    toast("已合并 "+merged+" 组，删除重复条目 "+removedNames.length+" 条："+removedNames.slice(0,8).join("、")+(removedNames.length>8?"…":""));
+  }catch(e){ toastErr("合并失败："+(e&&e.message)); }
+}
+
+/* 清掉人物库里命中忽略名单的条目（历史数据清理，带确认） */
+function cleanupIgnoredChars(){
+  try{
+    const cs=load("chars",[])||[];
+    const hit=cs.filter(function(c){ return isCharIgnored(c.name); });
+    if(!hit.length){ toast("人物库里没有命中忽略名单的条目"); return; }
+    if(!confirm("将删除以下 "+hit.length+" 个非人物条目：\n\n"+hit.map(function(c){return "· "+c.name;}).join("\n")+"\n\n（正文不受影响）")) return;
+    const keep=cs.filter(function(c){ return !isCharIgnored(c.name); });
+    save("chars",keep);
+    try{ renderChars(); }catch(e){}
+    toast("已删除 "+hit.length+" 个非人物条目");
+  }catch(e){ toastErr("清理失败："+(e&&e.message)); }
+}
+/* 边缘角色开关：开启后，只被点名一次的边缘角色也纳入 */
+function charMinorOn(){
+  try{ return load("charIncludeMinor",false)===true; }catch(e){ return false; }
+}
+function toggleCharMinor(btn){
+  try{
+    const v=!charMinorOn();
+    save("charIncludeMinor",v);
+    if(btn) btn.textContent="边缘角色 "+(v?"收":"不收");
+    toast(v?"已开启：只出场一次的边缘角色也会纳入候选":"已关闭：单次出场的边缘角色不再纳入（可在忽略名单旁重新开启）");
+  }catch(e){}
 }
 function _findSnippet(text, name){
   const i=text.indexOf(name);
@@ -4857,14 +5105,119 @@ function _findSnippet(text, name){
   const start=Math.max(0,i-18), end=Math.min(text.length,i+name.length+18);
   return (start>0?"…":"")+text.slice(start,end).replace(/\s+/g," ").trim()+(end<text.length?"…":"");
 }
+/* ================= v116：从已消化档案回扫人物名 =================
+   AI 消化时的输出结构里明确包含「① 本卷人物档案」与「·出场人物：A、B、C」，
+   这些信息此前只是作为自然语言文本沉在 volumes[vid].blocks / rolling 里，
+   从未被结构化回人物库。这里把它们捞出来，作为正文正则之外的第二路候选来源。
+   配角往往只在正文里露一次姓氏，正则抓不到，但档案里被点过名 —— 这条路专治这个。 */
+let _digestCorpusCache=null;
+function _digestCorpus(scopeVol){
+  try{
+    if(_digestCorpusCache && _digestCorpusCache.v===scopeVol) return _digestCorpusCache.t;
+    const d=getDigest();
+    const vids=scopeVol?[scopeVol]:Object.keys(d.volumes||{});
+    let t="";
+    vids.forEach(function(vid){
+      const v=(d.volumes||{})[vid]; if(!v) return;
+      Object.keys(v.blocks||{}).forEach(function(chId){ t+=String((v.blocks[chId]&&v.blocks[chId].text)||"")+"\n"; });
+      t+=String(v.rolling||"")+"\n";
+    });
+    _digestCorpusCache={v:scopeVol,t:t};
+    return t;
+  }catch(e){ return ""; }
+}
+/* 档案里的字段标签名——它们长得像「· 名字：」但绝不是人名，必须挡掉 */
+const _DG_FIELD_BLACK=/^(?:出场人物|关键事件|本章梗概|小节|标签|关联|伏笔|时间线|已完成剧情|人物档案|本卷人物档案|剧情线索|核心事件|情感线|世界观|新增条目|原文依据|情绪变化|人物关系|隐藏立场|对话习惯)$/;
+function _collectDigestCharNames(scopeVol){
+  const names={};
+  function push(nm,w,src){
+    nm=String(nm||"").trim();
+    if(!nm) return;
+    nm=nm.replace(/^[·•\-\s]+/,"").replace(/[：:，,。、；;）)]+$/,"").trim();
+    if(!nm) return;
+    /* 「·出场人物：A、B」里的「出场人物」本身会被上一条正则当成名字捞出来，必须挡掉；
+       「·与詹姆斯：…」这类自定义关联标签同理。 */
+    if(_DG_FIELD_BLACK.test(nm)) return;
+    if(/^与[一-龥]{2,6}$/.test(nm)) return;
+    if(!_isLikelyName(nm)) return;
+    if(!names[nm]) names[nm]={name:nm,count:0,score:0,src:src||"档案",snippet:""};
+    names[nm].count+=1; names[nm].score+=w;
+  }
+  try{
+    const d=getDigest();
+    const vids=scopeVol?[scopeVol]:Object.keys(d.volumes||{});
+    vids.forEach(function(vid){
+      const v=(d.volumes||{})[vid]; if(!v) return;
+      const blocks=v.blocks||{};
+      Object.keys(blocks).forEach(function(chId){
+        const t=String((blocks[chId]&&blocks[chId].text)||"");
+        /* v117：同一章内的重复点名只算一次。
+           一章的档案里「·出场人物：沙菲克」和「① 本卷人物档案 · 沙菲克：…」会点同一个人两次，
+           不去重的话单次出场的边缘角色也会被误算成「出场 2 次」而混入人物库。 */
+        const seen={};
+        const once=function(nm,w,src){ const k=String(nm||"").trim(); if(!k||seen[k]) return; seen[k]=1; push(nm,w,src); };
+        /* 导入档案与 AI 消化都会写「·出场人物：A、B、C」——权重最高、噪音最低 */
+        (t.match(/·\s*出场人物[：:][^\n]{1,300}/g)||[]).forEach(function(line){
+          line.replace(/^·\s*出场人物[：:]/,"").split(/[、,，;；\/|]/).forEach(function(x){ once(x,2,"档案·出场人物"); });
+        });
+        /* 「① 本卷人物档案」段落里的「· 名字：…」条目 */
+        const seg=(t.split(/[②③④⑤]/)[0]||"").slice(0,6000);
+        (seg.match(/[·•]\s*([一-龥·]{2,6})[：:（(]/g)||[]).forEach(function(x){
+          once(x.replace(/^[·•]\s*/,"").replace(/[：:（(]$/,""),1,"档案·人物档案");
+        });
+      });
+      (String(v.rolling||"").match(/[·•]\s*([一-龥·]{2,6})[：:（(]/g)||[]).forEach(function(x){
+        push(x.replace(/^[·•]\s*/,"").replace(/[：:（(]$/,""),1,"档案·卷摘要");
+      });
+    });
+    /* snippet 延迟到确定收录后再取，避免对每个候选都跑一次大字符串 indexOf */
+    Object.keys(names).forEach(function(nm){
+      if(names[nm].score>=2) names[nm].snippet=_findSnippet(_digestCorpus(scopeVol),nm);
+    });
+  }catch(e){}
+  return names;
+}
+/* v116：别名聚类。互为子串、且短名不少于 2 字的候选视为同一个人。
+   主名取「出现次数最多，同分取更长」——长名信息量更大（「詹姆斯·波特」优于「波特」）。
+   其余成员作为 aliases 一起录入，之后 charAppearsInTextAny 会按全部称呼去正文里匹配。 */
+function _clusterNames(list){
+  const used={}, clusters=[];
+  const sorted=list.slice().sort(function(a,b){
+    return (b.count-a.count)||(b.score-a.score)||(b.name.length-a.name.length);
+  });
+  sorted.forEach(function(c){
+    if(used[c.name]) return;
+    const cl={name:c.name, members:[c]};
+    used[c.name]=1;
+    sorted.forEach(function(o){
+      if(used[o.name]) return;
+      const A=c.name, B=o.name;
+      if(A===B) return;
+      const sub=(A.length>=2&&B.length>=2)&&(A.indexOf(B)>-1||B.indexOf(A)>-1);
+      if(sub){ cl.members.push(o); used[o.name]=1; }
+    });
+    clusters.push(cl);
+  });
+  clusters.forEach(function(cl){
+    cl.count=cl.members.reduce(function(s,m){ return s+m.count; },0);
+    cl.score=cl.members.reduce(function(s,m){ return s+m.score; },0);
+    cl.srcs=[]; cl.members.forEach(function(m){ if(m.src&&cl.srcs.indexOf(m.src)<0) cl.srcs.push(m.src); });
+    cl.aliases=cl.members.map(function(m){ return m.name; }).filter(function(n){ return n!==cl.name; });
+    cl.snippet=(cl.members.filter(function(m){ return m.snippet; })[0]||{snippet:""}).snippet;
+  });
+  clusters.sort(function(a,b){ return (b.count-a.count)||(b.score-a.score); });
+  return clusters;
+}
 function scanChaptersForNewChars(){
   const chsAll=load("chapters",[])||[];
   const scopeEl=document.getElementById("scanScope");
   const scope=scopeEl?scopeEl.value:"all";
   let chs=chsAll, scopeLabel="全部章节";
+  let scopeVid=null;   /* v116：档案回扫时按同一范围取，避免跨卷误捞 */
   if(scope==="vol"){
     const vEl=document.getElementById("scanVol");
     const vid=vEl?vEl.value:"";
+    scopeVid=vid||null;
     if(vid) chs=chsAll.filter(function(c){return (c.vol||"none")===vid;});
     scopeLabel=vid?("分卷「"+(volName(vid)||vid)+"」"):"指定分卷";
   } else if(scope==="current"){
@@ -4880,14 +5233,32 @@ function scanChaptersForNewChars(){
   const cands={};
   function bump(name, add){
     name=String(name||"").trim();
+    /* v116：先做首尾清洗再判人名。
+       「詹姆斯·波特又道」里，正则的 {2,6}? 从「姆」起也能凑出「姆斯·波特又」+「道」，
+       于是产出一个谁都不是的脏串 —— 它既占掉候选名额，又会在聚类时抢占主名。
+       这里剥掉尾部常见副词/虚词，并拒绝含两个以上「·」的串。 */
+    name=name.replace(/(?:又|也|都|还|就|再|才|更|很|太|真|可|却|倒|便|即|刚|却|连忙|赶紧|随即|随后|接着|然后)+$/,"")
+             .replace(/(?:的|了|我|你|他|她|它|这|那|和|与|跟|同|对|把|被)+$/,"")
+             .replace(/^[的了和与跟同对把被]+/,"")
+             .trim();
+    if(!name) return;
+    if(((name.match(/·/g)||[]).length>1)) return;
     if(!_isLikelyName(name))return;
+    if(isCharIgnored(name))return;        /* v117：忽略名单优先于一切 */
     if(known[name])return;
-    for(const k in known){ if(name.indexOf(k)>-1||k.indexOf(name)>-1) return; }
-    if(!cands[name]) cands[name]={name:name,count:0,score:0,snippet:_findSnippet(full,name)};
+    /* v116：删掉「子串即视为已知」的粗暴去重。
+       原逻辑 for(const k in known){ if(name.indexOf(k)>-1||k.indexOf(name)>-1) return; } 意味着：
+       只要人物库里先存在一个短名（如「波特」），同人的全名「詹姆斯·波特」就会被判成
+       「已收录」而整个丢弃 —— 长名永远扫不出来。反之短名也会被长名吃掉。
+       改为只判全等，重复的/别名的交给 _clusterNames() 聚成同一人处理（不再互相吞掉）。 */
+    if(!cands[name]) cands[name]={name:name,count:0,score:0,snippet:_findSnippet(full,name),src:"正文"};
     cands[name].count++; cands[name].score+=add;
   }
   let m;
-  const reA=/([一-龥·]{2,6}?)(?:低声|轻声|喃喃|嘟囔|嘀咕|缓缓|默默)?(?:说|道|问|喊|叫|回答|答道|问道|叹道|嚷道|写道|笑道|笑问|看着|开口|应声|开口道|自言自语)/g;
+  /* v116：给人名加左边界。原正则没有左边界，正则引擎会从句中任意位置起匹配，
+     于是「詹姆斯·波特又道」里「姆→道」这一段也能成立，产出「姆斯·波特又」这种脏串。
+     左边界排除汉字与「·」，保证只从真正的名字开头起匹配；动词前允许「又/也/便」等常见副词。 */
+  const reA=/(?:^|[^\u4e00-\u9fa5\u00b7])([\u4e00-\u9fa5\u00b7]{2,6}?)(?:又|也|便|就|却|还|才|随即|随后|接着|然后)?(?:低声|轻声|喃喃|嘟囔|嘀咕|缓缓|默默)?(?:说|道|问|喊|叫|回答|答道|问道|叹道|嚷道|写道|笑道|笑问|看着|开口|应声|开口道|自言自语)/g;
   while((m=reA.exec(full))!==null) bump(m[1],3);
   const reB=/[“"「『（]([一-龥·]{2,4}?)[，。！？、”"」』）]/g;
   while((m=reB.exec(full))!==null) bump(m[1],2);
@@ -4895,14 +5266,46 @@ function scanChaptersForNewChars(){
   while((m=reC.exec(full))!==null) bump(m[1],2);
   const reD=new RegExp("(["+_SURNAMES+"])([一-龥]{1,2})","g");
   while((m=reD.exec(full))!==null){ const given=m[2].replace(/(?:说|道|问|喊|叫|看|笑|回|答|低|声|喃|嘀|嘟|开|应|自)+$/,""); if(given) bump(m[1]+given,2); }
+  /* v116：把「已消化档案里点过名、但正文正则没抓到」的人物补进来。
+     信息断点就在这里——AI 消化时按要求输出了「① 本卷人物档案」和「·出场人物：…」，
+     但那只是一段自然语言文本，沉在 volumes[vid].blocks 里，从没有任何一步把它结构化回人物库。
+     结果是：正文里只用姓氏露过一面的配角，正文正则抓不到、档案里明明写着，却两边都进不了人物卡。 */
+  let _dgNames={};
+  try{
+    _dgNames=_collectDigestCharNames(scopeVid);
+    Object.keys(_dgNames).forEach(function(nm){
+      if(known[nm]) return;
+      if(isCharIgnored(nm)) return;
+      const g=_dgNames[nm];
+      if(cands[nm]){
+        cands[nm].count+=g.count; cands[nm].score+=g.score;
+        if(!cands[nm].snippet) cands[nm].snippet=g.snippet;
+        cands[nm].dgCount=(cands[nm].dgCount||0)+g.count;   /* v117：记「被档案点名了几次」 */
+        return;
+      }
+      cands[nm]={name:nm,count:g.count,score:g.score,snippet:g.snippet,src:g.src,dgCount:g.count};
+    });
+  }catch(e){ console.warn("[人物扫描] 档案回扫失败(非致命):",e&&e.message); }
   let list=Object.keys(cands).map(function(k){return cands[k];});
+  const _minorOn=charMinorOn();
   list=list.filter(function(c){
+    /* 阈值（v116 三档，v117 收紧第三档）：
+       ① 正文强信号：动词模式累计 ≥3 分，或出现 ≥2 次；
+       ② 中文姓氏开头且出现 ≥2 次；
+       ③ 配角通道：被消化档案点名 ≥2 章即收录（哪怕正文只露过一次）。
+       v117：③ 原先是「档案加权分 ≥2」，而一次点名就刚好 =2 分 —— 等于把只点过一次的
+       边缘角色（分院帽、某只孔雀）全放进来了。改为按「被点名了几个不同章」计数，
+       默认要求 ≥2 章；确实想收边缘角色时，开「边缘角色 收」开关降为 ≥1 章。 */
+    if(c.dgCount && c.dgCount>=(_minorOn?1:2)) return true;
     if(_SURNAMES.indexOf(c.name.charAt(0))>=0 && c.count>=2) return true;
     return c.score>=3 || c.count>=2;
   });
+  list=list.filter(function(c){ return !isCharIgnored(c.name); });
   list.sort(function(a,b){ return (b.score-a.score)||(b.count-a.count); });
-  list=list.slice(0,40);
-  renderCharScanModal(list, scopeLabel);
+  list=list.slice(0,60);
+  /* 别名聚类：互为子串的候选视为同一人，主名取「出现次数最多、同分取更长」的那个 */
+  const clusters=_clusterNames(list);
+  renderCharScanModal(clusters.slice(0,40), scopeLabel);
 }
 function onScanScopeChange(){
   const sEl=document.getElementById("scanScope"); const vEl=document.getElementById("scanVol");
@@ -4928,10 +5331,12 @@ function renderCharScanModal(list, scopeLabel){
   }else{
     list.forEach(function(c,i){
       rows+='<label class="cs-row" for="csChk_'+i+'">'+
-        '<input type="checkbox" id="csChk_'+i+'" checked>'+
+        '<input type="checkbox" id="csChk_'+i+'" checked data-alias="'+esc((c.aliases||[]).join("|"))+'">'+
         '<input type="text" class="cs-name" value="'+esc(c.name)+'">'+
         '<span class="cs-meta">出现 '+c.count+' 次</span>'+
         '</label>'+
+        ((c.aliases&&c.aliases.length)?'<div class="cs-snip">别名：'+esc(c.aliases.join("、"))+'（按同一人录入，正文里任一称呼都算 ta 出场）</div>':'')+
+        ((c.srcs&&c.srcs.length)?'<div class="cs-snip">来源：'+esc(c.srcs.join(" / "))+'</div>':'')+
         (c.snippet?'<div class="cs-snip">示例：'+esc(c.snippet)+'</div>':'');
     });
   }
@@ -4958,19 +5363,60 @@ function csUncheckAll(){
   csUpdateCount();
 }
 function closeCharScanModal(){ const b=document.getElementById("charScanModal"); if(b)b.remove(); }
+/* v117：录入前先看人物库里有没有「同一人的另一种称呼」。
+   此前扫描录入一律新建条目，于是库里已有的「波特」和新扫出来的「詹姆斯·波特」
+   会变成两张独立的卡，各有一半设定 —— 正是要求里说的「已分散的多条记录」。
+   现在：命中即归并，并把更长的名字升为主用名（信息量更大，如「莉莉·伊万斯」优于「莉莉」）。 */
+function _findAliasTarget(cs, nm){
+  for(let i=0;i<cs.length;i++){
+    const c=cs[i];
+    const cn=String(c.name||"").trim();
+    if(cn&&cn!==nm&&cn.length>=2&&nm.length>=2&&(cn.indexOf(nm)>-1||nm.indexOf(cn)>-1)) return c;
+    try{
+      for(const a of (c.aliases||[])){
+        const an=String(a||"").trim();
+        if(an&&an!==nm&&an.length>=2&&nm.length>=2&&(an.indexOf(nm)>-1||nm.indexOf(an)>-1)) return c;
+      }
+    }catch(e){}
+  }
+  return null;
+}
 function confirmCharScan(){
   const rows=document.querySelectorAll("#charScanModal .cs-row");
-  const cs=load("chars",[])||[]; let added=0;
+  const cs=load("chars",[])||[]; let added=0, mergedIn=0;
   rows.forEach(function(row){
     const chk=row.querySelector("input[type=checkbox]");
     if(!chk||!chk.checked)return;
     const nm=row.querySelector(".cs-name").value.trim();
     if(!nm)return;
     if(cs.some(function(c){return (c.name||"")===nm;}))return;
-    cs.push({id:uid(),name:nm,house:"",core:"",desire:"",deepDesire:"",traits:"",taboos:"",langSys:"",thinkMode:"",protagonist:false,color:"",demo:false,emotionalArcs:[]});
+    let al=[];
+    try{
+      const raw=chk.getAttribute("data-alias")||"";
+      al=raw.split("|").map(function(s){return String(s||"").trim();}).filter(function(s){ return s && s!==nm; });
+    }catch(e){ al=[]; }
+    /* v117：命中已有条目 → 归并为同一人的别名，不新建第二条记录 */
+    const target=_findAliasTarget(cs, nm);
+    if(target){
+      const set={};
+      try{ (target.aliases||[]).forEach(function(a){ a=String(a||"").trim(); if(a)set[a]=1; }); }catch(e){}
+      set[nm]=1; al.forEach(function(a){ if(a) set[a]=1; });
+      if(String(nm).length>String(target.name||"").length){
+        set[String(target.name||"").trim()]=1;   /* 旧主用名降级为别名 */
+        target.name=nm;                          /* 更长的名字升为主用名 */
+      }
+      delete set[String(target.name||"").trim()];
+      target.aliases=Object.keys(set).filter(Boolean);
+      mergedIn++;
+      return;   /* 归并进已有档案，不再新建第二条记录 */
+    }
+    cs.push({id:uid(),name:nm,house:"",core:"",desire:"",deepDesire:"",traits:"",taboos:"",langSys:"",thinkMode:"",appearance:"",protagonist:false,color:"",demo:false,emotionalArcs:[],aliases:al});
     added++;
   });
-  if(added>0){ save("chars",cs); renderChars(); toast("已录入 "+added+" 位新人物，可在左侧编辑设定"); }
+  if(added>0||mergedIn>0){
+    save("chars",cs); renderChars();
+    toast("已录入 "+added+" 位新人物"+(mergedIn?("，另有 "+mergedIn+" 个称呼归并到已有档案（未重复建卡）"):"")+"");
+  }
   else toast("没有新人物被录入（可能都未勾选，或名称已存在）");
   closeCharScanModal();
 }
@@ -5694,6 +6140,12 @@ function renderCharEditor(){
   html+='<div class="color-row"><label style="font-size:12px;color:var(--sub);">代表色</label>'+
     '<input type="color" value="'+charColor(c)+'" onchange="updCharField(\''+cid+'\',\'color\',this.value)">'+
     '<button class="ghost" type="button" onclick="updCharField(\''+cid+'\',\'color\',\'\')">恢复默认</button></div>';
+  /* v117：别名 / 其他称呼。此前人物卡上根本没有这一栏，归并出来的别名只能躺在数据里，
+     用户既看不到也改不了——正文里换个称呼出场就又变成「查无此人」。 */
+  html+='<label style="font-size:12px;color:var(--sub);">别名 / 其他称呼（顿号或逗号分隔；正文里出现任一称呼都算 ta 出场）</label>'+
+    '<input type="text" placeholder="例：莉莉、伊万斯" value="'+esc((c.aliases||[]).join("、"))+'" onchange="updCharAliases(\''+cid+'\',this.value)">'+
+    ((c.aliases&&c.aliases.length)?'<div class="ce-src" style="margin-top:-4px;">已按 '+c.aliases.length+' 个别名交叉引用同一份档案</div>':'')+
+    (c.mergeNote?'<div class="ce-src" style="margin-top:4px;white-space:pre-wrap;">归并记录：'+esc(c.mergeNote)+'</div>':'');
   html+='<div class="ce-fields">'+
     '<label>学院/阵营<input type="text" value="'+esc(c.house||'')+'" onchange="updCharField(\''+cid+'\',\'house\',this.value)"></label>'+
     '<label>外貌特征<input type="text" value="'+esc(c.appearance||'')+'" onchange="updCharField(\''+cid+'\',\'appearance\',this.value)"></label>'+
@@ -5755,15 +6207,36 @@ function charAppearsInText(text, name){
   }
   return false;
 }
+/* v116：人物的「全名 + 别名 + 名字拆分出来的昵称」。
+   此前人物卡只认 c.name 一个字符串，正文里用昵称/简称出场（「波特」「伊万斯」）时，
+   charAppearsInText 匹配不到 → 该人物被判为「没出场」→ 人设分析直接跳过。
+   配角大量以姓氏出场，这是「次要人物提取不全」的第二个断点。 */
+function charNamesOf(c){
+  const out=[];
+  const nm=String((c&&c.name)||"").trim(); if(nm) out.push(nm);
+  try{
+    (c.aliases||[]).forEach(function(a){ a=String(a||"").trim(); if(a&&out.indexOf(a)<0) out.push(a); });
+  }catch(e){}
+  String(nm).split(/[·\s]/).forEach(function(p){ if(p&&p.length>=2&&out.indexOf(p)<0) out.push(p); });
+  return out;
+}
+function charAppearsInTextAny(text, c){
+  if(!text) return false;
+  const ns=charNamesOf(c);
+  for(let i=0;i<ns.length;i++){ if(charAppearsInText(text, ns[i])) return true; }
+  return false;
+}
 /* v115：人物取材池。
    原实现是「提及数 Top6」——74 章的长卷里，人物立人设的关键戏往往分散在卷首与卷尾，
    只按提及数取会把它们整段漏掉，抽出来的 core 就成了空话或干脆被模型编。
    改为「卷首 2 章 + 戏份最重 N 章 + 最近 2 章」混合抽样，并把单章上限提到 6000 字。
    另外：不再把 status==="done" 当硬门槛（导入的正文通常没标完稿，done 为空时老逻辑
    虽然会回退到全部章节，但提示语仍写「已完稿」，用户以为是功能坏了）。 */
-function pickCharChapters(chs, name, n, perCap){
+function pickCharChapters(chs, name, n, perCap, aliases){
   n=n||8; perCap=perCap||6000;
-  const hits=chs.filter(function(ch){ return charAppearsInText(ch.body||"", name); });
+  /* aliases 可传人物对象或字符串数组：命中任一称呼即算出场 */
+  const _probe = (aliases&&typeof aliases==="object"&&!Array.isArray(aliases)) ? aliases : {name:name, aliases:aliases||[]};
+  const hits=chs.filter(function(ch){ return charAppearsInTextAny(ch.body||"", _probe); });
   if(!hits.length) return {pool:[], hits:0, done:0, perCap:perCap};
   function _mentions(ch,nm){ return (ch.body||"").split(nm).length-1; }
   const byNum=hits.slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
@@ -6305,7 +6778,68 @@ function renderCharTimeline(charName){
   html+='</div>';
   return html;
 }
-function addChar(){const cs=load("chars",[]);const n={id:uid(),name:"新人物",house:"",traits:"",demo:false};cs.push(n);save("chars",cs);_selCharId=n.id;renderChars();}
+/* v117：新建人物补全全部字段。
+   旧版只建 {id,name,house,traits,demo} —— 缺 aliases / appearance / core / desire /
+   deepDesire / langSys / thinkMode / taboos / protagonist / emotionalArcs，
+   于是一张全新的卡在数据层是「半张」：别名机制挂不上去、一键补全识别不出它缺什么、
+   后续按别名匹配正文也无从谈起。这里与「从章节录入」走同一套完整字段。 */
+function newCharObj(nm,house,aliases){
+  return {id:uid(),name:nm||"新人物",house:house||"",core:"",desire:"",deepDesire:"",
+          traits:"",taboos:"",langSys:"",thinkMode:"",appearance:"",
+          protagonist:false,color:"",demo:false,emotionalArcs:[],aliases:aliases||[]};
+}
+function addChar(){
+  const cs=load("chars",[]);
+  const n=newCharObj("新人物","",[]);
+  cs.push(n); save("chars",cs); _selCharId=n.id; renderChars();
+  try{ toast("已新建人物，点名字改名即可"); }catch(e){}
+}
+/* 手动新建：一次填好名字 / 别名 / 学院，避免建出来一张空壳卡 */
+function openAddCharDialog(){
+  let old=document.getElementById("acMask"); if(old) old.remove();
+  const box=document.createElement("div"); box.id="acMask"; box.className="cs-overlay";
+  box.innerHTML='<div class="cs-card">'+
+    '<div class="cs-head"><span>➕ 新建人物</span><button type="button" class="cs-x" onclick="document.getElementById(\'acMask\').remove()">✕</button></div>'+
+    '<div class="cs-sub">可以完全手动录入，不依赖章节扫描。别名填了之后，正文里出现任一称呼都算这个人出场。</div>'+
+    '<label style="display:block;margin:8px 0 4px;font-size:13px;">人物名（主用名）</label>'+
+    '<input type="text" id="acName" class="cs-name" style="width:100%;box-sizing:border-box;" placeholder="例：莉莉·伊万斯">'+
+    '<label style="display:block;margin:10px 0 4px;font-size:13px;">别名 / 其他称呼（用顿号、逗号或空格分隔）</label>'+
+    '<input type="text" id="acAlias" class="cs-name" style="width:100%;box-sizing:border-box;" placeholder="例：莉莉、伊万斯">'+
+    '<label style="display:block;margin:10px 0 4px;font-size:13px;">学院 / 阵营（可留空）</label>'+
+    '<input type="text" id="acHouse" class="cs-name" style="width:100%;box-sizing:border-box;" placeholder="例：格兰芬多">'+
+    '<div class="cs-foot">'+
+      '<button type="button" class="ghost" onclick="document.getElementById(\'acMask\').remove()">取消</button>'+
+      '<button type="button" class="primary" onclick="submitAddChar()">创建</button>'+
+    '</div></div>';
+  document.body.appendChild(box);
+  try{ setTimeout(function(){ const e=document.getElementById("acName"); if(e)e.focus(); },50); }catch(e){}
+}
+function submitAddChar(){
+  try{
+    const nm=String((document.getElementById("acName")||{}).value||"").trim();
+    if(!nm){ toast("请填人物名"); return; }
+    if(isCharIgnored(nm)){ toast("「"+nm+"」在忽略名单里，先去名单里移除它"); return; }
+    const cs=load("chars",[]);
+    if(cs.some(function(c){ return String(c.name||"")===nm; })){ toast("已存在同名人物「"+nm+"」"); return; }
+    const al=String((document.getElementById("acAlias")||{}).value||"")
+      .split(/[、,，;；\/\|\s]+/).map(function(s){return String(s||"").trim();}).filter(Boolean);
+    const house=String((document.getElementById("acHouse")||{}).value||"").trim();
+    const n=newCharObj(nm,house,al);
+    cs.push(n); save("chars",cs); _selCharId=n.id;
+    document.getElementById("acMask").remove();
+    renderChars();
+    toast("已创建「"+nm+"」"+(al.length?("，别名 "+al.length+" 个"):""));
+  }catch(e){ toastErr("创建失败："+(e&&e.message)); }
+}
+/* 别名编辑：在人物卡上直接改「别名 / 其他称呼」 */
+function updCharAliases(id, val){
+  try{
+    const cs=load("chars",[]); const i=cs.findIndex(function(x){return x.id===id;});
+    if(i<0) return;
+    cs[i].aliases=String(val||"").split(/[、,，;；\/\|\s]+/).map(function(s){return String(s||"").trim();}).filter(Boolean);
+    save("chars",cs);
+  }catch(e){}
+}
 
 /* 跨书复用：人物 / 设定 */
 let _reuseCharId=null;
@@ -6793,7 +7327,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v115";
+const APP_VERSION="v117";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -9275,6 +9809,181 @@ function digestAuditRows(vid){
   return rows;
 }
 
+/* ================= v116：消化范围体检 =================
+   场景：明明「第 75 章已消化」，扫描/消化的范围却只到 1–74。
+   消化范围由 digestChaptersByVol(vid) 决定，它有三道关：
+     ① 正文非空；② status==="done"；③ (c.vol||"none") 必须命中 allVolIds() 里的某个卷。
+   第 ③ 关是最阴的一种：章节挂在一个「已经不存在的分卷 id」上（删过卷/改过卷/重建过卷
+   都会留下这种幽灵归属），它不属于任何现存卷 → digestAllChapters 遍历 allVolIds() 时
+   永远选不中它 → 它既不进消化队列，也不会出现在「全书消化自检」表里（自检同样按卷遍历）。
+   界面表现就是「扫描只覆盖到第 N-1 章」，而用户查不到任何报错。
+   本函数不按卷遍历、直接扫全部章节，逐章给出「进没进队列 + 卡在哪一关 + 档案状态」。 */
+function digestScopeAudit(){
+  const b=curBook()||{};
+  const vols=(b.volumes||[]).slice();
+  const validIds={}; vols.forEach(function(v){ if(v&&v.id) validIds[v.id]=1; }); validIds["none"]=1;
+  const all=(load("chapters",[])||[]).slice();
+  const d=getDigest();
+  const vids=allVolIds();
+  const inQueueIds={};
+  vids.forEach(function(v){ digestChaptersByVol(v).forEach(function(c){ inQueueIds[c.id]=1; }); });
+
+  all.sort(function(a,b2){ return (Number(a.num)||0)-(Number(b.num)||0); });
+  const rows=all.map(function(c){
+    const rawVol=String(c.vol||"").trim();
+    const volOk=(!rawVol||rawVol==="none")?true:!!validIds[rawVol];
+    const bodyOk=!!(c.body||"").trim();
+    const stOk=(c.status||"draft")==="done";
+    const inQueue=!!inQueueIds[c.id];
+    const effVid=(!rawVol||rawVol==="none")?"none":(volOk?rawVol:"__GHOST__");
+    const st=getChDigestStatus(c.id, effVid==="__GHOST__"?"none":effVid);
+    let why="";
+    if(!bodyOk) why="① 正文为空";
+    else if(!stOk) why="② 状态不是「已完稿」（当前="+(c.status||"draft")+"）";
+    else if(!volOk && rawVol!=="none") why="③ 幽灵分卷归属：c.vol="+rawVol+" 已不在分卷列表 → 任何卷都选不中";
+    else if(!inQueue) why="④ 未进入任何卷的消化队列（异常）";
+    /* v117：档案块内容比对。界面上标「已消化」只代表 digest 里有这条记录，
+       并不代表记的就是这一章——导入档案按章号匹配时若配错，第 75 章名下会躺着别人的内容，
+       界面照样显示「已消化」，与实际正文完全不符。这里直接读档案块的第一行章号来验明正身。 */
+    const _eff=(effVid==="__GHOST__")?"none":effVid;
+    const _vd=(d.volumes||{})[_eff]||{};
+    const _blk=_vd.blocks?_vd.blocks[c.id]:null;
+    const _blkText=_blk?String(_blk.text||""):"";
+    let blkNum=null;
+    const _bm=_blkText.match(/###\s*第\s*(\d+)\s*章/);
+    if(_bm) blkNum=Number(_bm[1]);
+    const blkMismatch=(blkNum!==null && blkNum!==Number(c.num));
+    if(!why && blkMismatch) why="⑥ 档案错配：档案块写的是第 "+blkNum+" 章，与本章章号不符（状态虽是已消化，内容却是别人的）";
+    if(!why && st.status===DS_DIGESTED && !_digestUpToDate(c,_eff)) why="⑤ 正文改过：档案仍是旧内容的哈希，需重消化";
+    const nums={}; all.forEach(function(x){ const n=Number(x.num); if(n) nums[n]=(nums[n]||0)+1; });
+    return { id:c.id, num:Number(c.num)||0, title:c.title||"", vol:rawVol||"none", volName:volName(rawVol||"none"),
+             status:c.status||"draft", bodyLen:(c.body||"").length, inQueue:inQueue, volOk:volOk,
+             why:why||"— 已入队", ds:st.status||DS_UNDIGESTED, upToDate:_digestUpToDate(c, _eff),
+             dup:(nums[Number(c.num)]||0)>1, trunc:(c.body||"").length>12000,
+             blkNum:blkNum, blkMismatch:blkMismatch, blkHead:_blkText.slice(0,140) };
+  });
+  const nums=rows.map(function(r){ return r.num; }).filter(function(n){ return n>0; });
+  const maxNum=nums.length?Math.max.apply(null,nums):0;
+  const present={}; nums.forEach(function(n){ present[n]=1; });
+  const missing=[]; for(let i=1;i<=maxNum;i++){ if(!present[i]) missing.push(i); }
+  const dup=Object.keys(rows.reduce(function(a,r){ if(r.dup) a[r.num]=1; return a; },{})).map(Number).sort(function(a,b2){return a-b2;});
+  const ghosts=rows.filter(function(r){ return !r.volOk && r.vol!=="none"; });
+  const notDone=rows.filter(function(r){ return (r.status||"draft")!=="done"; });
+  const out={rows:rows, maxNum:maxNum, total:rows.length,
+             queued:rows.filter(function(r){return r.inQueue;}).length,
+             ghost:ghosts, notDone:notDone, missing:missing, dup:dup,
+             volIds:vols.map(function(v){return v.id;})};
+  out.report=[
+    "总章节 "+out.total+" 条 ｜ 最大章号 "+maxNum+" ｜ 已入消化队列 "+out.queued+" 条",
+    "章号缺失："+(missing.length?missing.join("、"):"无"),
+    "章号重复："+(dup.length?dup.join("、"):"无"),
+    "幽灵分卷归属："+(ghosts.length?ghosts.map(function(r){return "第"+r.num+"章→"+r.vol;}).join("；"):"无"),
+    "非已完稿："+(notDone.length?notDone.map(function(r){return "第"+r.num+"章("+r.status+")";}).join("；"):"无"),
+    "档案错配（标着已消化但内容不是本章）："+(rows.filter(function(r){return r.blkMismatch;}).length
+        ? rows.filter(function(r){return r.blkMismatch;}).map(function(r){return "第"+r.num+"章←实际是第"+r.blkNum+"章";}).join("；")
+        : "无"),
+    "正文改过需重消化："+(rows.filter(function(r){return r.ds===DS_DIGESTED && !r.upToDate;}).length
+        ? rows.filter(function(r){return r.ds===DS_DIGESTED && !r.upToDate;}).map(function(r){return "第"+r.num+"章";}).join("、")
+        : "无"),
+    "当前分卷 id 列表："+volIdsStr(out.volIds)
+  ].join("\n");
+  function volIdsStr(a){ return a.join("、"); }
+  return out;
+}
+/* 把幽灵归属的章节归入「未分卷」（存量数据修复，带确认、可撤销性由备份保证） */
+function fixGhostVolChapters(){
+  try{
+    const a=digestScopeAudit();
+    if(!a.ghost.length){ toast("没有幽灵分卷归属的章节 ✅"); return; }
+    const list=a.ghost.map(function(r){ return "第"+r.num+"章（"+r.title+"）"; }).join("\n");
+    if(!confirm("以下章节挂在已经不存在的分卷上，导致它们永远进不了消化队列：\n\n"+list+"\n\n要把它们归入「未分卷」吗？\n（只改分卷归属，正文一个字都不会动）")) return;
+    const chs=load("chapters",[])||[];
+    let n=0;
+    a.ghost.forEach(function(r){ const c=chs.filter(function(x){return x.id===r.id;})[0]; if(c){ c.vol="none"; n++; } });
+    save("chapters",chs); rawSave("books",BOOKS);
+    try{ refreshChapterViews(); }catch(e){}
+    try{ renderDigest(); }catch(e){}
+    toast("已把 "+n+" 章归入「未分卷」，现在重新消化即可覆盖它们");
+  }catch(e){ toastErr("修复失败："+(e&&e.message)); }
+}
+/* v117：清掉「档案错配」的档案块，让这些章回到未消化状态待重消化。
+   界面上标「已消化」只说明 digest 里有记录，不代表记的是这一章。导入档案按章号匹配
+   配错时，第 N 章名下会躺着别人的内容，后续所有续写/参谋都在读一份假前文。
+   这里只删档案与状态，正文一个字不动。 */
+function fixMismatchedDigest(){
+  try{
+    const a=digestScopeAudit();
+    const bad=a.rows.filter(function(r){ return r.blkMismatch; });
+    if(!bad.length){ toast("没有档案错配的章节 ✅"); return; }
+    const list=bad.map(function(r){ return "第"+r.num+"章（名下档案实为第"+r.blkNum+"章）"; }).join("\n");
+    if(!confirm("以下章节挂着的档案不是它们自己的内容：\n\n"+list+
+      "\n\n要清掉这些错配档案吗？\n· 只删档案与消化状态，正文一个字都不会动\n· 清掉后这些章会回到「未消化」，重新消化即可写入正确内容")) return;
+    const d=getDigest();
+    let n=0;
+    bad.forEach(function(r){
+      const v=(d.volumes||{})[r.vol]; if(!v) return;
+      if(v.blocks) delete v.blocks[r.id];
+      if(v.chapters) delete v.chapters[r.id];
+      if(v.sig) delete v.sig[r.id];
+      n++;
+    });
+    Object.keys(d.volumes||{}).forEach(function(k){
+      const v=d.volumes[k]; if(!v) return;
+      try{ v.text=renderVolText(v); }catch(e){}
+      if(!(v.rolling||"").trim()){ try{ v.rolling=seedRollingFromBlocks(v); }catch(e){} }
+    });
+    d.globalDirty=true;
+    saveDigest(d);
+    try{ renderDigest(); }catch(e){}
+    try{ const m=document.getElementById("dsaMask"); if(m) m.remove(); }catch(e){}
+    toast("已清除 "+n+" 章的错配档案，它们已回到「未消化」，重新消化即可");
+  }catch(e){ toastErr("修复失败："+(e&&e.message)); }
+}
+function showDigestScopeAudit(){
+  try{
+    const a=digestScopeAudit();
+    let old=document.getElementById("dsaMask"); if(old) old.remove();
+    if(!document.getElementById("cssDsa")){
+      const st=document.createElement("style"); st.id="cssDsa";
+      st.textContent=".dsa-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:12px;}.dsa-card{background:var(--card,#fff);color:var(--ink,#1a1a1a);width:min(680px,100%);max-height:88vh;overflow:auto;border-radius:16px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);}.dsa-h{display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:16px;}.dsa-sum{white-space:pre-wrap;font-size:12.5px;line-height:1.7;background:var(--soft,rgba(127,127,127,.08));border-radius:10px;padding:10px;margin:10px 0;}table.dsa{border-collapse:collapse;width:100%;font-size:12px;}table.dsa th,table.dsa td{border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 6px;text-align:left;}table.dsa tr.bad td{background:#fdecea;}";
+      document.head.appendChild(st);
+    }
+    const box=document.createElement("div"); box.id="dsaMask"; box.className="dsa-mask";
+    const rows=a.rows.map(function(r){
+      const bad=!r.inQueue||r.blkMismatch;
+      return '<tr class="'+(bad?"bad":"")+'"><td>'+(r.num||"?")+'</td><td>'+esc(String(r.title).slice(0,18))+'</td>'
+        +'<td>'+esc(r.volName)+'</td><td>'+esc(r.status)+'</td>'
+        +'<td>'+(r.inQueue?"✅":"❌")+'</td><td>'+esc(r.ds)+'</td><td>'+esc(r.why)+'</td>'
+        +'<td style="font-size:11px;color:var(--sub);">'+(r.blkHead?esc(r.blkHead.slice(0,60)):"—")+'</td></tr>';
+    }).join("");
+    box.innerHTML='<div class="dsa-card">'+
+      '<div class="dsa-h"><span>🔍 消化范围体检</span><button type="button" class="cs-x" onclick="document.getElementById(\'dsaMask\').remove()">✕</button></div>'+
+      '<div class="dsa-sum">'+esc(a.report)+'</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'+
+        '<button type="button" class="primary" onclick="copyDigestScopeReport()">📋 复制体检报告</button>'+
+        '<button type="button" onclick="fixGhostVolChapters()">🩹 把幽灵归属章节归入「未分卷」</button>'+
+        '<button type="button" onclick="fixMismatchedDigest()">🧹 清除档案错配（回到未消化）</button>'+
+        '<button type="button" onclick="document.getElementById(\'dsaMask\').remove()">关闭</button>'+
+      '</div>'+
+      '<table class="dsa"><thead><tr><th>章号</th><th>标题</th><th>分卷</th><th>状态</th><th>入队</th><th>档案</th><th>卡在哪一关</th><th>档案块开头（验明正身）</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+      '</div>';
+    document.body.appendChild(box);
+  }catch(e){ toastErr("体检失败："+(e&&e.message)); }
+}
+function copyDigestScopeReport(){
+  try{
+    const txt=digestScopeAudit().report+"\n\n【逐章明细】\n"+digestScopeAudit().rows.map(function(r){
+      return "第"+r.num+"章《"+r.title+"》 卷="+r.volName+" 状态="+r.status+" 入队="+(r.inQueue?"是":"否")+" 档案="+r.ds+" 判定="+r.why;
+    }).join("\n");
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ toast("已复制体检报告"); },function(){ fallbackCopy(txt); }); }
+    else fallbackCopy(txt);
+  }catch(e){ toastErr("复制失败："+(e&&e.message)); }
+}
+function fallbackCopy(txt){
+  try{ const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); toast("已复制体检报告"); }
+  catch(e){ toastErr("复制失败，请手动截图"); }
+}
+
 /* 渲染自检结果 */
 function renderDigestAudit(vid){
   const box=document.getElementById("dgAudit");
@@ -9501,6 +10210,7 @@ function renderDigest(){
   html+='<button onclick="rebuildDigestFull(this)">重新完整消化全书</button>';
   html+='<button onclick="exportDigestAll()">导出全书档案</button>';
   html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
+  html+='<button onclick="showDigestScopeAudit()" title="不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文/状态/幽灵分卷哪一关」，并列出缺失章号与重复章号">🧭 消化范围体检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
   html+='</div>';
