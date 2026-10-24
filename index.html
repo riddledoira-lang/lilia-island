@@ -1360,6 +1360,16 @@
         <div class="mrole-warn" id="mroleWarn" style="display:none;"></div>
         <div class="chips" id="modelChips"></div>
       </div>
+
+      <!-- v120：模型连接体检——让「填的模型」和「实际生效的模型」摊开对比 -->
+      <div id="aiDiagBox" style="margin:12px 0;border:1px solid var(--line,rgba(127,127,127,.28));border-radius:12px;padding:10px 12px;background:var(--soft,rgba(127,127,127,.06));">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:700;font-size:14px;">
+          <span>🩺 模型连接体检</span>
+          <button type="button" class="ai-usage-btn" onclick="runAiDiag(this)">开始体检</button>
+        </div>
+        <div class="meta" style="margin:6px 0 8px;">会真的发几次极短请求（每次约 50 token，成本可忽略）。它把「你填的模型名」和「接口实际生效的模型」摊开对比，并检测<b>思考模式是否把输出预算吃光</b>——分析人设老是失败、明明配了 flash 还报推理模型，就是这里的问题。</div>
+        <div id="aiDiagOut" style="font-size:12.5px;line-height:1.7;"></div>
+      </div>
       <label>API Key（<b>必填才能用 AI</b> · 在 DeepSeek / 月之暗面后台复制 <code>sk-…</code> 粘贴到这里）</label>
       <input type="password" id="aiKey" placeholder="sk-...">
       <div class="row">
@@ -6351,7 +6361,10 @@ async function analyzeCharPsyche(cid, btn){
     const sys="你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
     const roleCtx=(c.house?("【"+name+"】所属学院/阵营："+c.house+"。") : "")+(c.traits?("已知基础设定："+c.traits+"。") : "");
     const user="你正在分析的小说人物是【"+name+"】。"+roleCtx+"\n【铁的纪律】本书为第一人称（薇拉·奎克）视角，正文大量是叙述者薇拉的内心活动。你只许提取【"+name+"】这一个人的核心特质/欲望/外貌，严禁把薇拉·奎克或其他角色的特质安到【"+name+"】头上，也严禁输出薇拉的特质。\n下面是【"+name+"】在已完稿章节中的出场正文（已按与【"+name+"】的相关度排序）。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
-    const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:1200});
+    /* v120：1200 太紧。4 个字段各带 ≤20 字佐证，正常输出约 600–900 token；
+       一旦服务端开了思考模式，1200 会被 reasoning 吃光、正文为空。抬到 4000 留足余量。
+       （配合 _callAIOnce 里 thinking 无条件 disabled，正常情况下实际只用 1/4 不到） */
+    const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:4000});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
     if(obj&&(obj.core||obj.desire||obj.deepDesire||obj.appearance)){
@@ -6994,21 +7007,66 @@ function chapterIndexBlock(){
   try{
     const chs=(load("chapters",[])||[]).filter(function(c){ return Number(c.num)>0; });
     if(!chs.length) return "";
-    const all=chs.slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
-    const max=Number(all[all.length-1].num)||0;
-    const doneN=all.filter(function(c){ return (c.status||"")==="done"; }).length;
-    let list=all;
-    if(all.length>60) list=all.slice(0,3).concat(all.slice(-57));
-    const lines=list.map(function(c){
-      return "· 第"+c.num+"章《"+String(c.title||"").replace(/^第\s*\d+\s*章\s*/,"")+"》["+(((c.status||"")==="done")?"已完稿":"草稿")+"]";
+    /* v119：分卷独立编号。
+       旧版把全部章节按 num 平铺成一张全局表，多卷同章号时会输出「两个第 1 章」，
+       而且「全书共 89 章 / 当前最大章号为第 75 章」自相矛盾——模型据此合理推断
+       76 及以后是存在的、只是清单没列全，于是 v115 的防污染铁律反而成了幻觉制造机。
+       改为按卷分组：每卷单独声明章号区间与上界，引用一律要求「分卷名 + 第N章」。 */
+    const byVol={};
+    chs.forEach(function(c){
+      const v=String(c.vol||"none");
+      (byVol[v]=byVol[v]||[]).push(c);
     });
-    return "【本作品真实章节清单·事实边界（最高优先级）】\n"
-      +"全书共 "+all.length+" 章（其中已完稿 "+doneN+" 章），当前最大章号为第 "+max+" 章。\n"
-      +lines.join("\n")
-      +"\n【铁律·严禁编造】① 上表之外的章号一律不存在——严禁出现第 "+(max+1)+" 章及以后的任何章号，也严禁引用上表中没有的章号；"
-      +"② 严禁编造上表之外的章节内容、事件、对话、人物关系或伏笔；"
-      +"③ 凡在上表中查不到的情节，一律视为「尚未发生」，不得当作已知事实引用、承接或回收；"
-      +"④ 需要回指前文时，只许使用上表内真实存在的章号。";
+    const volKeys=Object.keys(byVol).sort(function(a,b){ return (byVol[b].length)-(byVol[a].length); });
+    const gMax=Math.max.apply(null,chs.map(function(c){ return Number(c.num)||0; }));
+    const doneN=chs.filter(function(c){ return (c.status||"")==="done"; }).length;
+    const multiVol=volKeys.length>1;
+
+    let s="【本作品真实章节清单·事实边界（最高优先级）】\n";
+    if(multiVol){
+      s+="本书采用「分卷独立编号」：每个分卷各自从第 1 章开始编号，不同分卷之间章号会重复。\n";
+      s+="因此引用任何一章时，必须写成「分卷名 + 第N章」；只写「第N章」是有歧义的，一律无效。\n";
+    }
+    s+="全书共 "+chs.length+" 条章节记录（已完稿 "+doneN+" 条），全局最大章号为第 "+gMax+" 章。\n";
+    if(multiVol && chs.length>gMax){
+      s+="注意：记录条数（"+chs.length+"）多于最大章号（"+gMax+"），是分卷独立编号造成的重复计数，"
+        +"不是缺章，也不是存在未列出的隐藏章节。\n";
+    }
+
+    volKeys.forEach(function(v){
+      const arr=byVol[v].slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
+      const nums=arr.map(function(c){ return Number(c.num)||0; }).filter(function(n){ return n>0; });
+      const mn=nums.length?Math.min.apply(null,nums):0;
+      const mx=nums.length?Math.max.apply(null,nums):0;
+      const missing=[]; for(let i=mn;i<=mx;i++){ if(nums.indexOf(i)<0) missing.push(i); }
+      const dupN=nums.filter(function(n,i){ return nums.indexOf(n)!==i; });
+      s+="\n· "+volName(v)+"：共 "+arr.length+" 章，章号 "+mn+"–"+mx
+        +(missing.length?("，缺失章号 "+missing.join("、")):"，章号连续")
+        +(dupN.length?("，同卷内重复章号 "+dupN.join("、")):"")
+        +"。\n";
+      let list=arr;
+      if(arr.length>50) list=arr.slice(0,2).concat(arr.slice(-48));
+      s+=list.map(function(c){
+        return "  第"+c.num+"章《"+String(c.title||"").replace(/^第\s*\d+\s*章\s*/,"")+"》["+(((c.status||"")==="done")?"已完稿":"草稿")+"]";
+      }).join("\n")+"\n";
+      if(arr.length>50) s+="  （本卷共 "+arr.length+" 章，此处仅列出开头 2 章与最近 48 章，中间章号连续存在，未逐一列出）\n";
+    });
+
+    s+="\n【铁律·严禁编造】\n";
+    let idx=0;
+    volKeys.forEach(function(v){
+      const arr=byVol[v]||[];
+      const mx=arr.length?Math.max.apply(null,arr.map(function(c){ return Number(c.num)||0; })):0;
+      idx++;
+      s+="("+idx+") 「"+volName(v)+"」严禁出现第 "+(mx+1)+" 章及以后的任何章号——它们不存在；\n";
+    });
+    idx++;
+    s+="("+idx+") 严禁编造上表之外的章节内容、事件、对话、人物关系或伏笔；\n";
+    idx++;
+    s+="("+idx+") 凡在上表中查不到的情节，一律视为「尚未发生」，不得当作已知事实引用、承接或回收；\n";
+    idx++;
+    s+="("+idx+") 回指前文时必须写成「分卷名 + 第N章」，且 N 不得超过该分卷的最大章号。";
+    return s;
   }catch(e){ return ""; }
 }
 function findPhantomChapterRefs(text){
@@ -7039,8 +7097,20 @@ function buildBookContext(forGen){
   if(!forGen){
   /* 梗概列表封顶：书变长后全本一句话梗概会线性膨胀、推高每章成本；按最近章优先取、字符封顶。
      长线脉络已由消化档案承载，梗概只作最近剧情大纲，质量不受影响。 */
-  const _synChs=load("chapters",[]).filter(c=>c.synopsis&&c.synopsis.trim()).map(c=>({num:c.num,line:"· 第"+(c.num||"?")+"章《"+(c.title||"")+"》： "+c.synopsis.trim()}));
-  _synChs.sort((a,b)=>Number(b.num)-Number(a.num));
+  /* v119：分卷独立编号下，按全局章号倒序会把别的卷的早期章节混进「最近梗概」——
+     例如写詹姆斯篇时，西里斯篇第 14 章会比詹姆斯篇第 20 章更靠后被当成「更早」，
+     排序一乱，模型拿到的「最近剧情」其实是另一条线的中段。
+     改为：① 梗概行带卷名，消除「第N章」的歧义；② 当前分卷优先，卷内再按章号倒序。 */
+  const _curV=String((curBook()||{}).curVol||"");
+  const _synChs=load("chapters",[]).filter(c=>c.synopsis&&c.synopsis.trim()).map(c=>({
+    num:c.num, vol:String(c.vol||"none"),
+    line:"· "+volName(c.vol||"none")+" 第"+(c.num||"?")+"章《"+(c.title||"")+"》： "+c.synopsis.trim()
+  }));
+  _synChs.sort(function(a,b){
+    const av=(a.vol===_curV)?0:1, bv=(b.vol===_curV)?0:1;
+    if(av!==bv) return av-bv;
+    return Number(b.num)-Number(a.num);
+  });
   let _synTxt="", _synUsed=0; const SYN_CAP=3000;
   for(const x of _synChs){ if(_synUsed+x.line.length>SYN_CAP) break; _synTxt+=(_synTxt?"\n":"")+x.line; _synUsed+=x.line.length; }
   if(_synTxt)parts.push("【各章一句话梗概（仅最近相关，完整脉络见消化档案）】\n"+_synTxt);
@@ -7102,7 +7172,8 @@ function buildBookContext(forGen){
     }
     const t2=tlCap.map(e=>{
       const ch=chs.find(c=>c.id===e.ch);
-      return "· "+(e.date||"")+" "+(e.title||"")+(e.desc?("："+e.desc):"")+(ch?("（第"+(ch.num||"?")+"章）"):"");
+      /* v119：分卷独立编号下「第N章」有歧义，时间线回指必须带卷名 */
+      return "· "+(e.date||"")+" "+(e.title||"")+(e.desc?("："+e.desc):"")+(ch?("（"+volName(ch.vol||"none")+" 第"+(ch.num||"?")+"章）"):"");
     }).join("\n");
     parts.push("【剧情时间线（故事内时间顺序，续写时严格遵守日期与因果）】\n"+t2);
   }
@@ -7346,7 +7417,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v118";
+const APP_VERSION="v120";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8087,7 +8158,7 @@ function creaParams(kind){
   return o;
 }
 /* 单次请求（返回 {content, finish_reason}），供 callAI 包装调用 */
-async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra){
+async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
@@ -8108,8 +8179,15 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
       body.presence_penalty=Math.min(2, extra.presence_penalty);
     if(typeof extra.frequency_penalty==="number" && extra.frequency_penalty>0)
       body.frequency_penalty=Math.min(2, extra.frequency_penalty);
-    /* thinking：V4 系默认 enabled，此时 temperature/top_p 会被静默忽略——必须显式 disabled 才生效。
-       未显式设置时按厂商自动判断：DeepSeek 默认帮用户关掉（否则温度白调），其它厂商默认不发（避免 400） */
+  }
+  /* v120：thinking 必须无条件下发——旧版把它写在上面那个「if(extra)」块里，
+     而 extra 只有在调用方显式传了 top_p / presence_penalty / frequency_penalty 时才非空。
+     分析人设、剧情参谋、审稿、体检台这些调用都不传采样参数 → extra=null → thinking 从来没下发过，
+     服务端按默认开思考，max_tokens 预算全被 reasoning_content 吃掉，content 返回空，
+     再被误报成「当前使用的是推理模型」——用户明明配的是 deepseek-flash 也照样中招。
+     V4 系（含 Flash）默认 enabled，此时 temperature 会被静默忽略，必须显式 disabled 才生效。
+     未显式设置时按厂商自动判断：DeepSeek 默认帮用户关掉，其它厂商默认不发（避免 400）。 */
+  if(!_noThink){
     let tm=ai.thinkMode;
     if(tm!=="disabled" && tm!=="enabled" && tm!=="omit"){
       const hay=((ai.base||"")+" "+(ai.model||"")+" "+(ai.genModel||"")).toLowerCase();
@@ -8135,12 +8213,17 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
     if(resp.status===400 && !_noCache){
       console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra);
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra, _noThink);
     }
     /* v81：仍是 400 且带了采样参数 → 该接口不认 top_p/penalty，去参重试一次（温度与文字不变，仅放弃采样微调） */
     if(resp.status===400 && extra){
       console.warn("[callAI] 接口返回 400，疑似不支持 top_p/penalty 采样参数，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null);
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null, _noThink);
+    }
+    /* v120：400 且本次下发了 thinking → 该接口不认这个字段，去掉后重试一次（文字不变） */
+    if(resp.status===400 && body.thinking && !_noThink){
+      console.warn("[callAI] 接口返回 400，疑似不支持 thinking 参数，自动去除后重试一次");
+      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, true);
     }
     throw new Error("HTTP "+resp.status+" "+t.slice(0,300));
   }
@@ -8181,14 +8264,26 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
   let content=msg.content;
   if((content===undefined||content===null)&&msg.delta&&msg.delta.content!==undefined){ content=msg.delta.content; }
   const fr=(j.choices[0].finish_reason)||"";
+  /* v120：兜底抢救——部分接口即便下发了 thinking:disabled 仍会忽略它，
+     最终答案被挤进 reasoning_content 而 content 为空。能从 reasoning 里捞出一个完整 JSON 就捞回来。 */
+  if((content===undefined||content===null||content==="") && String(msg.reasoning_content||"").trim()){
+    const _rc=String(msg.reasoning_content);
+    const _pick=_rc.match(/\{[\s\S]*\}/);
+    if(_pick){ try{ JSON.parse(_pick[0]); content=_pick[0]; console.warn("[callAI] 正文为空，已从 reasoning_content 抢救出 JSON"); }catch(e){} }
+  }
   if(content===undefined||content===null||content===""){
-    console.error("[callAI] 内容为空，finish_reason="+fr+" raw:",raw.slice(0,500));
-    let why="接口返回内容为空（finish_reason="+fr+"）。";
+    console.error("[callAI] 内容为空，finish_reason="+fr+" model="+model+" raw:",raw.slice(0,500));
+    const _hasReason=!!String(msg.reasoning_content||"").trim();
+    let why="接口返回内容为空（finish_reason="+fr+"，实际请求模型="+model+"）。";
     if(fr==="content_filter") why+="疑似内容被平台过滤，请换更克制的写法再试。";
     else if(fr==="length"){
-      /* 推理模型（如 deepseek-v4-pro）会把 token 预算耗在思考上，导致正文为空 */
-      if(msg.reasoning_content) why+="当前使用的是推理模型，输出预算全部被「思考过程」消耗。建议：在「AI 生成设置」把『续写模型』改为 deepseek-flash，或调大「单次生成字数」。";
-      else why+="疑似超出输出长度，请到「AI 生成设置」调大「单次生成字数」。";
+      if(_hasReason){
+        why+="这个模型的「思考模式」把输出预算吃光了，正文一个字都没剩（已尝试下发 thinking:disabled，但该接口似乎不认这个参数）。"
+            +"三步排查：① 到「AI 生成设置 → 模型连接体检」看实际生效的模型名和思考状态；"
+            +"② 换成不带思考的模型（deepseek-flash）；③ 调大「单次生成字数」。";
+      } else {
+        why+="输出被长度上限截断且没留下正文，请到「AI 生成设置」调大「单次生成字数」。";
+      }
     }
     throw new Error(why);
   }
@@ -9874,28 +9969,49 @@ function digestScopeAudit(){
     const blkMismatch=(blkNum!==null && blkNum!==Number(c.num));
     if(!why && blkMismatch) why="⑥ 档案错配：档案块写的是第 "+blkNum+" 章，与本章章号不符（状态虽是已消化，内容却是别人的）";
     if(!why && st.status===DS_DIGESTED && !_digestUpToDate(c,_eff)) why="⑤ 正文改过：档案仍是旧内容的哈希，需重消化";
-    const nums={}; all.forEach(function(x){ const n=Number(x.num); if(n) nums[n]=(nums[n]||0)+1; });
+    /* v119：重复判定改为「同一卷内」才算问题。
+       分卷独立编号的书（詹姆斯篇 1–75、西里斯篇 1–14）跨卷章号重复是设计如此，
+       旧版按全局章号判重会报出一长串「章号重复 1–14」，看着像故障其实完全正常，
+       反而把真正的问题（同卷内撞号）淹没了。 */
+    const key={}; all.forEach(function(x){ const k=(x.vol||"none")+"|"+Number(x.num); key[k]=(key[k]||0)+1; });
     return { id:c.id, num:Number(c.num)||0, title:c.title||"", vol:rawVol||"none", volName:volName(rawVol||"none"),
              status:c.status||"draft", bodyLen:(c.body||"").length, inQueue:inQueue, volOk:volOk,
              why:why||"— 已入队", ds:st.status||DS_UNDIGESTED, upToDate:_digestUpToDate(c, _eff),
-             dup:(nums[Number(c.num)]||0)>1, trunc:(c.body||"").length>12000,
+             dup:(key[(c.vol||"none")+"|"+Number(c.num)]||0)>1, trunc:(c.body||"").length>12000,
              blkNum:blkNum, blkMismatch:blkMismatch, blkHead:_blkText.slice(0,140) };
   });
   const nums=rows.map(function(r){ return r.num; }).filter(function(n){ return n>0; });
   const maxNum=nums.length?Math.max.apply(null,nums):0;
-  const present={}; nums.forEach(function(n){ present[n]=1; });
-  const missing=[]; for(let i=1;i<=maxNum;i++){ if(!present[i]) missing.push(i); }
-  const dup=Object.keys(rows.reduce(function(a,r){ if(r.dup) a[r.num]=1; return a; },{})).map(Number).sort(function(a,b2){return a-b2;});
+  /* 章号缺失同样按卷检查：全局 1..max 的检查在分卷编号下没意义 */
+  const byVol={}; rows.forEach(function(r){ (byVol[r.vol]=byVol[r.vol]||[]).push(r.num); });
+  const missing=[];
+  const volKeys=Object.keys(byVol);
+  volKeys.forEach(function(v){
+    const ns=byVol[v].filter(function(n){ return n>0; }).sort(function(a,b){ return a-b; });
+    if(!ns.length) return;
+    const mn=ns[0], mx=ns[ns.length-1];
+    for(let i=mn;i<=mx;i++){ if(ns.indexOf(i)<0) missing.push(volName(v)+" 第"+i+"章"); }
+  });
+  const dup=rows.filter(function(r){ return r.dup; })
+                .map(function(r){ return volName(r.vol)+" 第"+r.num+"章"; })
+                .sort();
+  /* 跨卷同章号：不是错误，单列出来说明 */
+  const crossDup=(function(){
+    const m={}; nums.forEach(function(n){ m[n]=(m[n]||0)+1; });
+    return Object.keys(m).filter(function(n){ return m[n]>1; }).map(Number).sort(function(a,b){return a-b;});
+  })();
   const ghosts=rows.filter(function(r){ return !r.volOk && r.vol!=="none"; });
   const notDone=rows.filter(function(r){ return (r.status||"draft")!=="done"; });
   const out={rows:rows, maxNum:maxNum, total:rows.length,
              queued:rows.filter(function(r){return r.inQueue;}).length,
-             ghost:ghosts, notDone:notDone, missing:missing, dup:dup,
+             ghost:ghosts, notDone:notDone, missing:missing, dup:dup, crossDup:crossDup,
              volIds:vols.map(function(v){return v.id;})};
   out.report=[
-    "总章节 "+out.total+" 条 ｜ 最大章号 "+maxNum+" ｜ 已入消化队列 "+out.queued+" 条",
+    "总章节 "+out.total+" 条 ｜ 全局最大章号 "+maxNum+" ｜ 已入消化队列 "+out.queued+" 条",
+    "分卷独立编号："+(volKeys.length>1?("是（"+volKeys.map(function(v){return volName(v)+" "+byVol[v].length+" 章";}).join("、")+"），跨卷章号重复属正常"):"否（单卷）"),
     "章号缺失："+(missing.length?missing.join("、"):"无"),
-    "章号重复："+(dup.length?dup.join("、"):"无"),
+    "同卷内章号重复（真问题）："+(dup.length?dup.join("、"):"无"),
+    "跨卷章号重复（正常，非错误）："+(crossDup.length?crossDup.join("、"):"无"),
     "幽灵分卷归属："+(ghosts.length?ghosts.map(function(r){return "第"+r.num+"章→"+r.vol;}).join("；"):"无"),
     "非已完稿："+(notDone.length?notDone.map(function(r){return "第"+r.num+"章("+r.status+")";}).join("；"):"无"),
     "档案错配（标着已消化但内容不是本章）："+(rows.filter(function(r){return r.blkMismatch;}).length
@@ -10342,7 +10458,7 @@ function refreshDigestWarn(force){
     if(qm){
       qm.innerHTML = c.n
         ? ('<span style="color:#c0392b;font-weight:700;">发现 '+c.n+' 章异常</span>'
-           +'（幽灵分卷 '+c.ghost+' · 档案错配 '+c.mismatch+' · 缺章号 '+c.missing+' · 重复章号 '+c.dup
+           +'（幽灵分卷 '+c.ghost+' · 档案错配 '+c.mismatch+' · 缺章号 '+c.missing+' · 同卷撞号 '+c.dup
            +'）｜共 '+c.total+' 章，已入队 '+c.queued+' 章。点「开始体检」看逐章明细。')
         : ('全部 '+c.total+' 章均已正常入队 ✅');
     }
@@ -13921,6 +14037,150 @@ function showInstallGuide(){
 }
 function closeInstallGuide(){ const g=document.getElementById('installGuide'); if(g)g.classList.remove('on'); try{ localStorage.setItem(PREFIX+'install_seen','1'); }catch(e){} }
 /* 全局设置弹窗 + PWA 环境判断 + 红点 */
+/* ================= v120：模型连接体检 =================
+   症状：用户配的是 deepseek-flash，分析人设却报「当前使用的是推理模型，输出预算全部被思考过程消耗」。
+   根因（已修在 _callAIOnce）：thinking:{type:"disabled"} 原本写在 if(extra) 块里，而 extra 只在
+   调用方传了 top_p / presence_penalty / frequency_penalty 时才非空。分析人设、参谋、审稿都不传采样参数
+   → thinking 从未下发 → 服务端按默认开思考 → max_tokens 全被 reasoning_content 吃掉 → content 为空。
+   本工具把「填的模型」「接口实际生效的模型」「思考是否吃光预算」摊开，让用户自己一眼看清。 */
+async function _diagOnce(model, think){
+  const ai=load("ai",{});
+  const url=String(ai.base||"").replace(/\/+$/,"")+"/chat/completions";
+  const body={model:model, messages:[{role:"user",content:"只回复两个字：正常"}],
+              temperature:0, max_tokens:64, stream:false};
+  if(think==="disabled") body.thinking={type:"disabled"};
+  const t0=Date.now();
+  try{
+    const r=await fetch(url,{method:"POST",headers:aiHeaders(ai),body:JSON.stringify(body)});
+    const txt=await r.text();
+    const ms=Date.now()-t0;
+    if(!r.ok) return {ok:false, status:r.status, ms:ms, err:txt.slice(0,220)};
+    let j=null; try{ j=JSON.parse(txt); }catch(e){}
+    if(!j) return {ok:false, status:r.status, ms:ms, err:"返回不是 JSON："+txt.slice(0,160)};
+    const ch=(j.choices&&j.choices[0])||{}, m=ch.message||{};
+    return {ok:true, status:r.status, ms:ms, model:String(j.model||""), fr:ch.finish_reason||"",
+            content:String(m.content||""), reason:String(m.reasoning_content||""),
+            uin:(j.usage&&j.usage.prompt_tokens), uout:(j.usage&&j.usage.completion_tokens)};
+  }catch(e){ return {ok:false, status:0, ms:Date.now()-t0, err:String((e&&e.message)||e).slice(0,220)}; }
+}
+async function runAiDiag(btn){
+  const out=document.getElementById("aiDiagOut"); if(!out) return;
+  const ai=load("ai",{});
+  if(!ai.base||!String(ai.base).trim()){ out.innerHTML='<div style="color:#c0392b;">还没填 Base URL，先在下面填好再体检。</div>'; return; }
+  if(!ai.key||!String(ai.key).trim()){ out.innerHTML='<div style="color:#c0392b;">还没填 API Key，先填好再体检。</div>'; return; }
+  if(btn){ btn.disabled=true; btn.textContent="体检中…"; }
+  const esc2=function(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
+  try{
+    const cfg=[
+      "Base        ："+ai.base,
+      "分析模型     ："+(ai.model||"（空 → 回落 deepseek-flash）"),
+      "续写模型     ："+(ai.genModel||"（空 → 回落 deepseek-flash）"),
+      "思考模式设置 ："+(ai.thinkMode||"（未设 → 按厂商自动：含 deepseek 则关，其它不发）"),
+      "单次生成字数 ："+(ai.maxTokens||"8000（默认）")
+    ].join("\n");
+    out.innerHTML='<div style="font-weight:700;margin-bottom:4px;">① 当前配置</div>'
+      +'<pre style="white-space:pre-wrap;margin:0 0 10px;font-size:12px;background:var(--card,#fff);padding:8px;border-radius:8px;border:1px solid var(--line,rgba(127,127,127,.2));">'+esc2(cfg)+'</pre>'
+      +'<div style="font-weight:700;margin-bottom:4px;">② 实测各候选模型</div>'
+      +'<div id="aiDiagTbl">正在逐个请求…</div>';
+
+    const cands=[];
+    (function(){ [].concat(digestModelCandidates(), genModelCandidates()).forEach(function(m){ if(m&&cands.indexOf(m)<0) cands.push(m); }); })();
+    const rows=[];
+    for(let i=0;i<cands.length;i++){
+      const m=cands[i];
+      const r=await _diagOnce(m,"disabled");
+      let verdict, color;
+      if(!r.ok){ verdict="请求失败"+(r.status?("（HTTP "+r.status+"）"):""); color="#c0392b"; }
+      else if(r.content.trim() && !r.reason.trim()){ verdict="正常，思考已关闭"; color="#2e7d4f"; }
+      else if(!r.content.trim() && r.reason.trim()){ verdict="思考吃光预算，正文为空"; color="#c0392b"; }
+      else if(r.reason.trim()){ verdict="返回了思考过程（已忽略该参数）"; color="#b8860b"; }
+      else { verdict="正常"; color="#2e7d4f"; }
+      rows.push({req:m, ret:(r.model||""), r:r, verdict:verdict, color:color});
+      const tbl=document.getElementById("aiDiagTbl");
+      if(tbl){
+        let h='<table style="border-collapse:collapse;width:100%;font-size:11.5px;">'
+          +'<thead><tr style="background:var(--soft,rgba(127,127,127,.1));">'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">请求模型</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">接口实际返回</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">finish</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">正文</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">思考</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">耗时</th>'
+          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">结论</th>'
+          +'</tr></thead><tbody>';
+        rows.forEach(function(x){
+          h+='<tr><td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">'+esc2(x.req)+'</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">'+esc2(x.ret||"—")+'</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+esc2(x.r.fr||"—")+'</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.content?x.r.content.length+" 字":"0")+'</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.reason?x.r.reason.length+" 字":"0")+'</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.ms||0)+'ms</td>'
+            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;color:'+x.color+';font-weight:700;">'+esc2(x.verdict)+'</td></tr>';
+        });
+        h+='</tbody></table>';
+        tbl.innerHTML=h;
+      }
+    }
+
+    /* ③ 用「分析人设」的真实规格再打一发：4000 上限 + JSON 任务 */
+    const okModel=(rows.filter(function(x){ return x.r.ok && x.r.content.trim(); })[0]||{}).req;
+    let probe='<div style="font-weight:700;margin:10px 0 4px;">③ 模拟「分析人设」真实请求</div>';
+    if(okModel){
+      const ai2=load("ai",{});
+      const url=String(ai2.base||"").replace(/\/+$/,"")+"/chat/completions";
+      let r3=null, t0=Date.now();
+      try{
+        const resp=await fetch(url,{method:"POST",headers:aiHeaders(ai2),body:JSON.stringify({
+          model:okModel, temperature:0.4, max_tokens:4000, stream:false, thinking:{type:"disabled"},
+          messages:[{role:"system",content:"你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。"},
+                    {role:"user",content:"人物：测试角色。请按此格式只输出 JSON：{\"core\":\"稳重,寡言\",\"desire\":\"想被认可\",\"deepDesire\":\"害怕被抛下\",\"appearance\":\"\"}"}]
+        })});
+        const txt=await resp.text(); const ms=Date.now()-t0;
+        let j=null; try{ j=JSON.parse(txt); }catch(e){}
+        const ch=(j&&j.choices&&j.choices[0])||{}, mm=ch.message||{};
+        r3={ok:resp.ok, ms:ms, fr:ch.finish_reason, content:String(mm.content||""), reason:String(mm.reasoning_content||""),
+            uout:(j&&j.usage&&j.usage.completion_tokens)};
+      }catch(e){ r3={ok:false, ms:Date.now()-t0, err:String((e&&e.message)||e).slice(0,160)}; }
+      if(r3 && r3.ok && r3.content.trim()){
+        let parsed=false; try{ parsed=!!JSON.parse((r3.content.match(/\{[\s\S]*\}/)||[""])[0]); }catch(e){}
+        probe+='<div style="color:#2e7d4f;">✅ 能正常拿到正文（'+(r3.content.length)+' 字，输出 token '+(r3.uout||"?")+'，'+r3.ms+'ms）'
+          +(parsed?'，JSON 可解析 <b>→ 分析人设应该能用了</b>':'，但 JSON 解析失败，模型可能没按格式输出')+'</div>';
+      } else if(r3 && r3.reason){
+        probe+='<div style="color:#c0392b;">❌ 仍然只有思考、没有正文（思考 '+r3.reason.length+' 字，finish='+(r3.fr||"?")+'）。'
+          +'这个接口不接受 thinking:disabled 参数，属于服务端强制思考——只能换模型。</div>';
+      } else {
+        probe+='<div style="color:#c0392b;">❌ 请求失败：'+esc2((r3&&(r3.err||("HTTP "+r3.ok)))||"未知")+'</div>';
+      }
+    } else {
+      probe+='<div style="color:#c0392b;">没有可用模型，跳过。</div>';
+    }
+
+    /* ④ 结论 */
+    const good=rows.filter(function(x){ return x.r.ok && x.r.content.trim(); }).map(function(x){ return x.req; });
+    const eaten=rows.filter(function(x){ return x.r.ok && !x.r.content.trim() && x.r.reason.trim(); }).map(function(x){ return x.req; });
+    let concl='<div style="font-weight:700;margin:10px 0 4px;">④ 结论</div>';
+    if(good.length){
+      concl+='<div style="color:#2e7d4f;">可用模型：<b>'+esc2(good.join("、"))+'</b>。建议把「分析模型」和「续写模型」都填成 '+esc2(good[0])+'。</div>';
+    }
+    if(eaten.length){
+      concl+='<div style="color:#c0392b;">以下模型会开思考、把预算吃光：<b>'+esc2(eaten.join("、"))+'</b>——别用它们做人物分析/消化这类「短输出」任务。</div>';
+    }
+    if(!good.length){
+      concl+='<div style="color:#c0392b;">全部候选都不可用。先核对 Base URL 与 Key；若返回 401/404，说明地址或模型名不对。</div>';
+    }
+    const _tblEl=document.getElementById("aiDiagTbl");
+    out.innerHTML='<div style="font-weight:700;margin-bottom:4px;">① 当前配置</div>'
+      +'<pre style="white-space:pre-wrap;margin:0 0 10px;font-size:12px;background:var(--card,#fff);padding:8px;border-radius:8px;border:1px solid var(--line,rgba(127,127,127,.2));">'+esc2(cfg)+'</pre>'
+      +'<div style="font-weight:700;margin-bottom:4px;">② 实测各候选模型</div>'
+      + (_tblEl?_tblEl.innerHTML:'')
+      + probe + concl
+      + '<div class="meta" style="margin-top:8px;line-height:1.7;">本版已在所有调用里无条件下发 thinking:disabled（旧版只在传了 top_p 的调用里下发，分析人设/参谋/审稿全漏）。若某个接口仍忽略该参数、坚持返回思考过程，只能换模型。</div>';
+  }catch(e){
+    out.innerHTML='<div style="color:#c0392b;">体检失败：'+String((e&&e.message)||e).slice(0,200)+'</div>';
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent="开始体检"; }
+  }
+}
 function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
 function closeGlobalSettings(){ var m=document.getElementById('globalMask'); if(m)m.classList.remove('on'); }
 function pwaSupported(){ return !!_deferredPrompt || isIOS(); }
