@@ -721,6 +721,7 @@
   .more-action{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--soft);font-size:15px;color:var(--ink);cursor:pointer;text-align:left;}
   .more-action .mi{width:20px;text-align:center;font-size:18px;flex:none;}
   .more-action:active{transform:scale(.99);}
+  .more-badge{margin-left:auto;flex:none;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#c0392b;color:#fff;font-size:12px;line-height:20px;text-align:center;font-weight:700;}
   .toast{position:fixed;left:50%;bottom:calc(112px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(8px);
     background:rgba(18,12,6,.94);color:#f3e7cf;padding:11px 18px;border-radius:12px;font-size:14px;
     z-index:99;box-shadow:0 6px 22px rgba(0,0,0,.45);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;max-width:86vw;text-align:center;
@@ -1481,7 +1482,7 @@
     <!-- AI 生成设置已移至「⚙ 全局设置」弹窗（子标题分组，id=gsAiGroup），章节页顶部不再显示，避免挤占写作区 -->
 
     <div class="card collapsible collapsed">
-      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>前文理解档案<span class="pill">AI 持续消化</span><span class="caret">▼</span></h2>
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>前文理解档案<span class="pill">AI 持续消化</span><span class="pill" id="dgWarnPill" style="display:none;background:#c0392b;color:#fff;" onclick="event.stopPropagation();showDigestScopeAudit()"></span><span class="caret">▼</span></h2>
       <div id="digestPanel" class="dg-panel"></div>
     </div>
 
@@ -2013,7 +2014,18 @@
       <div class="dp-dg-h">档案体检（v110）<span>档案里若残留指向「已删除 / 被重建过」的章节记录，「已消化章数」会统计得偏少——这里可查出并一键清理</span></div>
       <div class="dp-dg-list" id="dgGhostList"><div class="dp-dg-meta">点「体检」开始</div></div>
       <div class="dp-dg-meta" id="dgGhostMeta"></div>
-      <div style="margin-top:8px;"><button onclick="renderDigestGhost()">体检</button></div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="renderDigestGhost()">体检（幽灵记录）</button>
+      </div>
+    </div>
+    <div class="dp-dg" style="margin-top:12px;">
+      <div class="dp-dg-h">🧭 消化范围体检（v118）<span>不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文 / 状态 / 幽灵分卷 / 档案错配哪一关」，并列出缺失章号与重复章号。症状：明明第 75 章标着已消化，扫描却只到 1–74。</span></div>
+      <div class="dp-dg-meta" id="dsaQuickMeta">点右侧按钮开始扫描</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="primary" onclick="showDigestScopeAudit()">🧭 开始体检</button>
+        <button onclick="fixGhostVolChapters()" title="把挂在已删除分卷上的章节归入「未分卷」，让它们重新进入消化队列">🔧 修幽灵分卷</button>
+        <button onclick="fixMismatchedDigest()" title="清掉「档案块写的章号 ≠ 本章章号」的错配档案，让这些章回到未消化">🧹 清除档案错配</button>
+      </div>
     </div>
     <div class="dp-danger">
       <button class="danger" onclick="clearAll()">清空全部数据</button>
@@ -2047,6 +2059,13 @@
       <button data-p="p5" onclick="switchTab('p5',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>灵感</button>
       <button data-p="p7" onclick="switchTab('p7',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>设定</button>
       <button data-p="p8" onclick="switchTab('p8',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>时间线</button>
+    </div>
+    <div class="more-sec">
+      <div class="more-sec-h">诊断</div>
+      <div class="more-actions">
+        <button class="more-action" onclick="closeMore();showDigestScopeAudit()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span> 🧭 消化范围体检<span class="more-badge" id="moreDsaBadge" style="display:none;"></span></button>
+        <button class="more-action" onclick="closeMore();goTab('p2');setTimeout(function(){var el=document.getElementById('charList');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},120)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span> 人物：别名归并 / 忽略名单 / 手动录入</button>
+      </div>
     </div>
     <div class="more-sec">
       <div class="more-sec-h">设置</div>
@@ -7327,7 +7346,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v117";
+const APP_VERSION="v118";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -9903,6 +9922,7 @@ function fixGhostVolChapters(){
     save("chapters",chs); rawSave("books",BOOKS);
     try{ refreshChapterViews(); }catch(e){}
     try{ renderDigest(); }catch(e){}
+    try{ refreshDigestWarn(true); }catch(e){}
     toast("已把 "+n+" 章归入「未分卷」，现在重新消化即可覆盖它们");
   }catch(e){ toastErr("修复失败："+(e&&e.message)); }
 }
@@ -9935,6 +9955,7 @@ function fixMismatchedDigest(){
     d.globalDirty=true;
     saveDigest(d);
     try{ renderDigest(); }catch(e){}
+    try{ refreshDigestWarn(true); }catch(e){}
     try{ const m=document.getElementById("dsaMask"); if(m) m.remove(); }catch(e){}
     toast("已清除 "+n+" 章的错配档案，它们已回到「未消化」，重新消化即可");
   }catch(e){ toastErr("修复失败："+(e&&e.message)); }
@@ -10286,6 +10307,50 @@ function renderDigest(){
   html+='<div id="dgAudit"></div>';
 
   panel.innerHTML=html;
+  try{ refreshDigestWarn(false); }catch(e){}
+}
+/* ================= v118：消化问题警示角标 =================
+   「前文理解档案」是一张默认折叠的卡，v116/v117 的体检按钮就藏在这张卡里，
+   手机端按钮横排换行后极难发现——用户找的是「数据 → 档案体检」那张卡，两头对不上。
+   这里在折叠标题上直接挂红角标（有问题才显示），点角标直接开体检弹窗，
+   「更多 → 诊断」里挂同一个数字，数据面板的体检卡也同步显示一句话结论。 */
+var _dgWarnCache=null, _dgWarnAt=0, _dgWarnExpanded=false;
+function digestIssueCount(force){
+  try{
+    const now=Date.now();
+    if(!force && _dgWarnCache && (now-_dgWarnAt)<20000) return _dgWarnCache;
+    const a=digestScopeAudit();
+    const bad=a.rows.filter(function(r){ return r.why && r.why!=="— 已入队"; });
+    _dgWarnCache={ n:bad.length, ghost:a.ghost.length,
+                   mismatch:a.rows.filter(function(r){return r.blkMismatch;}).length,
+                   missing:a.missing.length, dup:a.dup.length,
+                   queued:a.queued, total:a.total, maxNum:a.maxNum };
+    _dgWarnAt=now;
+    return _dgWarnCache;
+  }catch(e){ return null; }
+}
+function refreshDigestWarn(force){
+  try{
+    const c=digestIssueCount(force);
+    const pill=document.getElementById("dgWarnPill");
+    const mb=document.getElementById("moreDsaBadge");
+    const qm=document.getElementById("dsaQuickMeta");
+    if(!c){ if(pill)pill.style.display="none"; if(mb)mb.style.display="none"; return; }
+    const txt=c.n?("⚠ "+c.n+" 章异常"):"";
+    if(pill){ pill.textContent=txt; pill.style.display=c.n?"":"none"; }
+    if(mb){ mb.textContent=c.n?String(c.n):""; mb.style.display=c.n?"":"none"; }
+    if(qm){
+      qm.innerHTML = c.n
+        ? ('<span style="color:#c0392b;font-weight:700;">发现 '+c.n+' 章异常</span>'
+           +'（幽灵分卷 '+c.ghost+' · 档案错配 '+c.mismatch+' · 缺章号 '+c.missing+' · 重复章号 '+c.dup
+           +'）｜共 '+c.total+' 章，已入队 '+c.queued+' 章。点「开始体检」看逐章明细。')
+        : ('全部 '+c.total+' 章均已正常入队 ✅');
+    }
+    if(c.n && !_dgWarnExpanded && pill){
+      const card=(pill.closest?pill.closest(".card"):null);
+      if(card&&card.classList.contains("collapsed")){ card.classList.remove("collapsed"); _dgWarnExpanded=true; }
+    }
+  }catch(e){}
 }
 function renderDigestStatus(){
   const el=document.getElementById("digestStatus");
@@ -12742,6 +12807,7 @@ function allRender(){
   renderNotes(); renderAI(); renderWiki(); cleanupFalsePositiveChars();backfillTimelineChars(); renderTimeline(); renderMetaphors();renderCharCorrections(); renderBackupTip();
   renderTplOptions();
   renderDigest();
+  try{ setTimeout(function(){ refreshDigestWarn(true); }, 1200); }catch(e){}
   const au=document.getElementById("appUrl");if(au)au.textContent=location.href;
 }
 /* ===================== v97 体检台（审稿 / 去套话 / 节奏） =====================
