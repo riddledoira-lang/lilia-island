@@ -1635,6 +1635,13 @@
         <select id="scanVol" style="display:none;"></select>
       </span>
       <button type="button" class="primary" style="margin-top:10px;margin-left:8px;" onclick="scanChaptersForNewChars()"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>从章节扫描新人物</button>
+      <button type="button" style="margin-top:10px;margin-left:8px;" onclick="analyzeCharsBatch()">🪄 一键补全空白人物卡</button>
+      <button type="button" style="margin-top:10px;margin-left:8px;" onclick="charFillResume()">▶️ 继续上次补全</button>
+      <div class="meta" style="margin-top:8px;line-height:1.7;">
+        只导入了正文、没跑过消化时，人物卡的「核心特质 / 欲望 / 外貌」默认是空的——
+        空卡等于给 AI 零约束，剧情参谋因此会按自己的想象推断人物，走向分析自然不准。
+        点「一键补全」从正文里逐位提炼（跑完一个落盘一个，中途退出不丢）。
+      </div>
     </div>
     <div class="card">
       <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>文风准则</h2>
@@ -2328,6 +2335,7 @@
     <p class="meta" id="aiResMeta">内容已同步写入正文框并自动保存。你可以在这里直接复制，或重新选择插入方式。</p>
     <textarea id="aiResText" style="min-height:300px;margin-top:8px;font-size:15px;line-height:1.8;" readonly placeholder="（生成内容将显示在这里）"></textarea>
     <div class="meta" id="aiResCount" style="margin-top:6px;"></div>
+    <div id="aiResPhantom"></div>
     <div class="seg" style="margin-top:10px;">
       <button class="primary" onclick="aiResCopy()">📋 复制全文</button>
       <button onclick="aiResInsert()">⬇️ 插入正文末尾</button>
@@ -2576,6 +2584,10 @@ document.addEventListener("visibilitychange",function(){
   try{ _restoreBeatPlan(); }catch(e){}
   /* v114：上次生成没跑完的话，提示已保住多少字 */
   try{ _notifyUnfinishedGen(); }catch(e){}
+  /* v115：① 上次中断的 AI 任务（参谋/人物分析等非流式）给一条可「重跑」的常驻条；
+            ② 若之前有新版本因为「任务在跑/在后台」被挂起，此刻回到前台且空闲就补上重载 */
+  try{ _notifyUnfinishedTask(); }catch(e){}
+  try{ if(window._pendingReload && !aiBusy()){ window._pendingReload=false; setTimeout(function(){ location.reload(); },400); } }catch(e){}
 });
 setInterval(function(){ checkBooksConflict(); },8000);
 /* 处于冲突待决状态时离开页面要拦一下：本窗口改动还没落盘 */
@@ -5743,19 +5755,105 @@ function charAppearsInText(text, name){
   }
   return false;
 }
+/* v115：人物取材池。
+   原实现是「提及数 Top6」——74 章的长卷里，人物立人设的关键戏往往分散在卷首与卷尾，
+   只按提及数取会把它们整段漏掉，抽出来的 core 就成了空话或干脆被模型编。
+   改为「卷首 2 章 + 戏份最重 N 章 + 最近 2 章」混合抽样，并把单章上限提到 6000 字。
+   另外：不再把 status==="done" 当硬门槛（导入的正文通常没标完稿，done 为空时老逻辑
+   虽然会回退到全部章节，但提示语仍写「已完稿」，用户以为是功能坏了）。 */
+function pickCharChapters(chs, name, n, perCap){
+  n=n||8; perCap=perCap||6000;
+  const hits=chs.filter(function(ch){ return charAppearsInText(ch.body||"", name); });
+  if(!hits.length) return {pool:[], hits:0, done:0, perCap:perCap};
+  function _mentions(ch,nm){ return (ch.body||"").split(nm).length-1; }
+  const byNum=hits.slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
+  const byMen=hits.slice().sort(function(a,b){ return _mentions(b,name)-_mentions(a,name) || (b.body||"").length-(a.body||"").length; });
+  const seen={}, pool=[];
+  const take=function(arr){
+    for(let k=0;k<arr.length && pool.length<n;k++){ const ch=arr[k]; if(seen[ch.id]) continue; seen[ch.id]=1; pool.push(ch); }
+  };
+  take(byNum.slice(0,2));                             /* 卷首：立人设的地方 */
+  take(byMen.slice(0,Math.max(3,n-4)));               /* 戏份最重的几章 */
+  take(byNum.slice(-2));                              /* 最近：最新状态 */
+  take(byMen);                                        /* 兜底补满 */
+  pool.sort(function(a,b){ return Number(a.num)-Number(b.num); });
+  return {pool:pool, hits:hits.length, done:hits.filter(function(ch){ return (ch.status||"")==="done"; }).length, perCap:perCap};
+}
+/* v115：谁还没填？批量补全区靠它挑目标（核心特质/表层欲望/深层欲望/外貌 任一为空即算） */
+function charFillCandidates(){
+  const cs=load("chars",[])||[];
+  return cs.filter(function(c){
+    const nm=(c.name||"").trim(); if(!nm) return false;
+    return !(c.core||"").trim() || !(c.desire||"").trim() || !(c.deepDesire||"").trim() || !(c.appearance||"").trim();
+  }).map(function(c){ return c.id; });
+}
+/* v115：一键批量补全空白人物卡。逐个跑、逐个落盘、进度可见、队列落盘可续跑。
+   中断（切后台被回收、关页面）后回前台会弹「重跑」，已完成的不重复花钱。 */
+let _charFillRunning=false;
+async function analyzeCharsBatch(skipConfirm){
+  if(_charFillRunning){ toast("正在补全中，稍等一会儿"); return; }
+  const ai=load("ai",{});
+  if(!ai.base){ toastErr("还没配置 AI：到「AI 生成设置」填好 Base URL 与 Key，再来一键补全人物卡。"); return; }
+  let ids=load("charFillQueue",null);
+  if(!ids||!ids.length) ids=charFillCandidates();
+  const cs=load("chars",[])||[];
+  let todo=(ids||[]).filter(function(id){ return cs.some(function(c){ return c.id===id; }); });
+  if(!todo.length){ try{ save("charFillQueue",null); }catch(e){} toast("没有需要补全的人物卡（都已填，或人物库为空）"); return; }
+  if(!skipConfirm){
+    const okGo=confirm("将用 AI 逐个补全 "+todo.length+" 位人物的「核心特质 / 表层欲望 / 深层欲望 / 外貌」。\n\n"
+      +"· 每位一次调用，跑完一个就落盘一个，中途退出不丢已完成的部分；\n"
+      +"· 正文里找不到该人物出场的会跳过并说明原因；\n"
+      +"· 外貌只有在正文有直接描写时才写入，不编造；\n"
+      +"· 已填好的字段不会被清空。\n\n要开始吗？");
+    if(!okGo) return;
+  }
+  _charFillRunning=true;
+  const bar=document.createElement("div");
+  bar.id="charFillBar";
+  bar.style.cssText="position:fixed;left:12px;right:12px;bottom:12px;z-index:9998;background:var(--card,#fff);color:var(--ink,#1a1a1a);border:1px solid var(--line,rgba(127,127,127,.3));border-radius:12px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.22);font-size:13px;line-height:1.5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+  bar.innerHTML='<span id="charFillTxt" style="flex:1;min-width:150px;">🪄 正在补全人物卡…</span>'+
+                '<button type="button" class="ghost" style="min-height:34px;padding:0 10px;font-size:13px;" onclick="charFillStop()">暂停</button>';
+  document.body.appendChild(bar);
+  const txt=document.getElementById("charFillTxt");
+  let ok=0, skipped=0, failed=0;
+  try{
+    for(let i=0;i<todo.length;i++){
+      if(window._charFillStop){ break; }
+      const c=cs.filter(function(x){ return x.id===todo[i]; })[0];
+      const nm=(c&&c.name)||"?";
+      if(txt) txt.textContent="🪄 正在补全 "+nm+"（"+(i+1)+"/"+todo.length+"）…已完成 "+ok+" 位";
+      try{
+        await analyzeCharPsyche(todo[i], null);
+        const after=(load("chars",[])||[]).filter(function(x){ return x.id===todo[i]; })[0];
+        if(after && ((after.core||"").trim()||(after.desire||"").trim())) ok++; else skipped++;
+      }catch(e){ failed++; console.warn("[人物卡补全] "+nm+" 失败：",e&&e.message); }
+      try{ save("charFillQueue", todo.slice(i+1)); }catch(e){}
+    }
+  } finally {
+    _charFillRunning=false; window._charFillStop=false;
+    const b=document.getElementById("charFillBar"); if(b) b.remove();
+    const rest=(load("charFillQueue",null)||[]).length;
+    try{ if(!rest) save("charFillQueue",null); }catch(e){}
+    toast("人物卡补全结束：成功 "+ok+" 位，跳过 "+skipped+" 位"+(failed?("，失败 "+failed+" 位"):"")+(rest?("，还剩 "+rest+" 位待续（回前台可继续）"):""));
+  }
+}
+function charFillStop(){ window._charFillStop=true; toast("已暂停，已补全的部分都已保存"); }
+function charFillResume(){
+  const ids=load("charFillQueue",null)||[];
+  if(!ids.length){ toast("没有待补全的人物了"); return; }
+  analyzeCharsBatch(true);
+}
 async function analyzeCharPsyche(cid, btn){
   const ai=load("ai",{});
-  if(!ai.base){ toast("未配置 AI：在「AI 生成设置」填好 API 后，点此可基于已完稿章节自动提炼人物的核心特质 / 表层欲望 / 深层欲望。"); return; }
+  if(!ai.base){ toast("未配置 AI：在「AI 生成设置」填好 API 后，点此可基于已写章节自动提炼人物的核心特质 / 表层欲望 / 深层欲望。"); return; }
   const cs=load("chars",[]); const i=cs.findIndex(x=>x.id===cid);
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
-  if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法分析（先让 ta 在多章里出现吧）"); return; }
-  const done=hits.filter(function(ch){return (ch.status||"")==="done";});
-  function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
-  const pool=(done.length?done:hits).slice().sort(function(a,b){ return _mentions(b,name)-_mentions(a,name) || (b.body||"").length-(a.body||"").length; }).slice(0,6);
-  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,5000);}).join("\n\n----\n\n");
+  const _pk=pickCharChapters(chs, name, 8, 6000);
+  if(!_pk.pool.length){ toast("没在已写章节里发现「"+name+"」的出场，无法分析（先让 ta 在正文里出现，或用别名再试）"); return; }
+  const pool=_pk.pool;
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,_pk.perCap);}).join("\n\n----\n\n");
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="分析中…";
   try{
     const sys="你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
@@ -5770,7 +5868,8 @@ async function analyzeCharPsyche(cid, btn){
       cs[i].deepDesire=String(obj.deepDesire||"").trim();
       const _app=String(obj.appearance||"").trim(); if(_app) cs[i].appearance=_app; /* 仅当有外貌描写才写入；否则保留你手填内容，绝不清空 */
       const d=new Date(); const ds=d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
-      cs[i].psycheSrc="基于 "+pool.length+" 章已完稿分析 · "+ds;
+      cs[i].psycheSrc="基于 "+pool.length+" 章分析（正文共命中 "+_pk.hits+" 章"
+        +(_pk.done?("，其中已完稿 "+_pk.done+" 章"):"（无已完稿章，按全部命中章取样）")+"） · "+ds;
       cs[i].demo=false; save("chars",cs);
       renderCharEditor();
       const _hasApp=!!cs[i].appearance;
@@ -5786,12 +5885,11 @@ async function analyzeCharAppearance(cid, btn){
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
-  if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取外貌（先让 ta 在多章里出现吧）"); return; }
-  const done=hits.filter(function(ch){return (ch.status||"")==="done";});
-  function _mentions(ch,n){ return (ch.body||"").split(n).length-1; }
-  const pool=(done.length?done:hits).slice().sort(function(a,b){ return _mentions(b,name)-_mentions(a,name) || (b.body||"").length-(a.body||"").length; }).slice(0,6);
-  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,5000);}).join("\n\n----\n\n");
+  /* v115：外貌描写在正文本就稀疏，取样面放宽到 12 章（原为 6 章，长卷里极易整段漏掉） */
+  const _pk=pickCharChapters(chs, name, 12, 6000);
+  if(!_pk.pool.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取外貌（先让 ta 在正文里出现，或用别名再试）"); return; }
+  const pool=_pk.pool;
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,_pk.perCap);}).join("\n\n----\n\n");
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="提取外貌…";
   try{
     const sys="你是小说人物外貌分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
@@ -5817,11 +5915,11 @@ async function analyzeCharLang(cid, btn){
   if(i<0)return; const c=cs[i]; const name=(c.name||"").trim();
   if(!name){ toast("请先填写人物名"); return; }
   const chs=load("chapters",[])||[];
-  const hits=chs.filter(function(ch){return charAppearsInText(ch.body||"", name);});
-  if(!hits.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取语言体系"); return; }
-  const done=hits.filter(function(ch){return (ch.status||"")==="done";});
-  const pool=(done.length?done:hits).slice().sort(function(a,b){(b.body||"").length-(a.body||"").length}).slice(0,4);
-  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,7000);}).join("\n\n----\n\n");
+  /* v115：语言/思维要的是台词样本，取样放宽到 8 章（原为「正文最长 4 章」，长卷里覆盖不足） */
+  const _pk=pickCharChapters(chs, name, 8, 7000);
+  if(!_pk.pool.length){ toast("没在已写章节里发现「"+name+"」的出场，无法提取语言体系"); return; }
+  const pool=_pk.pool;
+  const corpus=pool.map(function(ch){return "第"+(ch.num||"?")+"章《"+(ch.title||"")+"》\n"+(ch.body||"").slice(0,_pk.perCap);}).join("\n\n----\n\n");
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="提取中…";
   try{
     const sys="你是小说人物语言风格分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
@@ -6331,8 +6429,57 @@ function runCheck(){
 }
 
 /* ============== AI 生成（路径A：调用用户自有大模型API） ============== */
+/* ================= v115：章节事实清单 + 越界章号自检（根治「凭空冒出第 76 章」） =================
+   根因：此前所有 prompt 里都没有一条「本书真实有哪些章、最大章号是多少」的硬事实。
+   模型只看到散落的「第N章」片段与档案节选，喂不到的部分就会被它顺势外推——
+   74 章的书照样能一本正经地编出「第 76 章里发生了什么」，而且它自己分辨不出那是编的。
+   对策分三段：
+     ① 喂事实：chapterIndexBlock() 把真实章号清单 + 最大章号 + 铁律注入每一次续写/分析 prompt；
+     ② 卡输出：findPhantomChapterRefs() 扫 AI 输出里越界的章号，结果卡片上直接黄条点名；
+     ③ 装档案：applyDigestPack 的 L4「仅按章号」兜底改为必须全局唯一，跨卷同章号不再乱配。 */
+function chapterIndexBlock(){
+  try{
+    const chs=(load("chapters",[])||[]).filter(function(c){ return Number(c.num)>0; });
+    if(!chs.length) return "";
+    const all=chs.slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
+    const max=Number(all[all.length-1].num)||0;
+    const doneN=all.filter(function(c){ return (c.status||"")==="done"; }).length;
+    let list=all;
+    if(all.length>60) list=all.slice(0,3).concat(all.slice(-57));
+    const lines=list.map(function(c){
+      return "· 第"+c.num+"章《"+String(c.title||"").replace(/^第\s*\d+\s*章\s*/,"")+"》["+(((c.status||"")==="done")?"已完稿":"草稿")+"]";
+    });
+    return "【本作品真实章节清单·事实边界（最高优先级）】\n"
+      +"全书共 "+all.length+" 章（其中已完稿 "+doneN+" 章），当前最大章号为第 "+max+" 章。\n"
+      +lines.join("\n")
+      +"\n【铁律·严禁编造】① 上表之外的章号一律不存在——严禁出现第 "+(max+1)+" 章及以后的任何章号，也严禁引用上表中没有的章号；"
+      +"② 严禁编造上表之外的章节内容、事件、对话、人物关系或伏笔；"
+      +"③ 凡在上表中查不到的情节，一律视为「尚未发生」，不得当作已知事实引用、承接或回收；"
+      +"④ 需要回指前文时，只许使用上表内真实存在的章号。";
+  }catch(e){ return ""; }
+}
+function findPhantomChapterRefs(text){
+  try{
+    const chs=(load("chapters",[])||[]);
+    if(!chs.length) return [];
+    const set={}; chs.forEach(function(c){ const n=Number(c.num); if(n) set[n]=1; });
+    const re=/第\s*(\d{1,4})\s*章/g, bad={}, t=String(text||"");
+    let m; while((m=re.exec(t))!==null){ const n=Number(m[1]); if(n&&!set[n]) bad[n]=(bad[n]||0)+1; }
+    return Object.keys(bad).map(Number).sort(function(a,b){ return a-b; });
+  }catch(e){ return []; }
+}
+function phantomWarnHtml(text){
+  const bad=findPhantomChapterRefs(text);
+  if(!bad.length) return "";
+  return '<div style="margin:8px 0;padding:8px 10px;border-radius:10px;background:#fff4e5;border:1px solid #e8b96a;color:#7a4b00;font-size:12.5px;line-height:1.6;">'
+    +'⚠️ 防污染提示：这段内容引用了本书并不存在的章号 —— 第'+bad.join("章、第")+'章。'
+    +'它们在章节列表里查不到，属于模型推测或编造，请勿当作已发生的事实采纳（正文相关段落建议删改）。</div>';
+}
 function buildBookContext(forGen){
   const parts=[];
+  /* v115：事实边界放在第一位——先告诉模型「哪些章真实存在」，再谈别的，压住编造章号的冲动 */
+  const _idx=chapterIndexBlock();
+  if(_idx) parts.push(_idx);
   const w=(load("world","")||"").trim();
   if(w)parts.push("【世界观核心设定】\n"+w);
   /* 生成阶段(forGen=true)不再注入各章梗概：该信息已在 user 消息的「全书情节脉络(prior.syn)」中提供，避免重复占用 token、也防止 sys/user 两份不一致导致模型困惑 */
@@ -6646,7 +6793,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v114";
+const APP_VERSION="v115";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7496,7 +7643,47 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
 }
 /* 生成调用：截断自动续写（finish_reason=length 时最多自动续 5 次，拼接完整内容）；
    生成(onToken)路径按候选模型顺序尝试，单一模型故障自动降级到下一个，避免整章生成失败 */
+/* ================= v115：全局 AI 忙碌计数 + 在途任务落盘 =================
+   目的只有一个：任何「切后台 / 新版本重载 / 页面回收」都不能在 AI 跑到一半时把进程掐掉。
+   · _aiBusy：callAI / callAIDigest 进出各加减一，>0 表示此刻有真金白银的调用在跑。
+     SW 更新、自动 update 都据此让路（旧版只看 #aiBtn 禁用态，参谋/分析/体检台全漏判）。
+   · aiTaskInFlight：把「在干什么」写进存储。页面被回收后重启时据此弹出「上次中断了→重跑」，
+     而不是让用户对着一个空界面猜刚才发生了什么。 */
+window._aiBusy=0;
+function aiBusy(){ return (window._aiBusy||0)>0; }
+function _aiBusyUp(tag,params){
+  window._aiBusy=(window._aiBusy||0)+1;
+  try{
+    /* 允许调用方先写好一条更具体的记录（如参谋的问题原文、生成的章号），这里只做合并补全 */
+    const prev=load("aiTaskInFlight",null);
+    save("aiTaskInFlight",{
+      tag:(prev&&prev.tag)||tag||"AI 任务",
+      params:(prev&&prev.params)||params||null,
+      partial:(prev&&prev.partial)||0,
+      at:(prev&&prev.at)||Date.now()
+    });
+  }catch(e){}
+}
+function aiTaskSet(tag,params){
+  try{ save("aiTaskInFlight",{tag:tag||"AI 任务",params:params||null,partial:0,at:Date.now()}); }catch(e){}
+}
+function aiTaskPartial(n){
+  try{ const t=load("aiTaskInFlight",null); if(t){ t.partial=n; save("aiTaskInFlight",t); } }catch(e){}
+}
+function _aiBusyDown(){
+  window._aiBusy=Math.max(0,(window._aiBusy||0)-1);
+  if(window._aiBusy===0){
+    try{ save("aiTaskInFlight",null); }catch(e){}
+    try{ window.dispatchEvent(new Event("aiIdle")); }catch(e){}
+  }
+}
 async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
+  _aiBusyUp(onToken?"正文生成/续写":"分析/规划");
+  try{
+    return await _callAIInner({sys:sys,user:user,temperature:temperature,max_tokens:max_tokens,onToken:onToken,modelOverride:modelOverride,top_p:top_p,presence_penalty:presence_penalty,frequency_penalty:frequency_penalty});
+  } finally { _aiBusyDown(); }
+}
+async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
   const ai=load("ai",{});
   /* v99：统一守卫。此前只有 aiGen / 体检台自己判空，其余十余个调用点在未配置 AI 时会
      去请求一个空地址，报「网络异常，无法连接 AI 接口」——用户看不出是没配置还是坏了。
@@ -7567,6 +7754,11 @@ function uniqCands(arr){ const s=new Set(); const o=[]; arr.forEach(x=>{ if(x&&!
    - 网络失败附带 .rawOutput（若接口返回了内容但格式异常）
    - max_tokens 默认 12000（结构化档案需要足够输出空间，已提升单章分析详尽度） */
 async function callAIDigest({sys,user,temperature,max_tokens,timeout,model}){
+  _aiBusyUp("AI 消化");
+  try{ return await _callAIDigestInner({sys:sys,user:user,temperature:temperature,max_tokens:max_tokens,timeout:timeout,model:model}); }
+  finally{ _aiBusyDown(); }
+}
+async function _callAIDigestInner({sys,user,temperature,max_tokens,timeout,model}){
   const ai=load("ai",{});
   const finalModel=model||ai.model||"deepseek-flash";
   const _mtD=max_tokens||12000;
@@ -9476,6 +9668,9 @@ function showAiResult(text, label, autoWritten){
   document.getElementById("aiResTitle").textContent="✨ "+(label||"AI 生成结果");
   document.getElementById("aiResText").value=_aiLastResult;
   document.getElementById("aiResCount").textContent="本段生成字数："+_aiLastResult.length;
+  /* v115：正文里若出现本书不存在的章号，直接点名——这是「冒出第 76 章」最后一道可见的拦截 */
+  const _ph=document.getElementById("aiResPhantom");
+  if(_ph) _ph.innerHTML=phantomWarnHtml(_aiLastResult);
   document.getElementById("aiResMask").classList.add("on");
 }
 /* 「不加入文章」：若正文已被本次生成自动写入，则回滚到写入前；否则仅关闭预览（如整章精修） */
@@ -9795,6 +9990,7 @@ function _streamTick(text){
     const full=s.base?(s.base+"\n\n"+text):text;
     s.chId=_streamUpsert(s.num,s.title,s.vol,full,s.chId);
     save("genInFlight",{num:s.num,title:s.title,vol:s.vol,at:now,len:full.length});
+    try{ aiTaskPartial(full.length); }catch(e2){}   /* v115：中断恢复条能报出保住多少字 */
   }catch(e){}
 }
 /* 收尾：无论成功还是失败，都把当前正文写一次，并清掉「在途」标记 */
@@ -9823,6 +10019,59 @@ function _notifyUnfinishedGen(){
     }
     toast("上次第"+g.num+"章生成到一半中断了，已保住约 "+g.len+" 字（打开该章可接着写）");
   }catch(e){}
+}
+/* ================= v115：在途 AI 任务被中断后的「常驻恢复条」 =================
+   生成（流式）有 v114 的续写保底，但剧情参谋 / 人物分析 / 体检台都是「非流式一次性返回」，
+   切走再回来进程没了，界面上什么都不剩——用户只能看到「重新加载了，进程断了」。
+   这里把在途任务写进 aiTaskInFlight，重启/回前台时若发现它已过期（>15s 且当前无任务在跑），
+   就弹一条不会自动消失的常驻条，给出「重跑」入口，而不是让用户干瞪眼。
+   只做提示与重跑，绝不自动改写任何正文。 */
+function _notifyUnfinishedTask(){
+  try{
+    if(aiBusy()) return;                       /* 此刻真的在跑，不算中断 */
+    if(_streamSave) return;                    /* 生成中，交给流式保底提示 */
+    if(_beatMask) return;                      /* 有节拍卡弹窗时不打扰 */
+    const t=load("aiTaskInFlight",null);
+    if(!t||!t.at) return;
+    const age=Date.now()-t.at;
+    if(age<15000) return;                      /* 刚开跑/还在正常等待 */
+    if(age>21600000){ try{ save("aiTaskInFlight",null); }catch(e){} return; } /* 超过 6 小时不再提 */
+    if(document.getElementById("aiTaskBar")) return;
+    const mins=Math.max(1,Math.round(age/60000));
+    const bar=document.createElement("div");
+    bar.id="aiTaskBar";
+    bar.style.cssText="position:fixed;left:12px;right:12px;bottom:12px;z-index:9997;background:#fff8e1;color:#4a3c10;border:1px solid #e0c98a;border-radius:12px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.22);display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;line-height:1.5;";
+    bar.innerHTML='<span style="flex:1;min-width:150px;">⏸ 上次的「'+esc(String(t.tag||"AI 任务"))+'」在约 '+mins+' 分钟前被中断了'+
+      (t.partial?("（已保住约 "+t.partial+" 字）"):"")+'。要重跑一次吗？</span>'+
+      '<button type="button" class="primary" style="min-height:34px;padding:0 12px;font-size:13px;" onclick="_aiTaskRerun()">重跑</button>'+
+      '<button type="button" class="ghost" style="min-height:34px;padding:0 10px;font-size:13px;" onclick="_aiTaskDismiss()">知道了</button>';
+    document.body.appendChild(bar);
+  }catch(e){}
+}
+function _aiTaskDismiss(){
+  try{ save("aiTaskInFlight",null); }catch(e){}
+  const b=document.getElementById("aiTaskBar"); if(b) b.remove();
+}
+function _aiTaskRerun(){
+  const t=load("aiTaskInFlight",null)||{};
+  _aiTaskDismiss();
+  try{
+    const tag=String(t.tag||"");
+    if(tag.indexOf("参谋")>=0){
+      try{ counselOpen(); }catch(e){}
+      const inp=document.getElementById("counselInput");
+      const q=(t.params&&t.params.q)||"";
+      if(inp&&q){ inp.value=q; try{ counselSend(); }catch(e){} }
+      else toast("已打开剧情参谋，把刚才的问题再发一次即可");
+      return;
+    }
+    if(tag.indexOf("人物卡")>=0){ try{ charFillResume(); }catch(e){ return; } return; }
+    if(tag.indexOf("生成")>=0||tag.indexOf("续写")>=0){
+      toast("第"+((t.params&&t.params.num)||"?")+"章的正文已保住，打开该章点「接着写」即可续上");
+      return;
+    }
+    toast("上次「"+tag+"」已中断，回到原入口重新点一次即可（内容没有丢失）");
+  }catch(e){ toast("重跑失败，请手动再点一次"); }
 }
 
 /* 后置纠偏：生成完成后自动扫描 OOC/冲突/伏笔风险，结果追加到结果弹窗 */
@@ -10787,8 +11036,13 @@ function applyDigestPack(pack){
       if(key) c=chs.filter(function(x){ return Number(x.num)===Number(it.num) && ttrim(x.title).indexOf(key)>=0; })[0];
       if(c) return [c,3];
     }
-    c=chs.filter(function(x){ return Number(x.num)===Number(it.num); })[0];
-    return c?[c,4]:[null,0];
+    /* v115：L4「仅按章号」兜底收紧——此前只要章号相同就硬配。
+       各卷独立编号时（詹姆斯篇 1–74、西里斯篇 1–14），装西里斯档案会把西里斯的梗概
+       写进詹姆斯篇的同号章节，等于用一份档案污染另一卷的全部前文。
+       现在：只有「全书该章号唯一」时才兜底，多卷同号一律判为未匹配并明确报出来。 */
+    const _same=chs.filter(function(x){ return Number(x.num)===Number(it.num); });
+    if(_same.length===1) return [_same[0],4];
+    return [null,0];
   };
   /* v107b：有效分卷 id 集合。章节若指向一个已经不存在的卷 id（改过卷、删过卷、重建过卷
      都会留下这种「幽灵归属」），旧代码仍把它当有效卷，档案被写进看不见的幽灵卷，
@@ -12568,6 +12822,10 @@ function counselLoad(){
 function counselCtx(){
   const vol=(document.getElementById("chVol")||{}).value||"none";
   let s="";
+  /* v115：参谋同样要给「真实章号清单」——它此前看不到章节全表，被问到「第几章怎么接」时
+     只能凭上下文外推，这是「凭空冒出第 76 章内容分析」的直接来源之一。 */
+  const _ci=chapterIndexBlock();
+  if(_ci) s+=_ci+"\n";
   s+="【本分卷】"+volName(vol)+"\n";
   const pov=getVolPov(vol); if(pov) s+="【本卷人称铁律】"+pov+"\n";
   const vsec=getVolSetting(vol); if(vsec) s+="【本卷设定】"+String(vsec).slice(0,900)+"\n";
@@ -12620,7 +12878,8 @@ function counselRender(){
       const me=m.role==="me";
       return '<div style="margin:8px 0;padding:8px 10px;border-radius:10px;background:var(--soft);border:1px solid var(--line);">'+
         '<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">'+(me?"我":"参谋")+'</div>'+
-        '<div style="white-space:pre-wrap;line-height:1.7;">'+esc(m.text)+'</div></div>';
+        '<div style="white-space:pre-wrap;line-height:1.7;">'+esc(m.text)+'</div>'+
+        (me?"":phantomWarnHtml(m.text))+'</div>';
     }).join("");
     box.scrollTop=box.scrollHeight;
   }
@@ -12675,6 +12934,8 @@ async function counselSend(){
       "⑦ 不要输出 Markdown 标题符号（#）与加粗星号，用短句和项目符号即可——作者在手机上看。"
     ].join("\n");
     const user="下面是当前作品的相关信息：\n\n"+ctx.text+"\n\n下面是讨论记录：\n"+hist+"\n\n请作为剧情参谋回答作者最新的这个问题。";
+    /* v115：记下「在干什么 + 问了什么」。切走被回收后回来能一键重跑，而不是只剩一句「进程断了」 */
+    try{ aiTaskSet("剧情参谋",{q:q}); }catch(e){}
     if(btn){ btn.disabled=true; btn.textContent="参谋在想…"; }
     let out="";
     try{
@@ -12749,6 +13010,8 @@ function counselToPlot(){
 bootApp().then(function(){
                  try{ _restoreBeatPlan(); }catch(e){}
                  try{ _notifyUnfinishedGen(); }catch(e){}
+                 try{ _notifyUnfinishedTask(); }catch(e){}
+                 try{ if(window._pendingReload && !aiBusy()){ window._pendingReload=false; setTimeout(function(){ location.reload(); },400); } }catch(e){}
                },
                function(e){ console.error("应用启动失败：", e); });
 /* 新手引导已移除（v46+）：首次进入不再自动弹教程 */
@@ -12780,22 +13043,48 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').then(function(reg){_attachSWUpdate(reg);}).catch(function(e){console.warn('SW注册失败（不影响使用）：',e);});
   });
-  // 新的 Service Worker 接管后，自动刷新一次，确保手机端拿到最新功能（不会无限循环：reload 后 controller 已是最新）
-  // v88：刷新前先强制落盘（否则可能打断 700ms 防抖的自动保存，丢掉刚敲的几句）；
-  // 若此刻正在跑 AI（生成按钮处于禁用态），则等它跑完再刷，最长等 2 分钟，避免生成一半被重载打断。
-  navigator.serviceWorker.addEventListener('controllerchange',function(){
-    if(_reloading)return; _reloading=true;
-    try{ if(typeof _asTimer!=='undefined'){ clearTimeout(_asTimer); } if(typeof _flushAutoSave==='function'){ _flushAutoSave(); } }catch(e){}
+  /* v115：新版本接管后「绝不打断正在跑的 AI」。
+     原实现只判断 #aiBtn 是否禁用——而剧情参谋 / 人物分析 / 体检台 / 章节分析 都不走 aiBtn，
+     于是「切到别的 App 再回来」时 SW 更新触发整页 reload，进程当场蒸发、结果全丢，
+     这正是「点分析/参谋/深度续写后切窗口，回来就重新加载界面、进程自动断了」的根因。
+     现在：① 用全局 _aiBusy 计数（callAI/callAIDigest 进出各加减一）判断是否真在跑；
+           ② 页面处于后台（document.hidden）时绝不 reload——后台就是被系统回收的高危时刻；
+           ③ 忙或后台时挂起，每 3 秒复检，10 分钟兜底：改为「回到前台且空闲」才 reload；
+           ④ reload 前强制落盘，避免打断 700ms 防抖的自动保存。 */
+  function _deferReload(){
     var waited=0;
     (function go(){
       var busy=false;
-      try{ var ab=document.getElementById('aiBtn'); busy=!!(ab&&ab.disabled); }catch(e){ busy=false; }
-      if(busy && waited<120000){ waited+=3000; setTimeout(go,3000); return; }
-      location.reload();
+      try{ busy=(typeof aiBusy==='function'&&aiBusy()); }catch(e){ busy=false; }
+      if(!busy){ try{ var ab=document.getElementById('aiBtn'); busy=!!(ab&&ab.disabled); }catch(e){} }
+      if(!busy && !document.hidden){ try{ _flushAutoSaveHard(); }catch(e){} location.reload(); return; }
+      if(waited>=600000){
+        /* 兜底：不无限等，也不硬打断——挂起等待「回到前台 + 空闲」这个安全窗口 */
+        window._pendingReload=true;
+        try{ toast("新版本已就绪，回到前台且当前任务结束后自动生效"); }catch(e){}
+        return;
+      }
+      waited+=3000; setTimeout(go,3000);
     })();
+  }
+  function _flushAutoSaveHard(){
+    try{ if(typeof _asTimer!=='undefined'){ clearTimeout(_asTimer); } }catch(e){}
+    try{ if(typeof _flushAutoSave==='function'){ _flushAutoSave(); } }catch(e){}
+    try{ if(typeof save==='function' && typeof curBook==='function'){ rawSave("books",BOOKS); } }catch(e){}
+  }
+  navigator.serviceWorker.addEventListener('controllerchange',function(){
+    if(_reloading)return; _reloading=true;
+    try{ _flushAutoSaveHard(); }catch(e){}
+    _deferReload();
   });
-  /* APP 自动同步更新：定时检查新版本（每 5 分钟）+ 联网即查；发现即跳过等待立即激活 */
-  function _checkAppUpdate(){ if(_swReg&&_swReg.update)_swReg.update(); }
+  /* APP 自动同步更新：定时检查新版本（每 5 分钟）+ 联网即查；发现即跳过等待立即激活
+     v115：AI 任务在跑时 / 页面在后台时，一律不主动 update——
+     后台被系统回收时若正好碰上 SW 切换，回来就是一次冷启动 reload，与「进程断了」现象一致。 */
+  function _checkAppUpdate(){
+    try{ if(typeof aiBusy==='function'&&aiBusy()) return; }catch(e){}
+    try{ if(document.hidden) return; }catch(e){}
+    if(_swReg&&_swReg.update)_swReg.update();
+  }
   window._appUpdateTimer=setInterval(_checkAppUpdate, 5*60*1000); /* v100：留句柄，便于调试时清除 */
   window.addEventListener('online', _checkAppUpdate);
   window.checkAppUpdate=_checkAppUpdate;
