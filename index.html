@@ -7430,7 +7430,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v126";
+const APP_VERSION="v127";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -14561,6 +14561,8 @@ window.addEventListener('load',function(){
 </script>
 <!-- v124：剧情参谋增强模块（独立文件）。加载失败时主程序原有行为完全不变。 -->
 <script src="./lilia-counsel-plus.js"></script>
+<!-- v127：消化计数一致性 / 增量缓存 / 检索性能 / 费用统计（独立文件）。加载失败时主程序原有行为完全不变。 -->
+<script src="./lilia-digest-plus.js"></script>
 
 <!-- v97 体检台：本地规则扫描（零消耗）+ AI 审稿 + 去套话重写 -->
 <div class="modal-mask" id="qsMask">
