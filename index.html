@@ -1370,6 +1370,16 @@
         <div class="meta" style="margin:6px 0 8px;">会真的发几次极短请求（每次约 50 token，成本可忽略）。它把「你填的模型名」和「接口实际生效的模型」摊开对比，并检测<b>思考模式是否把输出预算吃光</b>——分析人设老是失败、明明配了 flash 还报推理模型，就是这里的问题。</div>
         <div id="aiDiagOut" style="font-size:12.5px;line-height:1.7;"></div>
       </div>
+
+      <!-- v121：生成轨迹（Trajectory） -->
+      <div id="aiTrajBox" style="margin:12px 0;border:1px solid var(--line,rgba(127,127,127,.28));border-radius:12px;padding:10px 12px;background:var(--soft,rgba(127,127,127,.06));">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:700;font-size:14px;">
+          <span>📼 生成轨迹</span>
+          <button type="button" class="ai-usage-btn" onclick="showTrajPanel()">打开</button>
+        </div>
+        <div class="meta" style="margin:6px 0 8px;">记录每次 AI 调用的 prompt 与返回结果，可回看、搜索、复制、原样重跑。<b>以后再遇到「AI 为什么这么写」，直接看它当时收到了什么，不用猜。</b></div>
+        <div id="aiTrajMeta" style="font-size:12.5px;color:var(--sub);"></div>
+      </div>
       <label>API Key（<b>必填才能用 AI</b> · 在 DeepSeek / 月之暗面后台复制 <code>sk-…</code> 粘贴到这里）</label>
       <input type="password" id="aiKey" placeholder="sk-...">
       <div class="row">
@@ -2075,6 +2085,7 @@
       <div class="more-actions">
         <button class="more-action" onclick="closeMore();showDigestScopeAudit()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span> 🧭 消化范围体检<span class="more-badge" id="moreDsaBadge" style="display:none;"></span></button>
         <button class="more-action" onclick="closeMore();goTab('p2');setTimeout(function(){var el=document.getElementById('charList');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},120)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span> 人物：别名归并 / 忽略名单 / 手动录入</button>
+        <button class="more-action" onclick="closeMore();showTrajPanel()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h4M6 14h8M18 10v4"/></svg></span> 📼 生成轨迹（看 AI 当时收到了什么）<span class="more-badge" id="moreTrajBadge" style="display:none;"></span></button>
       </div>
     </div>
     <div class="more-sec">
@@ -6364,6 +6375,7 @@ async function analyzeCharPsyche(cid, btn){
     /* v120：1200 太紧。4 个字段各带 ≤20 字佐证，正常输出约 600–900 token；
        一旦服务端开了思考模式，1200 会被 reasoning 吃光、正文为空。抬到 4000 留足余量。
        （配合 _callAIOnce 里 thinking 无条件 disabled，正常情况下实际只用 1/4 不到） */
+    trajTag("分析人设");
     const out=await callAI({sys:sys, user:user, temperature:0.4, max_tokens:4000});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
@@ -7417,7 +7429,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v120";
+const APP_VERSION="v121";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8158,7 +8170,103 @@ function creaParams(kind){
   return o;
 }
 /* 单次请求（返回 {content, finish_reason}），供 callAI 包装调用 */
+/* ================= v121：生成轨迹（Trajectory） =================
+   取自 DeepSeek Harness 的 "Every run is traceable"。
+   调试「AI 为什么凭空编出第 76 章 / 人物为什么漂移」时，缺的从来不是猜测，
+   而是「它当时到底收到了什么」。这里按调用逐条落盘：任务名、请求模型、接口实际返回的模型、
+   系统与用户提示、采样参数、finish_reason、正文与思考各自长度、token 用量、耗时、失败原因。
+   全部 try/catch 包裹——记录失败绝不允许影响生成主流程。
+   容量策略：默认摘要模式（sys 2000 / user 8000，存 150 条）；开「完整 prompt」后
+   sys 12000 / user 40000 但只存 30 条，写满就丢最旧的，避免撑爆 localStorage。 */
+var TRAJ_CAP=150, TRAJ_SYS=2000, TRAJ_USER=8000, TRAJ_OUT=1500;
+var TRAJ_FULL_CAP=30, TRAJ_FULL_SYS=12000, TRAJ_FULL_USER=40000;
+var _trajTag=null, _trajTagAt=0;
+/* 手动设的 tag 5 分钟内有效——同一任务常连着调好几次 AI，期间共享同一个任务名；
+   超时后自动失效，避免污染下一个任务。 */
+function trajTag(t){ try{ _trajTag=String(t||""); _trajTagAt=Date.now(); }catch(e){} }
+function trajTagLive(){ return (_trajTag && (Date.now()-_trajTagAt)<300000) ? _trajTag : ""; }
+/* 全站有 20 多处 callAI 调用点，逐个打标签不现实——按 prompt 关键词自动识别任务名。
+   trajTag() 手动设的值优先，识别不出来再回落「续写 / 分析」。 */
+function trajInferTag(sys,user){
+  try{
+    const s=String(sys||"").slice(0,300)+"\n"+String(user||"").slice(0,600);
+    const pairs=[
+      [/小说人物心理分析师|core.{0,12}desire|deepDesire/,"分析人设"],
+      [/首席续写策划|续写前必读分析/,"深度续写·分析"],
+      [/剧情参谋|作为剧情参谋|参谋/,"剧情参谋"],
+      [/体检|审稿|去套话|套话|讲述代替呈现/,"体检台"],
+      [/整章精修|润色|改写/,"精修/润色"],
+      [/前文理解档案|分卷.{0,8}消化|请消化|本章摘要/,"消化"],
+      [/节拍|beat/,"节拍卡"],
+      [/大纲/,"大纲"],
+      [/时间线/,"时间线提取"],
+      [/关系图|人物关系图/,"关系图"],
+      [/文风|风格/,"文风分析"]
+    ];
+    for(let i=0;i<pairs.length;i++){ if(pairs[i][0].test(s)) return pairs[i][1]; }
+  }catch(e){}
+  return "";
+}
+function trajFullOn(){ try{ const s=rawLoad("aiTrajCfg",null); return !!(s&&s.full); }catch(e){ return false; } }
+function trajSetFull(v){ try{ rawSave("aiTrajCfg",Object.assign({on:trajOn()},{full:!!v})); }catch(e){} }
+function trajOn(){ try{ const s=rawLoad("aiTrajCfg",null); return !(s&&s.on===false); }catch(e){ return true; } }
+function trajSetOn(v){ try{ rawSave("aiTrajCfg",{on:!!v, full:trajFullOn()}); }catch(e){} }
+function trajGet(){ try{ const a=rawLoad("aiTraj",null); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function trajSave(a){
+  try{
+    const cap=trajFullOn()?TRAJ_FULL_CAP:TRAJ_CAP;
+    if(a.length>cap) a=a.slice(a.length-cap);
+    rawSave("aiTraj",a);
+  }catch(e){
+    /* 配额溢出：砍掉最早的一半重试一次，仍失败就放弃这一条，绝不让主流程挂掉 */
+    try{ rawSave("aiTraj",(a||[]).slice(Math.floor((a||[]).length/2))); }catch(e2){}
+  }
+}
+function trajClear(){ try{ rawSave("aiTraj",[]); }catch(e){} }
+/* 包装层：只负责记录，真正干活的是 _callAIOnceRaw */
 async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
+  if(!trajOn()) return await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink);
+  const _t0=Date.now();
+  const _sys=String((messages[0]&&messages[0].content)||"");
+  const _user=String((messages[messages.length-1]&&messages[messages.length-1].content)||"");
+  const _ai0=load("ai",{});
+  const _rm=modelOverride || (onToken ? (_ai0.genModel||_ai0.model||"deepseek-flash") : (_ai0.model||"deepseek-flash"));
+  let _tm=_ai0.thinkMode;
+  if(_tm!=="disabled"&&_tm!=="enabled"&&_tm!=="omit"){
+    const _hay=((_ai0.base||"")+" "+(_ai0.model||"")+" "+(_ai0.genModel||"")).toLowerCase();
+    _tm=/deepseek/.test(_hay)?"disabled":"omit";
+  }
+  if(_noThink) _tm="omit";
+  const _full=trajFullOn();
+  let _r=null,_e=null;
+  try{
+    _r=await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink);
+    return _r;
+  }catch(err){ _e=String((err&&err.message)||err); throw err; }
+  finally{
+    try{
+      const _so=_full?TRAJ_FULL_SYS:TRAJ_SYS, _uo=_full?TRAJ_FULL_USER:TRAJ_USER;
+      const arr=trajGet();
+      arr.push({
+        id:"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+        ts:Date.now(), ms:Date.now()-_t0,
+        tag:trajTagLive()||trajInferTag(_sys,_user)||(onToken?"续写":"分析"),
+        req:_rm, ret:(_r&&_r.model)||"",
+        sys:_sys.slice(0,_so), sysLen:_sys.length, sysCut:_sys.length>_so,
+        user:_user.slice(0,_uo), userLen:_user.length, userCut:_user.length>_uo,
+        temp:(typeof temperature==="number"?temperature:null), mt:max_tokens, think:_tm,
+        fr:(_r&&_r.finish_reason)||"",
+        out:_r?String(_r.content||"").slice(0,TRAJ_OUT):"",
+        outLen:_r?String(_r.content||"").length:0,
+        rsLen:_r?Number(_r.reason?String(_r.reason).length:0):0,
+        uin:(_r&&_r.uin)||0, uout:(_r&&_r.uout)||0,
+        ok:!!_r, err:_e?_e.slice(0,400):""
+      });
+      trajSave(arr);
+    }catch(x){}
+  }
+}
+async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
@@ -8213,17 +8321,17 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
     if(resp.status===400 && !_noCache){
       console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra, _noThink);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra, _noThink);
     }
     /* v81：仍是 400 且带了采样参数 → 该接口不认 top_p/penalty，去参重试一次（温度与文字不变，仅放弃采样微调） */
     if(resp.status===400 && extra){
       console.warn("[callAI] 接口返回 400，疑似不支持 top_p/penalty 采样参数，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null, _noThink);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null, _noThink);
     }
     /* v120：400 且本次下发了 thinking → 该接口不认这个字段，去掉后重试一次（文字不变） */
     if(resp.status===400 && body.thinking && !_noThink){
       console.warn("[callAI] 接口返回 400，疑似不支持 thinking 参数，自动去除后重试一次");
-      return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, true);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, true);
     }
     throw new Error("HTTP "+resp.status+" "+t.slice(0,300));
   }
@@ -8241,14 +8349,15 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
       /* v107 用量账本：流式拿不到 usage，按字数估算（单独标注，不与真实值混算） */
       try{ var _ic=0; for(var _mi=0;_mi<messages.length;_mi++){ _ic+=String((messages[_mi]&&messages[_mi].content)||"").length; }
         aiUsageAdd({model:model, estIn:_ctxTok(_ic), estOut:_ctxTok(out.length)}); }catch(e){}
-      return {content:out, finish_reason:"stop"};
+      /* v121：多带 model / 估算用量，供轨迹记录 */
+      return {content:out, finish_reason:"stop", model:model, uin:_ctxTok(_ic), uout:_ctxTok(out.length)};
     }
   }
   const raw=await resp.text();
   /* 兜底：若接口返回的是流式(SSE)文本，则合并 delta 还原正文 */
   if(/data:\s*\{/.test(raw)||/^data:/.test(raw.trim())){
     const s=parseSSE(raw);
-    if(s.trim()) return {content:s, finish_reason:"stop"};
+    if(s.trim()) return {content:s, finish_reason:"stop", model:model};
   }
   let j;
   try{ j=JSON.parse(raw); }catch(e){ throw new Error("返回不是合法 JSON（接口可能返回了流式文本未合并）：\n"+raw.slice(0,300)); }
@@ -8287,7 +8396,10 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     }
     throw new Error(why);
   }
-  return {content:content, finish_reason:fr};
+  /* v121：多带 model / 思考长度 / 真实用量，供轨迹记录 */
+  return {content:content, finish_reason:fr, model:model,
+          reason:String(msg.reasoning_content||""),
+          uin:(j.usage&&j.usage.prompt_tokens)||0, uout:(j.usage&&j.usage.completion_tokens)||0};
 }
 /* 生成调用：截断自动续写（finish_reason=length 时最多自动续 5 次，拼接完整内容）；
    生成(onToken)路径按候选模型顺序尝试，单一模型故障自动降级到下一个，避免整章生成失败 */
@@ -12678,7 +12790,17 @@ function openModal(t,x){document.getElementById("mTitle").textContent=t;document
 function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);try{save("trash",[]);}catch(e){}const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
 function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}try{renderDigestGhost();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
-function openMore(){document.getElementById("morePanel").classList.add("on");}
+function openMore(){document.getElementById("morePanel").classList.add("on");try{renderTrajBadge();}catch(e){}}
+/* v121：抽屉里的轨迹入口显示「已记录 N 条 / 失败 M 条」，有失败才显红点 */
+function renderTrajBadge(){
+  const el=document.getElementById("moreTrajBadge"); if(!el) return;
+  let arr=[]; try{ arr=trajGet(); }catch(e){}
+  const bad=arr.filter(function(t){ return !t.ok; }).length;
+  if(!arr.length){ el.style.display="none"; return; }
+  el.style.display=""; el.textContent=String(arr.length);
+  el.style.background=bad?"#c0392b":"";
+  el.title="已记录 "+arr.length+" 条"+(bad?("，失败 "+bad+" 条"):"");
+}
 function closeMore(){document.getElementById("morePanel").classList.remove("on");}
 /* 顶部 ⋮ 溢出菜单：把次要功能收进去，顶栏保持清爽 */
 function openAppMenu(e){ if(e) e.stopPropagation(); document.getElementById("appMenu").classList.add("on"); document.getElementById("appMenuMask").classList.add("on"); }
@@ -13835,6 +13957,7 @@ async function counselSend(){
          参谋要的是稳和快，不是最强推理；v4-pro 会把 token 预算耗在思考上导致正文为空。
          若要指定模型，仍以 ai.counselModel 覆盖（设置里没有该项时为 undefined，不生效）。 */
       const _cm = ai.counselModel || "deepseek-flash";
+      trajTag("剧情参谋");
       out=await callAI({sys:sys, user:user, temperature:0.85, max_tokens:2400, modelOverride:_cm});
     }catch(e){
       /* v112：不再只靠 2.4 秒的 toast —— 顶部留一条常驻错误条，可展开诊断 */
@@ -14181,7 +14304,179 @@ async function runAiDiag(btn){
     if(btn){ btn.disabled=false; btn.textContent="开始体检"; }
   }
 }
-function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+/* ================= v121：生成轨迹面板 ================= */
+/* 列表已经按时间倒序，秒对用户没信息量，却要占 20 多像素——手机上一挤就把别的片段顶到第二行 */
+function fmtTime(ts){
+  try{ const d=new Date(ts); const p=function(n){ return n<10?("0"+n):(""+n); };
+    return (d.getMonth()+1)+"/"+d.getDate()+" "+p(d.getHours())+":"+p(d.getMinutes());
+  }catch(e){ return "?"; }
+}
+function trajEsc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+/* 412 宽的手机上每行只放得下 4–5 个片段，所以耗时和字数都压成短格式：
+   3300ms → 3.3s；640 字 → 640字。省下来的空间留给时间和任务名，避免折行。 */
+function fmtDur(ms){
+  const n=Number(ms)||0;
+  return n<1000 ? (n+"ms") : ((n/1000).toFixed(n<10000?1:0)+"s");
+}
+/* finish_reason 直接甩给用户等于没说：stop=正常写完，length=被 max_tokens 截断（最要命的那种）。 */
+function frLabel(fr){
+  const s=String(fr||"");
+  if(!s) return {t:"—",warn:false};
+  if(s==="stop") return {t:"完整",warn:false};
+  if(s==="length") return {t:"截断",warn:true};
+  if(s==="content_filter") return {t:"被拦",warn:true};
+  return {t:s,warn:false};
+}
+function showTrajPanel(){
+  try{
+    let old=document.getElementById("trajMask"); if(old) old.remove();
+    if(!document.getElementById("cssTraj")){
+      const st=document.createElement("style"); st.id="cssTraj";
+      st.textContent=".traj-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:10px;}"
+        +".traj-card{background:var(--card,#fff);color:var(--ink,#1a1a1a);width:min(760px,100%);height:92vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);}"
+        +".traj-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line,rgba(127,127,127,.25));flex:none;flex-wrap:wrap;}"
+        +".traj-h>button{padding:6px 10px;min-height:34px;font-size:12.5px;white-space:nowrap;}"
+        +".traj-q{order:5;flex:1 1 100%;min-height:34px;}"
+        +".traj-h b{font-size:15px;font-weight:700;}"
+        +".traj-body{flex:1;overflow:auto;padding:8px 10px;}"
+        +".traj-row{border:1px solid var(--line,rgba(127,127,127,.22));border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer;}"
+        +".traj-row.bad{border-color:#c0392b;background:rgba(192,57,43,.06);}"
+        +".traj-l1{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;}"
+        +".traj-tag{background:var(--soft,rgba(127,127,127,.12));border-radius:6px;padding:1px 6px;font-size:11.5px;}"
+        +".traj-det{margin-top:8px;border-top:1px dashed var(--line,rgba(127,127,127,.3));padding-top:8px;display:none;}"
+        +".traj-det.on{display:block;}"
+        +".traj-sec{margin-bottom:8px;}"
+        +".traj-sec-h{font-size:12px;color:var(--sub);margin-bottom:3px;}"
+        +".traj-pre{white-space:pre-wrap;word-break:break-all;background:var(--soft,rgba(127,127,127,.07));border-radius:8px;padding:7px 9px;font-size:11.5px;line-height:1.65;max-height:190px;overflow:auto;font-family:var(--font-mono,monospace);}";
+      document.head.appendChild(st);
+    }
+    const box=document.createElement("div"); box.id="trajMask"; box.className="traj-mask";
+    box.innerHTML='<div class="traj-card">'
+      +'<div class="traj-h">'
+        +'<b>📼 生成轨迹</b>'
+        +'<input id="trajQ" class="traj-q" type="search" placeholder="搜 prompt / 模型 / 任务 / 结果…" oninput="trajRender()">'
+        +'<button type="button" onclick="trajToggleRec(this)">'+(trajOn()?"记录中":"已关闭")+'</button>'
+        +'<button type="button" onclick="trajToggleFull(this)">'+(trajFullOn()?"完整prompt":"摘要")+'</button>'
+        +'<button type="button" onclick="trajClearAsk()">清空</button>'
+        +'<button type="button" onclick="document.getElementById(\'trajMask\').remove()">✕</button>'
+      +'</div>'
+      +'<div id="trajStat" style="padding:6px 12px;font-size:12px;color:var(--sub);border-bottom:1px solid var(--line,rgba(127,127,127,.18));flex:none;"></div>'
+      +'<div class="traj-body" id="trajList"></div>'
+      +'</div>';
+    document.body.appendChild(box);
+    trajRender();
+  }catch(e){ toastErr("打开轨迹失败："+(e&&e.message)); }
+}
+function trajToggleRec(btn){
+  trajSetOn(!trajOn()); btn.textContent=trajOn()?"记录中":"已关闭"; toast(trajOn()?"已开启轨迹记录":"已关闭轨迹记录");
+}
+function trajToggleFull(btn){
+  trajSetFull(!trajFullOn()); btn.textContent=trajFullOn()?"完整prompt":"摘要";
+  toast(trajFullOn()?"完整 prompt 模式：存全文但只留最近 30 条，注意占用":"已切回摘要模式");
+}
+function trajClearAsk(){
+  if(!confirm("清空全部轨迹记录？此操作不可撤销。")) return;
+  trajClear(); trajRender(); toast("轨迹已清空");
+}
+function trajRender(){
+  const list=document.getElementById("trajList"); if(!list) return;
+  const q=String((document.getElementById("trajQ")||{}).value||"").trim().toLowerCase();
+  let arr=trajGet().slice().reverse();
+  const total=arr.length;
+  if(q) arr=arr.filter(function(t){
+    return ((t.sys||"")+(t.user||"")+(t.out||"")+(t.tag||"")+(t.req||"")+(t.ret||"")+(t.err||"")).toLowerCase().indexOf(q)>=0;
+  });
+  const bad=trajGet().filter(function(t){ return !t.ok; }).length;
+  const st=document.getElementById("trajStat");
+  if(st) st.innerHTML="共 "+total+" 条"+(bad?("，其中失败 "+bad+" 条"):"")+(q?("，匹配 "+arr.length+" 条"):"")+"　·　点任意一条展开完整 prompt 与返回结果";
+  if(!arr.length){ list.innerHTML='<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px;">'+(total?"没有匹配的记录":"还没有记录——去写一段或点一次参谋，这里就会有第一条")+'</div>'; return; }
+  list.innerHTML=arr.map(function(t){
+    const cls=t.ok?"traj-row":"traj-row bad";
+    const bits=[];
+    bits.push('<span class="traj-tag">'+trajEsc(t.tag||"—")+'</span>');
+    bits.push('<span>'+trajEsc(t.req||"?")+(t.ret&&t.ret!==t.req?("→"+trajEsc(t.ret)):"")+'</span>');
+    const _fr=frLabel(t.fr);
+    bits.push('<span style="color:'+(_fr.warn?"#c0392b":"var(--sub)")+';'+( _fr.warn?"font-weight:700;":"")+'">'+trajEsc(_fr.t)+'</span>');
+    bits.push('<span style="color:var(--sub);">'+trajEsc(t.outLen)+(t.rsLen?("字·思"+trajEsc(t.rsLen)):"字")+'</span>');
+    bits.push('<span style="color:var(--sub);">'+trajEsc(fmtDur(t.ms))+'</span>');
+    if(!t.ok) bits.push('<span style="color:#c0392b;font-weight:700;">失败</span>');
+    return '<div class="'+cls+'" onclick="trajToggleDet(\''+t.id+'\')">'
+      +'<div class="traj-l1">'+bits.join("")+'<span style="margin-left:auto;color:var(--sub);">'+trajEsc(fmtTime(t.ts))+'</span></div>'
+      +'<div class="traj-det" id="trajDet_'+t.id+'"></div>'
+      +'</div>';
+  }).join("");
+}
+/* thinking 的三种取值对用户毫无意义，翻译成「关 / 开 / 未发送」——
+   尤其「未发送」很关键：有些接口默认自己开思考，这里就是它偷偷吃预算的入口。 */
+function thinkLabel(v){
+  const s=String(v||"");
+  if(s==="disabled") return "关";
+  if(s==="enabled") return "开";
+  if(s==="omit") return "未发送";
+  return s||"—";
+}
+function trajToggleDet(id){
+  const el=document.getElementById("trajDet_"+id); if(!el) return;
+  if(el.classList.contains("on")){ el.classList.remove("on"); el.innerHTML=""; return; }
+  const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t) return;
+  const cutNote=((t.sysCut||t.userCut)?('<div style="color:#b8860b;font-size:11.5px;margin-bottom:6px;">⚠ 这条存的是截断版（sys '+trajEsc(t.sysLen)+' 字 / user '+trajEsc(t.userLen)+' 字）。要全文请开「完整prompt」。</div>'):"");
+  const sec=function(title,txt){
+    return '<div class="traj-sec"><div class="traj-sec-h">'+title+'</div><div class="traj-pre">'+trajEsc(txt||"（空）")+'</div></div>';
+  };
+  el.innerHTML=cutNote
+    +'<div style="font-size:11.5px;color:var(--sub);margin-bottom:6px;">温度 '+trajEsc(t.temp)+' · max_tokens '+trajEsc(t.mt)+' · 思考 '+trajEsc(thinkLabel(t.think))+' · 输入 '+trajEsc(t.uin)+' tok / 输出 '+trajEsc(t.uout)+' tok</div>'
+    +sec("系统提示", t.sys)
+    +sec("用户提示", t.user)
+    +sec("返回结果", t.out||(t.ok?"（空）":"（本次失败，无返回）"))
+    +(t.err?sec("失败原因", t.err):"")
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'sys\')">复制系统提示</button>'
+      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'user\')">复制用户提示</button>'
+      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'out\')">复制返回结果</button>'
+      +'<button type="button" class="primary" onclick="event.stopPropagation();trajReplay(\''+t.id+'\')">🔁 用这条重跑</button>'
+    +'</div>';
+  el.classList.add("on");
+}
+function trajCopy(id,which){
+  const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t) return;
+  const txt=String(t[which]||"");
+  fallbackCopy(txt);
+}
+async function trajReplay(id){
+  const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t){ toast("找不到这条记录"); return; }
+  const cut=(t.sysCut||t.userCut);
+  if(!confirm("用这条记录的 prompt 重跑一次？\n\n任务："+(t.tag||"—")+"\n模型："+(t.req||"—")+"\n温度："+t.temp+" / max_tokens："+t.mt
+      +(cut?"\n\n⚠ 存的是截断版 prompt，重跑结果可能与当时不同。":""))) return;
+  trajTag(t.tag||"重跑");
+  try{
+    toast("重跑中…");
+    const out=await callAI({sys:t.sys, user:t.user, temperature:(typeof t.temp==="number"?t.temp:0.8), max_tokens:t.mt||8000, modelOverride:t.req});
+    let old=document.getElementById("trajRpMask"); if(old) old.remove();
+    const box=document.createElement("div"); box.id="trajRpMask";
+    box.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10001;display:flex;align-items:center;justify-content:center;padding:10px;";
+    box.innerHTML='<div style="background:var(--card,#fff);color:var(--ink,#1a1a1a);width:min(720px,100%);max-height:90vh;overflow:auto;border-radius:14px;padding:14px;">'
+      +'<div style="font-weight:700;font-size:15px;margin-bottom:8px;">🔁 重跑对比</div>'
+      +'<div style="font-size:12px;color:var(--sub);margin-bottom:10px;">模型 '+trajEsc(t.req)+' · 温度 '+trajEsc(t.temp)+'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;">'
+        +'<div><div style="font-size:12px;color:var(--sub);margin-bottom:4px;">当时（'+trajEsc(fmtTime(t.ts))+'）</div>'
+        +'<div class="traj-pre">'+trajEsc(t.out||"（空）")+'</div></div>'
+        +'<div><div style="font-size:12px;color:var(--sub);margin-bottom:4px;">刚重跑</div>'
+        +'<div class="traj-pre">'+trajEsc(out||"（空）")+'</div></div>'
+      +'</div>'
+      +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'
+        +'<button type="button" class="primary" onclick="fallbackCopy(this.dataset.v)">复制新结果</button>'
+        +'<button type="button" onclick="document.getElementById(\'trajRpMask\').remove()">关闭</button>'
+      +'</div></div>';
+    document.body.appendChild(box);
+    const cb=box.querySelector("button.primary"); if(cb) cb.dataset.v=String(out||"");
+  }catch(e){ toastErr("重跑失败："+String((e&&e.message)||e).slice(0,200)); }
+}
+function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} try{ renderTrajMeta(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+function renderTrajMeta(){
+  const el=document.getElementById("aiTrajMeta"); if(!el) return;
+  const arr=trajGet(); const bad=arr.filter(function(t){ return !t.ok; }).length;
+  el.innerHTML="已记录 "+arr.length+" 条"+(bad?("（失败 "+bad+" 条）"):"")+"　·　"+(trajOn()?"记录中":"已关闭")+"　·　"+(trajFullOn()?"完整 prompt":"摘要模式");
+}
 function closeGlobalSettings(){ var m=document.getElementById('globalMask'); if(m)m.classList.remove('on'); }
 function pwaSupported(){ return !!_deferredPrompt || isIOS(); }
 function refreshGlobalSettings(){
