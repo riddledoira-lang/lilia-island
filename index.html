@@ -7430,7 +7430,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v122";
+const APP_VERSION="v123";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -14237,26 +14237,27 @@ async function runAiDiag(btn){
       rows.push({req:m, ret:(r.model||""), r:r, verdict:verdict, color:color});
       const tbl=document.getElementById("aiDiagTbl");
       if(tbl){
-        let h='<table style="border-collapse:collapse;width:100%;font-size:11.5px;">'
-          +'<thead><tr style="background:var(--soft,rgba(127,127,127,.1));">'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">请求模型</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">接口实际返回</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">finish</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">正文</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">思考</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">耗时</th>'
-          +'<th style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:left;">结论</th>'
-          +'</tr></thead><tbody>';
+        /* v123：原来是 7 列表格，412 宽的手机上「结论」那一列（最该看的一列）被切掉一半，
+           正文/思考的表头被挤成竖排。改成一行一卡：模型名 + 关键数字一行 + 结论一行，
+           再也不会有内容被截，也不用左右滑动。 */
+        let h='';
         rows.forEach(function(x){
-          h+='<tr><td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">'+esc2(x.req)+'</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;">'+esc2(x.ret||"—")+'</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+esc2(x.r.fr||"—")+'</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.content?x.r.content.length+" 字":"0")+'</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.reason?x.r.reason.length+" 字":"0")+'</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;text-align:center;">'+(x.r.ms||0)+'ms</td>'
-            +'<td style="border:1px solid var(--line,rgba(127,127,127,.25));padding:4px 5px;color:'+x.color+';font-weight:700;">'+esc2(x.verdict)+'</td></tr>';
+          const reqM=String(x.req||""), retM=String(x.ret||"");
+          const diff=(retM && reqM && retM!==reqM);
+          h+='<div style="border:1px solid var(--line,rgba(127,127,127,.25));border-radius:10px;padding:8px 10px;margin-bottom:7px;">'
+            +'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">'
+              +'<b style="font-size:13px;word-break:break-all;">'+esc2(reqM)+'</b>'
+              +'<span style="color:var(--sub);font-size:11.5px;flex:none;">'+(x.r.ms||0)+'ms</span>'
+            +'</div>'
+            +'<div style="font-size:11.5px;color:'+(diff?"#b8860b":"var(--sub)")+';margin:4px 0 5px;line-height:1.7;">'
+              +'接口实际返回 <b>'+esc2(retM||"—")+'</b>'+(diff?'（和请求的不一致！）':'')
+              +'<br>finish '+esc2(x.r.fr||"—")
+              +' · 正文 '+(x.r.content?String(x.r.content).length:0)+' 字'
+              +' · 思考 '+(x.r.reason?String(x.r.reason).length:0)+' 字'
+            +'</div>'
+            +'<div style="color:'+x.color+';font-weight:800;font-size:12.5px;">'+esc2(x.verdict)+'</div>'
+            +'</div>';
         });
-        h+='</tbody></table>';
         tbl.innerHTML=h;
       }
     }
