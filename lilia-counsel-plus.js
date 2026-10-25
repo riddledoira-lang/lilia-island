@@ -1,5 +1,5 @@
 /* ============================================================
- * lilia-counsel-plus  ·  v125
+ * lilia-counsel-plus  ·  v126
  * 剧情参谋增强模块（独立文件，不修改主程序任何一行代码）
  *
  * 接入方式：主程序 script 之后加载一行 <script src="./lilia-counsel-plus.js">。
@@ -20,7 +20,7 @@
 (function () {
   'use strict';
   if (window.__LILIA_COUNSEL_PLUS__) { return; }        /* 防重复加载 */
-  window.__LILIA_COUNSEL_PLUS__ = { ver: 'v125', ok: false };
+  window.__LILIA_COUNSEL_PLUS__ = { ver: 'v126', ok: false };
 
   var CFG = {
     charMax: 20,      /* 注入人物卡上限（原为 8，直接把配角卡掉了） */
@@ -57,7 +57,10 @@
         '}' +
         /* 下拉钉在列表顶部：人物多到需要滚动时，滚到下面还得先滚回顶上才能用它，
            等于把「快速定位」变成了「又多一步」。sticky + 不透明底色解决。 */
-        '.cp-jump{width:100%;min-height:34px;margin-bottom:6px;position:sticky;top:0;z-index:5;' +
+        /* flex:0 0 auto 是必须的：人物多到溢出时，纵向 flex 会把子项压扁，
+           下拉被从 44px 压到 34px，而 10px 上下内边距 + 16px 字号需要 36px，
+           文字就被它自己的 overflow:clip 裁掉一半。实测 selH=34 < 36 才发现的。 */
+        '.cp-jump{width:100%;flex:0 0 auto;min-height:40px;margin-bottom:6px;position:sticky;top:0;z-index:5;' +
         'background:var(--card,#fff);box-shadow:0 6px 10px -8px rgba(0,0,0,.45);}' +
         '.cp-routes{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}' +
         '.cp-rt{border:1px solid var(--line,rgba(127,127,127,.3));border-radius:8px;padding:6px 8px;flex:1 1 100%;}' +
