@@ -1,5 +1,5 @@
 /* ============================================================
- * lilia-digest-plus  ·  v127
+ * lilia-digest-plus  ·  v128
  * 消化计数一致性 / 增量缓存 / 检索性能 / 费用统计
  *
  * 接入方式与 lilia-counsel-plus.js 完全一致：
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
   if (window.__LILIA_DIGEST_PLUS__) { return; }
-  window.__LILIA_DIGEST_PLUS__ = { ver: 'v127', ok: false };
+  window.__LILIA_DIGEST_PLUS__ = { ver: 'v128', ok: false };
 
   var S = { ragBuild: 0, ragHit: 0, ragMs: 0, ctxHit: 0, ctxBuild: 0, digestOk: 0, digestFail: 0 };
 
@@ -307,26 +307,59 @@
   }
   window.dpRangeCost = function () { return dpCostOf(dpRangeItems().items); };
 
+  /* 找一个「一定存在」的挂载点。
+     原实现只认 #cpRangeOut，而那个节点是 lilia-counsel-plus.js 创建的——
+     那个模块一旦没加载（或将来改动挪了位置），费用行就整行不显示，等于功能缺失。
+     这里退到 trajStat（主程序自带），再退到面板本体，保证钱一定有地方显示。 */
+  function dpMountPoint() {
+    var anchor = document.getElementById('cpRangeOut');
+    if (anchor && anchor.parentNode) return { node: anchor.parentNode, after: anchor };
+    var stat = document.getElementById('trajStat');
+    if (stat && stat.parentNode) return { node: stat.parentNode, after: stat };
+    var panel = document.getElementById('trajList');
+    if (panel && panel.parentNode) return { node: panel.parentNode, after: null };
+    return null;
+  }
+  function dpEnsureLine(id) {
+    var el = document.getElementById(id);
+    if (el) return el;
+    var mp = dpMountPoint();
+    if (!mp) return null;
+    el = document.createElement('div');
+    el.id = id;
+    if (mp.after) mp.node.insertBefore(el, mp.after.nextSibling); else mp.node.appendChild(el);
+    return el;
+  }
+
   function dpRenderCost() {
     try {
-      var out = document.getElementById('cpRangeOut');
-      if (!out) return;
       var r = dpRangeItems();
       var c = dpCostOf(r.items);
-      var el = document.getElementById('dpCostLine');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'dpCostLine';
-        out.parentNode.insertBefore(el, out.nextSibling);
+      var el = dpEnsureLine('dpCostLine');
+      if (!el) return;
+      if (!r.items.length) {
+        el.innerHTML = '<div style="padding:6px 12px;color:var(--sub);">💰 费用估算 ¥0.000（该区间没有记录）</div>';
+        return;
       }
-      if (!r.items.length) { el.innerHTML = '<span style="color:var(--sub);">费用估算 ¥0.000（该区间没有记录）</span>'; return; }
       var per = Object.keys(c.byModel).map(function (m) {
         return m + ' ' + _fmtYuan(c.byModel[m]);
       }).join('　·　');
-      el.innerHTML = '<div style="margin-top:4px;line-height:1.7;">💰 费用估算 <b>' + _fmtYuan(c.total) + '</b>' +
-        (r.open ? '（该区间）' : '（全部记录）') + '<br>' +
-        '<span style="color:var(--sub);font-size:11.5px;">' + E(per) +
-        '<br>按 DeepSeek 公开刊例价估算，未计缓存命中折扣，属估算值、非官方账单。</span></div>';
+      /* 今日累计取自 AI 用量账本（按天归集），比轨迹更可靠：
+         轨迹最多留 150 条，写多了会滚动丢弃，单看轨迹会把当天花费算少。 */
+      var today = 0, todayTxt = '';
+      try {
+        today = Number(aiCostToday()) || 0;
+        if (today > 0) todayTxt = '<br><span style="color:var(--sub);font-size:11.5px;">今日累计 <b>' +
+          _fmtYuan(today) + '</b>（取自用量账本，含轨迹已滚动丢弃的历史调用）</span>';
+      } catch (e) {}
+      el.innerHTML = '<div style="padding:6px 12px 8px;line-height:1.75;border-bottom:1px solid var(--line,rgba(127,127,127,.18));">' +
+        '<div>💰 费用估算 <b style="font-size:14px;">' + _fmtYuan(c.total) + '</b>' +
+        (r.open ? '（该区间 · ' + r.items.length + ' 次调用）' : '（全部轨迹记录 · ' + r.items.length + ' 次调用）') + '</div>' +
+        '<div style="color:var(--sub);font-size:11.5px;margin-top:2px;">分模型：' + E(per) + todayTxt + '</div>' +
+        '<div style="color:var(--sub);font-size:11px;margin-top:2px;line-height:1.6;">' +
+        '单价：输入 ¥1 / 百万 token，输出 ¥8 / 百万 token（与「单日花费上限」同一套价表）。<br>' +
+        '非流式调用取接口返回的真实 usage；流式生成接口不给 usage，按字数估算。<br>' +
+        '未计缓存命中折扣，属估算值、非官方账单。</div></div>';
     } catch (e) {}
   }
 
@@ -337,17 +370,11 @@
       try { dpRenderCost(); } catch (e) {}
       /* 检索索引性能行：让「有没有变慢」这件事可见，而不是靠感觉 */
       try {
-        var out = document.getElementById('cpRangeOut');
-        if (!out) return;
-        var perf = document.getElementById('dpPerfLine');
-        if (!perf) {
-          perf = document.createElement('div');
-          perf.id = 'dpPerfLine';
-          out.parentNode.insertBefore(perf, out.nextSibling);
-        }
-        perf.innerHTML = '<span style="color:var(--sub);font-size:11.5px;">⚡ 检索索引：已构建 ' + S.ragBuild +
+        var perf = dpEnsureLine('dpPerfLine');
+        if (!perf) return;
+        perf.innerHTML = '<div style="padding:4px 12px 8px;color:var(--sub);font-size:11.5px;">⚡ 检索索引：已构建 ' + S.ragBuild +
           ' 次 / 命中 ' + S.ragHit + ' 次' + (S.ragMs ? (' · 末次耗时 ' + S.ragMs + 'ms') : '') +
-          '　·　参谋上下文命中 ' + S.ctxHit + ' 次</span>';
+          '　·　参谋上下文命中 ' + S.ctxHit + ' 次</div>';
       } catch (e2) {}
     };
   }
