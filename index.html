@@ -2081,11 +2081,12 @@
       <button data-p="p8" onclick="switchTab('p8',this);closeMore()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>时间线</button>
     </div>
     <div class="more-sec">
-      <div class="more-sec-h">诊断</div>
+      <div class="more-sec-h">诊断工具 · 下面每一项都能点</div>
       <div class="more-actions">
+        <button class="more-action" onclick="openAiDiag()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V9M10 20V4M16 20v-7M22 20v-4"/></svg></span> 🩺 模型连接体检（AI 到底通不通）</button>
+        <button class="more-action" onclick="closeMore();showTrajPanel()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h4M6 14h8M18 10v4"/></svg></span> 📼 生成轨迹 · AI 当时收到了什么<span class="more-badge" id="moreTrajBadge" style="display:none;"></span></button>
         <button class="more-action" onclick="closeMore();showDigestScopeAudit()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span> 🧭 消化范围体检<span class="more-badge" id="moreDsaBadge" style="display:none;"></span></button>
         <button class="more-action" onclick="closeMore();goTab('p2');setTimeout(function(){var el=document.getElementById('charList');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},120)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span> 人物：别名归并 / 忽略名单 / 手动录入</button>
-        <button class="more-action" onclick="closeMore();showTrajPanel()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h4M6 14h8M18 10v4"/></svg></span> 📼 生成轨迹（看 AI 当时收到了什么）<span class="more-badge" id="moreTrajBadge" style="display:none;"></span></button>
       </div>
     </div>
     <div class="more-sec">
@@ -7429,7 +7430,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v121";
+const APP_VERSION="v122";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -12791,6 +12792,21 @@ function closeModal(ok){document.getElementById("mask").classList.remove("on");i
 function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}try{renderDigestGhost();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");try{renderTrajBadge();}catch(e){}}
+/* v122：把「模型连接体检」也搬到诊断抽屉里。
+   用户报错时第一步该跑的就是它——直接告诉他「填的模型」和「接口实际生效的模型」是不是同一个，
+   以及思考模式有没有把输出预算吃光。以前它埋在 AI 设置面板中段，等于找不到。 */
+function openAiDiag(){
+  try{ closeMore(); }catch(e){}
+  openGlobalSettings();
+  setTimeout(function(){
+    const el=document.getElementById("aiDiagBox"); if(!el) return;
+    el.scrollIntoView({behavior:"smooth",block:"center"});
+    const old=el.style.boxShadow;
+    el.style.transition="box-shadow .2s";
+    el.style.boxShadow="0 0 0 3px #c0392b";
+    setTimeout(function(){ el.style.boxShadow=old||""; },2200);
+  },140);
+}
 /* v121：抽屉里的轨迹入口显示「已记录 N 条 / 失败 M 条」，有失败才显红点 */
 function renderTrajBadge(){
   const el=document.getElementById("moreTrajBadge"); if(!el) return;
