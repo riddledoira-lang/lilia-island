@@ -1,10 +1,11 @@
 /* 莉莉娅的写作岛 · 离线 Service Worker（让网页变成可离线打开的 APP，且自动同步新版本） */
-const CACHE = 'jkd-app-v128';
+const CACHE = 'jkd-app-v130';
 const STATIC = [
   './',
   './index.html',
   './lilia-counsel-plus.js',
   './lilia-digest-plus.js',
+  './lilia-guard-plus.js',
   './manifest.json',
   './icon.svg',
   './icon-192.png',

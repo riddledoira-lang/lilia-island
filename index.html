@@ -18,7 +18,10 @@
   :root{
     --bg:#17161c;            /* 近黑·微紫调（护眼，非纯黑） */
     --card:#201f27;          /* 卡片·炭灰微紫 */
+    --card2:#1b1a22;         /* v130：次级容器（--card2 此前从未定义，导致引用处背景静默失效） */
     --ink:#d9d5e0;           /* 柔光灰白（不刺眼） */
+    --text:#d9d5e0;          /* v130：--text/--txt 此前从未定义，按原 fallback 行为别名到 --ink */
+    --txt:#d9d5e0;
     --sub:#8f8a9e;           /* 雾灰紫 */
     --line:#322f3d;          /* 描边 */
     --brand:#8e7cc3;         /* 雾紫主色（低饱和护眼） */
@@ -32,7 +35,8 @@
   }
   /* 浅色：暖米白（护眼纸感，非纯白） */
   [data-theme="light"]{
-    --bg:#f5f4f0; --card:#fdfcf9; --ink:#3d3a45; --sub:#7d7987;
+    /* v130：--sub 原 #7d7987 在卡片底色上仅 4.13:1（低于 WCAG AA 4.5），改为 #6f6b7a → 5.04:1 达标 */
+    --bg:#f5f4f0; --card:#fdfcf9; --card2:#f7f5ef; --ink:#3d3a45; --sub:#6f6b7a; --text:#3d3a45; --txt:#3d3a45;
     --line:#e4e1ea; --brand:#6d43b8; --brand2:#a8854f; --gold:#a8854f;
     --red:#b5453a; --green:#4f7d59; --blue:#4a6e9a; --soft:#edeaf2;
     --radius:12px; --shadow:0 1px 3px rgba(50,45,70,.1);
@@ -40,7 +44,7 @@
     --editor-bg:#faf9f6;
   }
   [data-theme="dark"]{
-    --bg:#17161c; --card:#201f27; --ink:#d9d5e0; --sub:#8f8a9e;
+    --bg:#17161c; --card:#201f27; --card2:#1b1a22; --ink:#d9d5e0; --text:#d9d5e0; --txt:#d9d5e0; --sub:#8f8a9e;
     --line:#322f3d; --brand:#8e7cc3; --brand2:#c9a86a; --gold:#c9a86a;
     --red:#c96a5e; --green:#7ba887; --blue:#7f97b3; --soft:#262430;
     --shadow:0 2px 10px rgba(0,0,0,.4);
@@ -262,7 +266,8 @@
   .rd-mode-seg{margin-top:10px;}
   .rd-mode-seg button{min-height:40px;}
   .rd-mode-seg button.on{background:var(--brand);color:#fff;border-color:var(--brand);}
-  .rd-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 22px;font-size:17px;line-height:1.95;white-space:pre-wrap;word-break:break-word;color:var(--text);}
+  /* v130：原先写死 17px/1.95，完全不读 --reader-fs/--reader-lh，「显示与阅读」里的字号设置对阅读抽屉无效。改为读取变量并以原值兜底。 */
+  .rd-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 22px;font-size:var(--reader-fs,17px);line-height:var(--reader-lh,1.95);white-space:pre-wrap;word-break:break-word;color:var(--ink);}
   .rd-body.rd-empty{color:var(--sub);font-size:14px;}
   .rd-edit{flex:1;display:flex;flex-direction:column;padding:14px 18px;gap:8px;overflow:hidden;}
   .rd-edit input{font-size:16px;}
@@ -275,7 +280,8 @@
   @media (max-width:768px){
     .reader-modal{max-width:none;width:100%;height:100%;max-height:100%;border-radius:0;}
     #readerMask{padding:0;}
-    .rd-body{padding:16px 16px;font-size:16px;}
+    /* v130：不再写死 16px，移动端只收内边距，字号统一交给 --reader-fs */
+  .rd-body{padding:16px 16px;}
     .rd-foot button{min-width:0;font-size:13px;padding:0 8px;}
   }
 
@@ -331,7 +337,8 @@
   .lkadd select{flex:1;}
   .tl-item{position:relative;padding:0 0 16px 22px;border-left:2px solid var(--line);margin-left:6px;}
   .tl-item:last-child{border-left-color:transparent;}
-  .tl-dot{position:absolute;left:-7px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--brand);border:2px solid #fff;box-shadow:0 0 0 1px var(--line);}
+  /* v130：原为纯白 #fff 描边，未被深色修正清单覆盖，夜间对比度高达 18:1 形成高光点。改为随主题底色。 */
+  .tl-dot{position:absolute;left:-7px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--brand);border:2px solid var(--bg);box-shadow:0 0 0 1px var(--line);}
   .tl-date{font-size:12px;color:var(--sub);}
   .tl-edit input{font-size:13px;min-height:34px;padding:4px 8px;}
   @media(max-width:768px){
@@ -443,16 +450,18 @@
 
   /* ===== 人物库：左列表 + 右编辑 分栏 ===== */
   .char-split{display:grid;grid-template-columns:240px 1fr;gap:14px;align-items:start;}
-  .char-list{border:1px solid var(--line);border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:6px;padding:8px;max-height:70vh;overflow-y:auto;}
-  .char-list .cl-head{font-size:13px;color:var(--sub);padding:2px 4px 6px;position:sticky;top:0;background:#fff;}
-  .char-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font-size:14px;min-height:44px;}
+  /* v130：下面这批原先写死 #fff，既不在深色修正清单里（深色下是纯白亮块 lum=1.0），
+     也是浅色主题里唯一一批「真白」表面，与护眼纸感不一致。统一改用 var(--card)，两个主题一起解决。 */
+  .char-list{border:1px solid var(--line);border-radius:12px;background:var(--card);display:flex;flex-direction:column;gap:6px;padding:8px;max-height:70vh;overflow-y:auto;}
+  .char-list .cl-head{font-size:13px;color:var(--sub);padding:2px 4px 6px;position:sticky;top:0;background:var(--card);}
+  .char-chip{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;font-size:14px;min-height:44px;}
   .char-chip:hover{border-color:var(--brand);}
   .char-chip.on{border-color:var(--brand);background:var(--soft);}
   .char-chip .dot{width:14px;height:14px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.1);}
   .char-chip .nm{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .char-chip .hs{font-size:11px;color:var(--brand);flex:none;}
   .char-chip .del{color:var(--red);border:none;background:transparent;font-size:14px;flex:none;min-height:28px;padding:0 4px;cursor:pointer;}
-  .char-editor{border:1px solid var(--line);border-radius:12px;background:#fff;padding:14px;min-height:200px;}
+  .char-editor{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px;min-height:200px;}
   .char-editor .ce-empty{color:var(--sub);font-size:14px;padding:30px 10px;text-align:center;}
   .char-editor .ce-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
   .char-editor .ce-head input.name{flex:1;min-width:120px;font-size:16px;font-weight:700;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--input-bg);color:var(--ink);}
@@ -473,13 +482,13 @@
   .arc-add{display:flex;gap:6px;margin-top:6px;}
   .arc-add input{flex:1;min-width:0;font-size:14px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--input-bg);color:var(--ink);}
   .emo-arc-item .ae{flex:none;display:flex;gap:4px;}
-  .emo-arc-item .ae button{min-height:24px;padding:0 6px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;}
+  .emo-arc-item .ae button{min-height:24px;padding:0 6px;font-size:11px;border:1px solid var(--line);background:var(--card);border-radius:6px;cursor:pointer;}
   /* 关系图：视图切换 / 连线 / 冲突 */
   .rel-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 8px;}
   .rel-view-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
-  .rel-view-seg button{border:none;background:#fff;min-height:34px;padding:0 12px;font-size:12px;cursor:pointer;color:var(--text);}
+  .rel-view-seg button{border:none;background:var(--card);min-height:34px;padding:0 12px;font-size:12px;cursor:pointer;color:var(--ink);}
   .rel-view-seg button.on{background:var(--brand);color:#fff;}
-  .rel-zoom{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:2px 4px;background:#fff;}
+  .rel-zoom{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:2px 4px;background:var(--card);}
   .rel-zoom button{border:none;background:#f4f5f7;min-width:32px;min-height:30px;padding:0 8px;font-size:16px;line-height:1;border-radius:6px;cursor:pointer;color:var(--text);font-weight:700;}
   .rel-zoom button:active{background:var(--brand);color:#fff;}
   .rel-zoom .rel-fit{font-size:15px;}
@@ -492,7 +501,7 @@
   .rel-temp{stroke:#c0392b;stroke-width:2.5;stroke-dasharray:5 4;opacity:.8;}
   .onboard-mask{position:fixed;inset:0;background:rgba(30,20,10,.5);display:none;align-items:center;justify-content:center;z-index:120;padding:16px;}
   .onboard-mask.on{display:flex;}
-  .onboard{max-width:420px;width:100%;background:#fff;border-radius:16px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto;}
+  .onboard{max-width:420px;width:100%;background:var(--card);border-radius:16px;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto;}
   .onboard h3{margin:0 0 6px;font-size:19px;}
   .onboard p{color:var(--sub);font-size:14px;line-height:1.6;margin:0 0 14px;}
   .onboard .ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
@@ -7430,7 +7439,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v128";
+const APP_VERSION="v130";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7440,6 +7449,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v130","整体升级评估后的第一批「已确认缺陷」修复，全部零风险，不碰任何生成逻辑与提示词。① 【阅读器字号设置此前完全无效】阅读抽屉的正文字号写死 17px（手机上还写死 16px），从不读取你在「显示与阅读」里设的「正文字号/行距」——调到 24px，阅读界面纹丝不动。现在统一改读变量，设置项终于落到阅读区。② 【浅色模式小字看不清】浅色主题的次要文字对比度只有 4.13:1，低于无障碍标准 4.5:1，而它恰好承载着全站几乎所有 10–13px 的小字（说明文字、日期、徽章）。已加深到 5.04:1，观感几乎不变但长时间读不再吃力；深色模式本来就达标，未动。③ 【夜间的一批纯白亮块】深色模式下有 8 个组件（角色列表/角色卡/角色编辑器/关系图工具条/缩放条/情感线小按钮/引导卡）仍在用纯白底，在这套近黑主题上亮到刺眼；同批把活动时间轴小圆点的纯白描边改回随主题。现在它们一律跟随卡片底色，深色下不再有白斑，浅色下也不再是唯一一批「真白」表面。④ 【补上三个从未定义的变量】代码中一直引用 --card2 / --text / --txt，但三处主题定义里一个都没写——于是检索面板、回收站等容器的背景静默失效、层级消失。现已补齐，卡片层级恢复。以上改动只涉及样式与变量，正文、存档结构、AI 调用链路均未改动。"],
   ["v114","补上「深度续写到一半切走就丢稿」。① 【根因】流式生成期间 onToken 只做 ta.value=...，没有任何落盘。自动保存是 700ms 防抖、且依赖 input 事件或主动调用，流式写入两者都不满足，只有整章生成成功后才会写章节库。于是切到别的应用时 WebView 被回收，已生成的几千字只活在 DOM 里，进程一死全没，这次生成烧掉的 token 全部白费——这是「切后台导致 token 白烧」的真正元凶。② 【现在】流式期间按「距上次 ≥3 秒 且 新增 ≥150 字」双条件节流写入章节库，中断后重进页面，已生成的部分就在那一章里，可以接着写，不用从头再烧一遍。生成结束（无论成功还是失败）再补写一次并清标记。③ 【安全边界】落盘只写 body 与 title，绝不碰 status——新增章节固定为 draft。v103 的前文过滤依赖 status==='done'，半成品绝不能被算作已完稿而污染后续上下文。④ 【中断提示】启动或切回前台时，若上次生成没跑完，会提示「第X章生成到一半中断了，已保住约 N 字」；超过 6 小时不再提。正在生成中不会误报。⑤ 覆盖两条生成链路：接着写 与 深度续写（后者最长最贵，中断损失最大）。⑥ 仍然建议的操作不变：保持前台、单次生成字数调小、可关掉自动精修——落盘只是把损失从「全丢」降到「丢最后几秒」，不是让你可以随便切。"],
   ["v113","修好「节拍卡切走就丢」。① 【根因】深度续写里生成的 3 套节拍方案，此前只存在于内存变量与动态创建的弹窗 DOM 里，没有任何落盘。切到别的应用（如 DeepSeek 聊剧情）时，手机会回收 WebView / 重载页面，内存态清零——AI 已经生成的 3 套方案连同弹窗一起消失，这次调用的 token 全部白烧。作为对比，另一条路径「🎲 一键灵感推演」是有落盘的（存 deductions），所以那条不丢，只有深度续写内嵌的这个弹窗会丢。② 【现在】生成 3 套方案后立刻落盘（存 beatPending），页面回到前台或重新启动时自动把没处理完的弹窗原样补回来，标题会标明「上次未处理的节拍卡（已为你保留）」，方案内容一条不少。超过 24 小时的旧记录不再打扰。③ 【恢复为硬弹窗】v100 为了防止流程卡死，把「点空白处 / 按 Esc」做成了关闭——副作用是误触一下结果就没了。现在改回不可误关：唯一出口是「选一套」或「点底部按钮明确放弃」，不处理就不会消失，与旧版一致。④ 【恢复态的选择如何生效】补弹的弹窗此时已经没有生成流程在等它了，所以选一套会挂接为「灵感推演方案」（与手动推演同一个挂载点），下次点深度续写时会自动采用并提示；明确放弃则不挂接。⑤ 不影响其它交互：接着写、参谋、审稿、消化、导入导出等均未改动。"],
   ["v112","修好「剧情参谋」点了就失败、报错一闪就没。① 【根因一 · 报错看不见】参谋原先所有错误只走 toast()，2.4 秒自动消失、不留痕迹，所以你只看到屏幕闪了一下。现在弹窗顶部有常驻错误条：标题用大白话说清是什么错，正文给接口原文，点「诊断」还能看到完整的 AI 配置（Base URL / 两个模型 / 思考模式 / Key 有没有填 / 单日上限与今日已用）和针对性的排障建议。错误按 8 类自动翻译：超上限、没配置、Key 失效、余额/限流、网络超时、模型不可用、思考把预算吃光、Base URL 指错。② 【根因二 · 非流式只有一个候选模型】callAI() 的非流式分支原本只试一个模型，失败就整体抛错；而流式分支有 3 个候选兜底。参谋、深度续写的分析阶段、体检台、人物分析全走非流式，一旦模型名不被你的 Key 支持（400/404）或推理模型把预算耗在思考上导致正文为空，这些功能就一起失效。现已改为与非流式同一套候选链（deepseek-flash 兜底），失败自动换模型并提示「已自动改用模型 X」，不再整体失败。③ 【参谋换模型】参谋固定用 deepseek-flash 打头——参谋要的是稳和快，不是最强推理；v4-pro 这类推理模型容易把 2400 token 全烧在思考上，返回空正文。④ 【补上参谋缺失的记忆】此前参谋只看得到本卷设定、卷档案、最近 3 章和正文尾部，完全看不到人物卡与全书总档案——你问「薇拉这么做合理吗」它其实没有薇拉的设定，只能瞎猜。现在会把人物卡（核心特质 / 表里欲望 / 说话方式 / 思维模式 / 行为禁区，取前 8 位、主角优先）与全书总档案一并带给它，讨论结论才有依据。⑤ 讨论记录先存书内字段，失败时退回本机备份，换卷不会丢。⑥ 发送中加锁，连点不会重复计费。参谋仍然只讨论、绝不写正文——这条没变。"],
@@ -14563,6 +14573,8 @@ window.addEventListener('load',function(){
 <script src="./lilia-counsel-plus.js"></script>
 <!-- v127：消化计数一致性 / 增量缓存 / 检索性能 / 费用统计（独立文件）。加载失败时主程序原有行为完全不变。 -->
 <script src="./lilia-digest-plus.js"></script>
+<!-- v129：降级留痕 / 人物动态状态 / 节拍卡兜底（独立文件）。加载失败时主程序原有行为完全不变。 -->
+<script src="./lilia-guard-plus.js"></script>
 
 <!-- v97 体检台：本地规则扫描（零消耗）+ AI 审稿 + 去套话重写 -->
 <div class="modal-mask" id="qsMask">
