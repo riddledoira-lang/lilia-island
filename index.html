@@ -7588,7 +7588,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v131";
+const APP_VERSION="v132";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7598,6 +7598,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v132","修好「接着写 / 整章精修在下拉为空时会丢掉整卷长程设定」。① 【症状】编辑器上方的分卷下拉，在「全书」视图下会被置成未分卷（或刚清过表单时是空的）。此时「接着写」与「整章精修」会按「未分卷」去取卷档案——而未分卷的卷档案几乎总是空的，于是本卷的长程设定（早期人物关系 / 长线伏笔 / 卷脉络）整段不注入，只剩前文正文撑着。前文还在，但模型读不到「谁和谁是什么关系、哪些伏笔还没收」，设定漂移与凭空捏造的风险随之上升。② 【为什么以前没发现】深度续写在 v110 就加了「回退到紧邻上一章所属分卷」的纠偏，接着写这条最常用的入口却没有——两条链路行为不一致，而冒烟测试只看「点不点得动」，不看「拿没拿到该拿的东西」。③ 【现在】抽出唯一解析入口，接着写 / 深度续写 / 整章精修三条链路共用同一份实现，下拉为空 / 未分卷 / 全书时一律回退到紧邻上一章所属的卷并写回下拉，保证「归属 / 前文 / 卷档案」三者同一卷，并提示归入哪一卷。抽成单一函数是为了杜绝以后再次分叉。④ 【顺带修掉同一处的第二个隐患】前文收集函数内部，过滤前文用的是「调用方传进来的卷」，而取卷档案用的却是「下拉框的原始值」——两者不是同一个来源，一旦调用方显式传了卷（比如接着写），就会出现「前文按 A 卷过滤、档案按 B 卷取」的错位。现在三处口径（前文过滤 / 卷档案 / 伏笔关键词）统一按同一次生效的卷取值，接着写也改为显式传卷，不再依赖「顺手把下拉改对」这种隐式副作用。不改动数据结构与存储，不动 IDB 版本。"],
   ["v131","本次只为一件事：把「文本质量」从一堆互相打架的约束里捞出来。改动全部集中在提示词与默认值，不动数据结构、不动存储、不改 IDB 版本。① 【人称串篇的根因修掉了】此前有 6 处地方写死了「第一人称」，而分卷设定里西里斯篇写的是第三人称——一次生成会同时收到 5 条第一人称 + 1 条第三人称，人称铁律自称「最优先级」却被 5:1 的数量淹没，模型只能靠出现频次裁决，人称串篇由此而来。现在人称只有一个真源：分卷设定。其余各处（系统提示词、续写质量要求、深度续写写作要求、精修、润色、视角约束、人物分析）一律改为随分卷自动变化，不再写死。② 【人称三级调度】显式填了 pov 就锁死（詹姆斯篇、西里斯篇）；没填但本卷已有足够正文的，自动从正文判定人称并注入同等强度的铁律，不用你手动补数据；新分卷还没有正文时不注入任何人称约束，想怎么写怎么写。③ 【不记得改没改过 ai.sys 也没关系】启动时自动体检：系统提示词或「文风准则」里若写死了人称且与分卷冲突，会提示并可一键改为中性（只追加覆盖声明、替换文风准则里的人称行，你的其他设定一字不动）。在「AI 生成设置」点保存时也会当场体检一次。未锁死人称的分卷会提示「已能从正文判定为 X，要锁死吗」，你点头才写数据。④ 【自动精修不再压平文笔】精修温度 0.70 → 0.95（仍低于生成的 1.35，修逻辑的稳定性还在）；「做减法删去拖沓」改为「删去真正的重复与空转，承载情绪层次与人物动机的段落压缩而非删除」；「不得出现风格跳脱」改为「允许本章情绪需要的强度超出前文」；文风参照从档案摘要改为上一章真实正文片段——摘要是压缩产物，句子短、没有语气起伏，拿它当范本等于主动把文笔往平均值拉。⑤ 【冲突类型不再机械轮换】原来按章号取模硬性指定本章写哪类冲突，剧情自然走向是内心挣扎时轮换却落到「人物与环境」，模型被迫生造外部阻力，转折因此生硬。现在默认只给软建议，剧情该往哪走就往哪走；你在下拉里手动选定仍然是强约束。⑥ 【字数与钩子松绑】深度续写的 2500–3500 字改为参考区间，高潮章与转折章不受限；三处「每章必须留强钩子」合并为一处并改为「落在有力的收束或未完成的动作上」，钩子用多了会贬值。⑦ 【文风范本的两条硬约束】上一章真实正文片段现在只取「已完稿」且「章号小于当前章」的那一章——原先按最大章号取，精修正在改的这一章本身往往就是最大章号，等于让 AI 拿本章自己的草稿当范本，越修越像自己、文风反而僵死；草稿与待修改章同样不得当范本。⑧ 【上下文分工与冲突裁决】精修提示词新增一段硬性声明：片段只管文风与当前状态、摘要只管长程事实、两者冲突以片段为准且严禁编造第三种说法调和、材料未覆盖的一律视为尚未发生。没有这段声明时，模型遇到「摘要说伏笔未回收、片段里已回收」这类矛盾，最常见的处理是自己编一个说法调和——那是最难察觉的一类幻觉。"],
   ["v130","整体升级评估后的第一批「已确认缺陷」修复，全部零风险，不碰任何生成逻辑与提示词。① 【阅读器字号设置此前完全无效】阅读抽屉的正文字号写死 17px（手机上还写死 16px），从不读取你在「显示与阅读」里设的「正文字号/行距」——调到 24px，阅读界面纹丝不动。现在统一改读变量，设置项终于落到阅读区。② 【浅色模式小字看不清】浅色主题的次要文字对比度只有 4.13:1，低于无障碍标准 4.5:1，而它恰好承载着全站几乎所有 10–13px 的小字（说明文字、日期、徽章）。已加深到 5.04:1，观感几乎不变但长时间读不再吃力；深色模式本来就达标，未动。③ 【夜间的一批纯白亮块】深色模式下有 8 个组件（角色列表/角色卡/角色编辑器/关系图工具条/缩放条/情感线小按钮/引导卡）仍在用纯白底，在这套近黑主题上亮到刺眼；同批把活动时间轴小圆点的纯白描边改回随主题。现在它们一律跟随卡片底色，深色下不再有白斑，浅色下也不再是唯一一批「真白」表面。④ 【补上三个从未定义的变量】代码中一直引用 --card2 / --text / --txt，但三处主题定义里一个都没写——于是检索面板、回收站等容器的背景静默失效、层级消失。现已补齐，卡片层级恢复。以上改动只涉及样式与变量，正文、存档结构、AI 调用链路均未改动。"],
   ["v114","补上「深度续写到一半切走就丢稿」。① 【根因】流式生成期间 onToken 只做 ta.value=...，没有任何落盘。自动保存是 700ms 防抖、且依赖 input 事件或主动调用，流式写入两者都不满足，只有整章生成成功后才会写章节库。于是切到别的应用时 WebView 被回收，已生成的几千字只活在 DOM 里，进程一死全没，这次生成烧掉的 token 全部白费——这是「切后台导致 token 白烧」的真正元凶。② 【现在】流式期间按「距上次 ≥3 秒 且 新增 ≥150 字」双条件节流写入章节库，中断后重进页面，已生成的部分就在那一章里，可以接着写，不用从头再烧一遍。生成结束（无论成功还是失败）再补写一次并清标记。③ 【安全边界】落盘只写 body 与 title，绝不碰 status——新增章节固定为 draft。v103 的前文过滤依赖 status==='done'，半成品绝不能被算作已完稿而污染后续上下文。④ 【中断提示】启动或切回前台时，若上次生成没跑完，会提示「第X章生成到一半中断了，已保住约 N 字」；超过 6 小时不再提。正在生成中不会误报。⑤ 覆盖两条生成链路：接着写 与 深度续写（后者最长最贵，中断损失最大）。⑥ 仍然建议的操作不变：保持前台、单次生成字数调小、可关掉自动精修——落盘只是把损失从「全丢」降到「丢最后几秒」，不是让你可以随便切。"],
@@ -8172,6 +8173,31 @@ async function testAI(){
 /* 汇总「前文」：本分卷章节梗概(局部脉络) + 最近若干章完整正文(深度学习)，供 AI 续写/分析使用。
    分卷隔离：默认只汇总「当前编辑分卷」的章节（vol 模式），避免不同分卷剧情互相串味；
    传 {all:true} 则汇总全书（book 模式，用于「续写全书完整剧情」）。 */
+/* v131：续写章所属分卷的【唯一解析入口】。
+   下拉停在「未分卷 / 空 / 全书」时，一律回退到紧邻上一章所属的分卷并写回下拉，
+   保证「归属 / 前文 / 卷档案」三者同一卷。
+   为什么必须有它：未分卷的卷档案几乎总是空的。若按「未分卷」去取，
+   本卷的长程设定（早期人物关系 / 长线伏笔 / 卷脉络）会整段不注入，只剩前文正文撑着，
+   设定漂移与凭空捏造的风险随之上升——这是质量问题，不是显示问题。
+   v110 只给深度续写加了这套回退，接着写与整章精修没有，三条链路行为不一致；
+   这里抽成单一函数统一收口，杜绝以后再次分叉。 */
+function resolveWriteVol(opts){
+  try{
+    const sel=document.getElementById("chVol");
+    let v=sel?String(sel.value||""):"";
+    if(v && v!=="none" && v!=="all") return v;
+    const cands=(load("chapters",[])||[]).filter(function(c){
+      return Number(c.num)>0 && c.vol && c.vol!=="none" && c.vol!=="all";
+    }).sort(function(a,b){ return Number(b.num)-Number(a.num); });
+    const pv=cands[0];
+    if(!pv) return v||"none";
+    if(sel) sel.value=pv.vol;
+    if(!opts || opts.toast!==false) toast("续写章将归入「"+volName(pv.vol)+"」（沿用第"+pv.num+"章的归属）");
+    return pv.vol;
+  }catch(e){
+    try{ const s2=document.getElementById("chVol"); return (s2&&String(s2.value||""))||"none"; }catch(e2){ return "none"; }
+  }
+}
 function collectPrior(targetNum, maxChars, opts){
   opts=opts||{};
   const all=load("chapters",[]);
@@ -8197,7 +8223,8 @@ function collectPrior(targetNum, maxChars, opts){
   const charNames=(load("chars",[])||[]).map(c=>c.name).filter(n=>n&&n.trim());
   /* v106：伏笔关键词改从「滚动摘要 + 最近 3 块」提取——此前对整卷 text 跑正则，
      长卷上是 O(N) 却只被后面的 3600 字预算用掉一点点。 */
-  const volDigestText=(volDigestRolling(edVol||"none")||"")+"\n"+volRecentBlocks(edVol||"none",3).map(function(b){return b.text;}).join("\n");
+  /* v132：伏笔关键词同样按生效分卷取，避免与前文过滤/档案注入三处口径不一致 */
+  const volDigestText=(volDigestRolling(scopeVol||"none")||"")+"\n"+volRecentBlocks(scopeVol||"none",3).map(function(b){return b.text;}).join("\n");
   const foreshadowKw=(volDigestText.match(/(?:伏笔|钩子|未兑现|悬念|未解|承诺)[：:][^\n]{2,40}/g)||[]).map(m=>m.slice(2).trim());
   const allKw=[...new Set([...plotKw,...charNames,...foreshadowKw])].filter(k=>k.length>=2);
   function relevanceOf(ch){
@@ -8248,7 +8275,10 @@ function collectPrior(targetNum, maxChars, opts){
   const fullText=full.map(f=>"【前文·第"+f.num+"章《"+f.title+"》（人物互动/情感推进/关键伏笔）】\n"+f.body);
   /* v106：本卷档案注入改为「滚动摘要(≤3200) + 最近 4 块(≤4800)」，总量仍是 8000。
      既保留早期长线脉络（由 rolling 承担），又保证最新进展，且不再随卷长线性膨胀。 */
-  let curVolDigest=volDigestForPrompt(edVol||"none", 8000);
+  /* v132：摘要改按「本次实际生效的分卷」取，与上面过滤前文用的 scopeVol 严格一致。
+     原实现这里读的是下拉框原始值 edVol：调用方一旦显式传 opts.vol（如 aiGen 传解析后的卷），
+     就会出现「前文按 A 卷过滤、摘要按 B 卷取」的错位；下拉为未分卷时更会直接取到空档案。 */
+  let curVolDigest=volDigestForPrompt(scopeVol||"none", 8000);
   /* 分卷模式：只给本卷子档案，绝不注入其它卷/全书总档案，避免跨卷串味与上下文膨胀；
      book 模式({all:true})：给全书总档案 + 其它卷子档案（作为次要背景），保持原全书行为 */
   const digest = opts.all ? getGlobalDigestText() : curVolDigest;
@@ -8256,7 +8286,7 @@ function collectPrior(targetNum, maxChars, opts){
      但一旦被接上就是无封顶的多卷注入口）。 */
   const d=getDigest();
   const otherVolDigests = opts.all ? (allVolIds()
-      .filter(vid=>vid!==(edVol||"none")&&d.volumes[vid]&&((d.volumes[vid].rolling||"").trim()||(d.volumes[vid].text||"").trim()))
+      .filter(vid=>vid!==(scopeVol||"none")&&d.volumes[vid]&&((d.volumes[vid].rolling||"").trim()||(d.volumes[vid].text||"").trim()))
       .map(vid=>"--- "+volName(vid)+" ---\n"+capDigestForPrompt((d.volumes[vid].rolling||"").trim()?d.volumes[vid].rolling:d.volumes[vid].text, 2500))
       .join("\n\n")) : "";
   return {prior, syn, full:fullText, count:prior.length, digest, curVolDigest, otherVolDigests};
@@ -10965,12 +10995,17 @@ async function aiGen(){
   const brief=document.getElementById("chBrief").value.trim();
   if(brief) userMsg+=`\n\n【本章专属指令】\n${brief}`;
   /* 分卷专属设定（最高优先级）：人物年龄/年级/时代背景/文风基调 */
-  const _vgVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
+  /* v131：走唯一解析入口——下拉为空/未分卷时回退到上一章所属卷，避免卷档案整段丢失 */
+  let _vgVol=resolveWriteVol();
   const volSec=getVolSetting(_vgVol);
   if(volSec) userMsg=`【本分卷「${volName(_vgVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`+userMsg;
   /* 深度学习目录里的前文，再续写（省算力模式下注入篇幅减半，更快更便宜） */
   const _eco=ai.eco!==false;
-  const prior=collectPrior(Number(num)||0, _eco?16000:28000);
+  /* v132：显式把解析出来的分卷传给 collectPrior。
+     此前这里不传 opts.vol，collectPrior 内部改读下拉框取值——之所以还能拿到卷档案，
+     只是因为上面的 resolveWriteVol() 顺手把下拉改对了。这是个隐式依赖：
+     哪天 resolveWriteVol 不再改 DOM，卷档案会静默掉回 0 字。显式传参消除这个耦合。 */
+  const prior=collectPrior(Number(num)||0, _eco?16000:28000, {vol:_vgVol});
   if(prior.count){
     if(prior.syn.length) userMsg+=`\n\n【全书情节脉络（本分卷各章一句话梗概，来自「章节目录」）】\n${prior.syn.join("\n")}`;
     if(prior.full.length) userMsg+=`\n\n【前文详读（本分卷最近若干章完整正文，请严格据此保持人物性格、关系动态与情感线连贯，不要重置）】\n${prior.full.join("\n\n")}`;
@@ -11544,25 +11579,10 @@ async function aiDeepGen(){
   /* 续写模式：续写当前分卷 vs 续写全书完整剧情（提前确定，供 collectPrior 分卷隔离使用） */
   const writeModeEl=document.querySelector('input[name="deepWriteMode"]:checked');
   const writeMode=writeModeEl?writeModeEl.value:"vol";
-  let curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
-  /* v110：续写章归属纠偏。下拉停在「未分卷 / 空」时（例如当前是全书视图、或刚清过表单），
-     旧逻辑直接把新章写进「未分卷」——而 v108 及更早「未分卷」这个哨兵恰好挂着詹姆斯篇，
-     于是西里斯篇的续写章被写进詹姆斯篇，行文分析却引用西里斯篇前 14 章（上下文与归属两套口径）。
-     现在回退到紧邻上一章所属的分卷，并同步写回下拉，保证「归属 / 前文 / 卷档案」三者同一卷。 */
-  try{
-    if(!curVol||curVol==="none"||curVol==="all"){
-      const _cands=(ch||[]).filter(function(c){
-        return Number(c.num)>0 && c.vol && c.vol!=="none" && c.vol!=="all";
-      }).sort(function(a,b){ return Number(b.num)-Number(a.num); });
-      const _pv=_cands[0];
-      if(_pv){
-        curVol=_pv.vol;
-        const _sel=document.getElementById("chVol");
-        if(_sel) _sel.value=curVol;
-        toast("续写章将归入「"+volName(curVol)+"」（沿用第"+_pv.num+"章的归属）");
-      }
-    }
-  }catch(e){}
+  /* v131：改走唯一解析入口 resolveWriteVol()。
+     原为内联的一份回退副本（v110），行为等价——差别只是三条链路现在共用同一份实现，
+     以后不会再次分叉。 */
+  let curVol=resolveWriteVol();
   /* v110：生成前人称校验。本卷设了叙事人称就先核对待续写正文，读起来串篇时先问一句再生成。 */
   try{
     const _pc=povConflict(curVol||"none", body);
@@ -11928,7 +11948,8 @@ async function aiOptimize(){
   const body=(document.getElementById("chBody").value||"").trim();
   if(!body){ toast("正文框还没有草稿内容，无法优化。请先生成或粘贴草稿。"); return; }
   if(body.length<200){ if(!confirm("草稿内容很短（不足200字），优化空间有限。仍要继续吗？")) return; }
-  const curVol=document.getElementById("chVol")?document.getElementById("chVol").value:"none";
+  /* v131：走唯一解析入口（原为直接读下拉，未分卷时卷档案与文风片段都会取空） */
+  const curVol=resolveWriteVol();
   const volSec=getVolSetting(curVol);
   const d=getDigest();
   const volText=(d.volumes[curVol||"none"]&&d.volumes[curVol||"none"].text)||"";
