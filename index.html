@@ -2736,7 +2736,7 @@ function seedBook(b){
     {id:uid(),name:"沙菲克",house:"斯莱特林",traits:"极致冷静的观察者。与薇拉是「实验者与实验对象」关系，目的为自救。语气平淡，用词科学精确。",demo:true}
   ];
   b.style=[
-    "严格第一人称（薇拉视角）",
+    "叙事人称严格遵循本分卷设定，不在此处另行指定",
     "语言幽默生动犀利，吐槽一针见血，内心独白天马行空",
     "比喻体系必须来自薇拉的知识体系（神奇生物、麻瓜电影/游戏、烹饪、魁地奇）",
     "语言凝练，节奏明快",
@@ -3114,10 +3114,11 @@ function volMoveChapters(fromId,toId){
 function getVolSetting(vid){
   const b=curBook(); const v=(b.volumes||[]).find(x=>x.id===(vid||"none"));
   const _note=(v&&v.note?v.note:"").trim();
-  const _pov=getVolPov(vid);
+  const _pov=volPovEffective(vid);
   /* v110：把人称铁律并进「分卷专属设定」一起注入。
      这样所有已经消费 getVolSetting 的注入点（深度续写 / 单章生成 / 单章深度解析 /
-     分卷子档案 / 生成指令模板）一次性全部生效，不必逐个改，也不必担心漏掉某条生成路径。 */
+     分卷子档案 / 生成指令模板）一次性全部生效，不必逐个改，也不必担心漏掉某条生成路径。
+     v131：改读「有效人称」——没显式填 pov 的卷也能由正文派生出人称铁律，不再退回硬编码。 */
   if(!_pov) return _note;
   const _line=volPovLine(_pov);
   return _note ? (_note+"\n"+_line) : _line;
@@ -3137,6 +3138,150 @@ function volPovLine(pov){
   if(!pov) return "";
   return "【本卷人称铁律 · 最优先级，与任何人设/文风冲突时以此为准】"+pov+
     "。全篇须自始至终严格遵守：不得混入其它分卷的叙事人称，不得中途切换视角与口吻，叙述者身份一旦确定就不再变。";
+}
+/* ===== v131：分卷人称三级调度 =====
+   背景：v110 之前 volumes[].pov 写了却没人读，人称约束全靠散落在 6 处的硬编码
+   「第一人称」。结果西里斯篇（第三人称）一次生成会同时收到 5 条第一人称 + 1 条第三人称，
+   铁律自称「最优先级」却被 5:1 淹没——人称串篇是语感崩坏的头号杀手，修好它比加任何修辞规则都值。
+   三级：
+     L1 显式锁死：volumes[].pov 有值 → 直接用。詹姆斯篇 / 西里斯篇走这一级。
+     L2 自动派生：pov 为空 → 扫本卷已完稿正文，用 povHeuristic 判人称，注入同等强度铁律。
+                  这样即使某卷忘了填 pov，也不会退回「靠硬编码猜人称」的老路。
+     L3 完全自由：pov 空且本卷正文样本不足 → 不注入。新分卷想怎么写怎么写。
+   派生只发生在运行时，绝不回写 volumes（不污染用户数据）。 */
+function volPovDerived(vid){
+  try{
+    if(!vid||vid==="none") return "";
+    const chs=(load("chapters",[])||[]).filter(function(c){
+      return String(c.vol||"none")===String(vid) && (c.body||"").trim().length>=400;
+    });
+    /* 样本不足不下判断：宁可交给用户填，也不要猜错还当成铁律 */
+    if(chs.length<3) return "";
+    const sample=chs.slice(-8).map(function(c){ return (c.body||"").slice(0,3000); }).join("\n");
+    const h=povHeuristic(sample);
+    if(h.kind==="first") return "全程第一人称「我」的口吻";
+    if(h.kind==="third") return "严格第三人称视角";
+    return "";   /* mixed / unknown → 不打扰 */
+  }catch(e){ return ""; }
+}
+/* 本卷「有效人称」：显式优先，缺省派生，都没有则空。所有消费点统一走这里。 */
+function volPovEffective(vid){
+  try{
+    const explicit=getVolPov(vid);
+    return explicit ? explicit : volPovDerived(vid);
+  }catch(e){ return ""; }
+}
+/* 人称短句：供各处原本硬编码「第一人称」的位置替换，随分卷自动变化 */
+function povPhrase(vid){
+  try{
+    const pov=volPovEffective(vid);
+    const third=/第三人称|他称|上帝视角/.test(pov);
+    const first=/第一人称|我的口吻|以我的视角/.test(pov);
+    if(third) return "保持第三人称限知视角，只进入本卷指定人物的意识，避免被动承受式句式";
+    if(first) return "保持第一人称「我」的主动观察式记录视角，避免被动承受式句式";
+    return "视角严格以本分卷人称为准，避免被动承受式句式";
+  }catch(e){ return "视角严格以本分卷人称为准，避免被动承受式句式"; }
+}
+/* ===== v131：人称冲突自检（解决「ai.sys 忘了有没有改过」） =====
+   系统提示词与「文风准则」都是书级的，分卷人称是卷级的。只要前者写死了人称，
+   就会重新制造 5:1 的串篇条件——而用户很可能根本不记得自己改没改过 ai.sys。
+   所以不靠记忆，靠体检：启动时扫一遍，冲突就提示，只提示不改数据，点确认才中性化。 */
+function povSysConflict(){
+  try{
+    const ai=load("ai",{});
+    const src=String(ai.sys||"")+"\n"+String(ai.styleSample||"")+"\n"+((load("style",[])||[]).join("\n"));
+    const vols=(curBook().volumes||[]).filter(function(v){ return String(v.id)!=="none"; });
+    const hits=[];
+    vols.forEach(function(v){
+      const pov=volPovEffective(v.id);
+      if(!pov) return;
+      const wantThird=/第三人称|他称|上帝视角/.test(pov);
+      const wantFirst=/第一人称|我的口吻|以我的视角/.test(pov);
+      if(!wantThird && !wantFirst) return;
+      const srcFirst=/第一人称/.test(src), srcThird=/第三人称/.test(src);
+      if(wantThird && srcFirst) hits.push({id:v.id, name:volName(v.id), want:"第三人称", got:"第一人称"});
+      if(wantFirst && srcThird) hits.push({id:v.id, name:volName(v.id), want:"第一人称", got:"第三人称"});
+    });
+    return hits;
+  }catch(e){ return []; }
+}
+/* 中性化：不删用户原文（正则删改风险不可控），改为追加一条覆盖声明 + 替换文风准则里的人称行。
+   追加声明放在最后，模型对靠后内容更敏感，足以压过前面的写死表述。 */
+function povSysNeutralize(){
+  try{
+    const ai=load("ai",{});
+    const TAG="【人称以分卷设定为准】";
+    let s=String(ai.sys||"");
+    if(s.indexOf(TAG)<0){
+      s=s.replace(/严格[^\n。；]{0,20}(第一人称|第三人称)[^\n。；]{0,10}(视角|口吻)/g,"人称以当前分卷设定为准");
+      s+="\n\n"+TAG+"本提示词不指定叙事人称；其中任何与「本卷人称铁律」冲突的人称表述一律作废，一律以分卷设定为唯一依据。";
+      ai.sys=s; save("ai",ai);
+    }
+    const st=load("style",[])||[];
+    let chg=false;
+    const st2=st.map(function(x){
+      if(/第一人称|第三人称/.test(String(x||""))){ chg=true; return "叙事人称严格遵循本分卷设定，不在此处另行指定"; }
+      return x;
+    });
+    if(chg) save("style",st2);
+    const el=document.getElementById("aiSys"); if(el) el.value=String(ai.sys||"");
+    toast("已把系统提示词与文风准则里的人称表述改为中性；人称今后只由分卷设定决定");
+    return true;
+  }catch(e){ return false; }
+}
+function povSysWarn(){
+  try{
+    const hits=povSysConflict();
+    if(!hits.length) return false;
+    const names=hits.map(function(h){ return h.name; }).join("、");
+    const msg="⚠️ 人称冲突：系统提示词或「文风准则」里写死了「"+hits[0].got+"」，"
+      +"但分卷「"+names+"」是「"+hits[0].want+"」。\n\n"
+      +"两边打架会让模型收到互相矛盾的视角指令，容易出现人称串篇。\n\n"
+      +"点「确定」把它们改成中性（人称今后只由分卷设定决定，你的其他设定一字不动）。";
+    if(confirm(msg)) povSysNeutralize();
+    return true;
+  }catch(e){ return false; }
+}
+/* 未锁死人称的分卷：能从正文判定就提示一键锁死。
+   绝不静默回写——写数据必须用户点头。已问过的卷记下来，以后新卷才再问。 */
+function povLockSuggest(){
+  try{
+    let asked=load("povLockAsked",null);
+    if(!asked||typeof asked!=="object"||Array.isArray(asked)) asked={};
+    const vols=(curBook().volumes||[]).filter(function(v){ return String(v.id)!=="none" && !asked[String(v.id)]; });
+    const pend=[];
+    vols.forEach(function(v){
+      if(getVolPov(v.id)){ asked[String(v.id)]=1; return; }
+      const d=volPovDerived(v.id);
+      if(d) pend.push({id:v.id, name:volName(v.id), pov:d});
+    });
+    if(!pend.length){ save("povLockAsked",asked); return false; }
+    const lines=pend.map(function(p){ return "· "+p.name+" → "+p.pov; }).join("\n");
+    const go=confirm("以下分卷还没锁死人称，但已能从已有正文判定：\n\n"+lines
+      +"\n\n锁死后人称不再依赖检测，也不会再被系统提示词影响。\n\n"
+      +"要锁死吗？（可随时到「管理分卷」修改）");
+    if(go){
+      const b=curBook();
+      pend.forEach(function(p){
+        const v=(b.volumes||[]).find(function(x){ return x.id===p.id; });
+        if(v) v.pov=p.pov;
+      });
+      rawSave("books",BOOKS);
+      toast("已锁死 "+pend.length+" 个分卷的人称");
+    }
+    pend.forEach(function(p){ asked[String(p.id)]=1; });
+    save("povLockAsked",asked);
+    return true;
+  }catch(e){ return false; }
+}
+/* 启动体检入口：一会话只跑一次 */
+var _povBootDone=false;
+function povBootCheck(){
+  try{
+    if(_povBootDone) return; _povBootDone=true;
+    povLockSuggest();
+    povSysWarn();
+  }catch(e){}
 }
 /* v110：人称体检。粗判一段文字是第一人称还是第三人称，用于生成前校验与生成后自检。
    只看「我」的密度与常见第三人称指代，不做语义理解——目的是抓「整段串篇」这种明显偏差。 */
@@ -6381,7 +6526,7 @@ async function analyzeCharPsyche(cid, btn){
   try{
     const sys="你是小说人物心理分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
     const roleCtx=(c.house?("【"+name+"】所属学院/阵营："+c.house+"。") : "")+(c.traits?("已知基础设定："+c.traits+"。") : "");
-    const user="你正在分析的小说人物是【"+name+"】。"+roleCtx+"\n【铁的纪律】本书为第一人称（薇拉·奎克）视角，正文大量是叙述者薇拉的内心活动。你只许提取【"+name+"】这一个人的核心特质/欲望/外貌，严禁把薇拉·奎克或其他角色的特质安到【"+name+"】头上，也严禁输出薇拉的特质。\n下面是【"+name+"】在已完稿章节中的出场正文（已按与【"+name+"】的相关度排序）。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const user="你正在分析的小说人物是【"+name+"】。"+roleCtx+"\n【铁的纪律】本书各分卷人称不同（有第一人称也有第三人称），且正文里含大量视角人物的内心活动。你只许提取【"+name+"】这一个人的核心特质/欲望/外貌，严禁把薇拉·奎克或其他角色的特质安到【"+name+"】头上，也严禁输出薇拉的特质。\n下面是【"+name+"】在已完稿章节中的出场正文（已按与【"+name+"】的相关度排序）。请深度阅读并提炼（每项附 ≤20 字正文佐证，用『▸』分隔）：\n① core（核心特质：3-5 个稳定性格标签，逗号分隔）\n② desire（表层欲望：ta 当前明确想要/追求的具体目标或东西）\n③ deepDesire（深层欲望：潜意识里真正渴求的东西，往往与表层欲望形成内在张力）\n④ appearance（外貌特征：严格只从正文中【直接的外貌描写】提炼——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、不要任何推断或猜测），严禁凭空编造）\n只输出 JSON：{\"core\":\"…\",\"desire\":\"…\",\"deepDesire\":\"…\",\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
     /* v120：1200 太紧。4 个字段各带 ≤20 字佐证，正常输出约 600–900 token；
        一旦服务端开了思考模式，1200 会被 reasoning 吃光、正文为空。抬到 4000 留足余量。
        （配合 _callAIOnce 里 thinking 无条件 disabled，正常情况下实际只用 1/4 不到） */
@@ -6420,7 +6565,7 @@ async function analyzeCharAppearance(cid, btn){
   const _ot=btn?btn.textContent:""; if(btn)btn.disabled=true, btn.textContent="提取外貌…";
   try{
     const sys="你是小说人物外貌分析师。只输出严格 JSON，不要任何解释、不要 markdown 代码块。";
-    const user="你正在分析的小说人物是【"+name+"】。\n【铁的纪律】本书为第一人称（薇拉·奎克）视角，正文大量是叙述者薇拉的内心活动。你只许提取【"+name+"】这一个人的外貌，严禁把薇拉·奎克或其他角色的外貌安到【"+name+"】头上。\n请只提炼【"+name+"】的【外貌特征】：严格只从正文中直接的外貌描写提取——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、严禁任何推断或猜测）。只输出 JSON：{\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
+    const user="你正在分析的小说人物是【"+name+"】。\n【铁的纪律】本书各分卷人称不同（有第一人称也有第三人称），且正文里含大量视角人物的内心活动。你只许提取【"+name+"】这一个人的外貌，严禁把薇拉·奎克或其他角色的外貌安到【"+name+"】头上。\n请只提炼【"+name+"】的【外貌特征】：严格只从正文中直接的外貌描写提取——年龄感/身材/五官/发色肤色/常服或标志物/气质与第一印象；若正文从头到尾没有任何直接外貌描写，appearance 必须返回空字符串\"\"（不要写\"未知\"、不要写\"无\"、严禁任何推断或猜测）。只输出 JSON：{\"appearance\":\"…\"}\n\n人物出场正文：\n"+corpus;
     const out=await callAI({sys:sys, user:user, temperature:0.3, max_tokens:600});
     const m=(out||"").match(/\{[\s\S]*\}/);
     let obj={}; if(m){try{obj=JSON.parse(m[0]);}catch(e){}}
@@ -7213,7 +7358,11 @@ function buildSysPrompt(){
   const cs=load("chars",[]).map(c=>`· ${c.name}（${c.house||""}）：${c.traits||""}`).join("\n");
   const st=load("style",[]).map((s,i)=>`${i+1}. ${s}`).join("\n");
   const tb="1.禁止「他(v.)了，很轻，像是怕惊扰了什么」\n2.禁止「不是…而是…」结构\n3.禁止「语气像是在说『今天天气很好』」及类似平淡语气形容\n4.比喻词不可通篇只有「像」，需多样化（仿佛/如同/堪比/犹如…）\n5.禁止「放下，拿起来，又放下」类重复动作\n6.禁止「也许/更像是别的什么东西」模糊表达\n7.禁止两三个连续形容词用顿号隔开\n8.禁止频繁用破折号做解释说明\n9.禁止莫名分段写小短句制造「节奏感」\n10.禁止「语气很平」「嗓音很哑」缺主语的断裂形容\n11.禁止「他(v.)了很久，久到XX以为他……」模板化时间描写\n12.转折词不可通篇只有「但」，需多样化（然而/可/只是/只不过）\n13.禁止现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等），叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏";
-  return `你是《HP轻世代即刻心动》的AI协作写作助手，严格以薇拉·奎克第一人称视角创作。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、用词犀利但保持英式礼貌幽默，金句宁缺毋滥（禁止为凑金句打断刚建立的情绪）；每章结尾留强钩子；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇），但用喻吝啬——全文精当数处即可，禁止通篇比喻与连续两段明喻。`;
+  /* v131：这里不再写死人称。
+     旧版开头写「严格以薇拉·奎克第一人称视角创作」，而分卷 pov 又可能写第三人称——
+     两条都是「最高优先级」，模型只能靠出现频次裁决，人称串篇由此而来。
+     人称唯一真源是分卷设定（【本卷人称铁律】），本提示词只声明「不指定人称」。 */
+  return `你是《HP轻世代即刻心动》的AI协作写作助手。叙事人称不在此处指定，一律以「本卷人称铁律」为唯一依据；本提示词中任何与之冲突的人称表述均自动作废。\n\n【人物设定】\n${cs}\n\n【文风准则】\n${st}\n\n【绝对写作禁忌（必须规避）】\n${tb}\n\n【输出格式】\n第X章\n(正文)\n(可选：章节末尾作者备注，说明伏笔与前后衔接)\n\n写作要求：情节须全新、不与已有章节雷同；对话有梗、用词犀利但保持英式礼貌幽默，金句宁缺毋滥（禁止为凑金句打断刚建立的情绪）；章节结尾须落在有力的收束或一个未完成的动作上；情感靠人物行动、表情、对话传达，禁止直述「他很伤心/她很愤怒」；比喻须来自薇拉的知识体系（神奇生物/麻瓜影视游戏/烹饪/魁地奇），但用喻吝啬——全文精当数处即可，禁止通篇比喻与连续两段明喻。`;
 }
 /* ===== v84 采样参数 UI ===== */
 const SMP_PRESETS={
@@ -7439,7 +7588,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v130";
+const APP_VERSION="v131";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7449,6 +7598,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v131","本次只为一件事：把「文本质量」从一堆互相打架的约束里捞出来。改动全部集中在提示词与默认值，不动数据结构、不动存储、不改 IDB 版本。① 【人称串篇的根因修掉了】此前有 6 处地方写死了「第一人称」，而分卷设定里西里斯篇写的是第三人称——一次生成会同时收到 5 条第一人称 + 1 条第三人称，人称铁律自称「最优先级」却被 5:1 的数量淹没，模型只能靠出现频次裁决，人称串篇由此而来。现在人称只有一个真源：分卷设定。其余各处（系统提示词、续写质量要求、深度续写写作要求、精修、润色、视角约束、人物分析）一律改为随分卷自动变化，不再写死。② 【人称三级调度】显式填了 pov 就锁死（詹姆斯篇、西里斯篇）；没填但本卷已有足够正文的，自动从正文判定人称并注入同等强度的铁律，不用你手动补数据；新分卷还没有正文时不注入任何人称约束，想怎么写怎么写。③ 【不记得改没改过 ai.sys 也没关系】启动时自动体检：系统提示词或「文风准则」里若写死了人称且与分卷冲突，会提示并可一键改为中性（只追加覆盖声明、替换文风准则里的人称行，你的其他设定一字不动）。在「AI 生成设置」点保存时也会当场体检一次。未锁死人称的分卷会提示「已能从正文判定为 X，要锁死吗」，你点头才写数据。④ 【自动精修不再压平文笔】精修温度 0.70 → 0.95（仍低于生成的 1.35，修逻辑的稳定性还在）；「做减法删去拖沓」改为「删去真正的重复与空转，承载情绪层次与人物动机的段落压缩而非删除」；「不得出现风格跳脱」改为「允许本章情绪需要的强度超出前文」；文风参照从档案摘要改为上一章真实正文片段——摘要是压缩产物，句子短、没有语气起伏，拿它当范本等于主动把文笔往平均值拉。⑤ 【冲突类型不再机械轮换】原来按章号取模硬性指定本章写哪类冲突，剧情自然走向是内心挣扎时轮换却落到「人物与环境」，模型被迫生造外部阻力，转折因此生硬。现在默认只给软建议，剧情该往哪走就往哪走；你在下拉里手动选定仍然是强约束。⑥ 【字数与钩子松绑】深度续写的 2500–3500 字改为参考区间，高潮章与转折章不受限；三处「每章必须留强钩子」合并为一处并改为「落在有力的收束或未完成的动作上」，钩子用多了会贬值。⑦ 【文风范本的两条硬约束】上一章真实正文片段现在只取「已完稿」且「章号小于当前章」的那一章——原先按最大章号取，精修正在改的这一章本身往往就是最大章号，等于让 AI 拿本章自己的草稿当范本，越修越像自己、文风反而僵死；草稿与待修改章同样不得当范本。⑧ 【上下文分工与冲突裁决】精修提示词新增一段硬性声明：片段只管文风与当前状态、摘要只管长程事实、两者冲突以片段为准且严禁编造第三种说法调和、材料未覆盖的一律视为尚未发生。没有这段声明时，模型遇到「摘要说伏笔未回收、片段里已回收」这类矛盾，最常见的处理是自己编一个说法调和——那是最难察觉的一类幻觉。"],
   ["v130","整体升级评估后的第一批「已确认缺陷」修复，全部零风险，不碰任何生成逻辑与提示词。① 【阅读器字号设置此前完全无效】阅读抽屉的正文字号写死 17px（手机上还写死 16px），从不读取你在「显示与阅读」里设的「正文字号/行距」——调到 24px，阅读界面纹丝不动。现在统一改读变量，设置项终于落到阅读区。② 【浅色模式小字看不清】浅色主题的次要文字对比度只有 4.13:1，低于无障碍标准 4.5:1，而它恰好承载着全站几乎所有 10–13px 的小字（说明文字、日期、徽章）。已加深到 5.04:1，观感几乎不变但长时间读不再吃力；深色模式本来就达标，未动。③ 【夜间的一批纯白亮块】深色模式下有 8 个组件（角色列表/角色卡/角色编辑器/关系图工具条/缩放条/情感线小按钮/引导卡）仍在用纯白底，在这套近黑主题上亮到刺眼；同批把活动时间轴小圆点的纯白描边改回随主题。现在它们一律跟随卡片底色，深色下不再有白斑，浅色下也不再是唯一一批「真白」表面。④ 【补上三个从未定义的变量】代码中一直引用 --card2 / --text / --txt，但三处主题定义里一个都没写——于是检索面板、回收站等容器的背景静默失效、层级消失。现已补齐，卡片层级恢复。以上改动只涉及样式与变量，正文、存档结构、AI 调用链路均未改动。"],
   ["v114","补上「深度续写到一半切走就丢稿」。① 【根因】流式生成期间 onToken 只做 ta.value=...，没有任何落盘。自动保存是 700ms 防抖、且依赖 input 事件或主动调用，流式写入两者都不满足，只有整章生成成功后才会写章节库。于是切到别的应用时 WebView 被回收，已生成的几千字只活在 DOM 里，进程一死全没，这次生成烧掉的 token 全部白费——这是「切后台导致 token 白烧」的真正元凶。② 【现在】流式期间按「距上次 ≥3 秒 且 新增 ≥150 字」双条件节流写入章节库，中断后重进页面，已生成的部分就在那一章里，可以接着写，不用从头再烧一遍。生成结束（无论成功还是失败）再补写一次并清标记。③ 【安全边界】落盘只写 body 与 title，绝不碰 status——新增章节固定为 draft。v103 的前文过滤依赖 status==='done'，半成品绝不能被算作已完稿而污染后续上下文。④ 【中断提示】启动或切回前台时，若上次生成没跑完，会提示「第X章生成到一半中断了，已保住约 N 字」；超过 6 小时不再提。正在生成中不会误报。⑤ 覆盖两条生成链路：接着写 与 深度续写（后者最长最贵，中断损失最大）。⑥ 仍然建议的操作不变：保持前台、单次生成字数调小、可关掉自动精修——落盘只是把损失从「全丢」降到「丢最后几秒」，不是让你可以随便切。"],
   ["v113","修好「节拍卡切走就丢」。① 【根因】深度续写里生成的 3 套节拍方案，此前只存在于内存变量与动态创建的弹窗 DOM 里，没有任何落盘。切到别的应用（如 DeepSeek 聊剧情）时，手机会回收 WebView / 重载页面，内存态清零——AI 已经生成的 3 套方案连同弹窗一起消失，这次调用的 token 全部白烧。作为对比，另一条路径「🎲 一键灵感推演」是有落盘的（存 deductions），所以那条不丢，只有深度续写内嵌的这个弹窗会丢。② 【现在】生成 3 套方案后立刻落盘（存 beatPending），页面回到前台或重新启动时自动把没处理完的弹窗原样补回来，标题会标明「上次未处理的节拍卡（已为你保留）」，方案内容一条不少。超过 24 小时的旧记录不再打扰。③ 【恢复为硬弹窗】v100 为了防止流程卡死，把「点空白处 / 按 Esc」做成了关闭——副作用是误触一下结果就没了。现在改回不可误关：唯一出口是「选一套」或「点底部按钮明确放弃」，不处理就不会消失，与旧版一致。④ 【恢复态的选择如何生效】补弹的弹窗此时已经没有生成流程在等它了，所以选一套会挂接为「灵感推演方案」（与手动推演同一个挂载点），下次点深度续写时会自动采用并提示；明确放弃则不挂接。⑤ 不影响其它交互：接着写、参谋、审稿、消化、导入导出等均未改动。"],
@@ -7922,6 +8072,8 @@ function saveAI(){
   const g=creaParams("gen");
   toast("已保存：temperature "+g.temperature.toFixed(2)+" / top_p "+g.top_p.toFixed(2)+
         "，思考模式 "+ai.thinkMode+"（仅本机）");
+  /* v131：刚改完系统提示词立刻体检一次——冲突当场发现，不用等下次启动 */
+  try{ setTimeout(povSysWarn, 300); }catch(e){}
 }
 /* ---------- 模型快捷选择（由 publish/providers.json 构建时注入，源文件内为默认值） ---------- */
 /* >>PROVIDERS_START */
@@ -8142,7 +8294,11 @@ function addCacheControl(ms){
 /* v99：top_p 原先默认 1.00 —— 1.00 等于「不裁剪概率尾部」，参数名在但根本不参与采样，
    等于白占一个旋钮。改成 0.96：温度负责发散，top_p 负责砍掉离谱长尾，两个参数才真正配合。
    已保存过显式值的用户不受影响（creaParams 里显式值优先），想要回 1.00 把滑杆推到底即可。 */
-const SMP_DEF={tempGen:1.35,topPGen:0.96,tempPlan:1.50,tempPolish:0.70,thinkMode:"disabled"};
+/* v131：精修温度 0.70 → 0.95。
+   原值比生成温度(1.35)低 0.65，等于每章首稿都要过一遍「压平」——首稿里最鲜活、
+   最出格的句子恰恰最容易被判成「风格跳脱」删掉。提到 0.95 后仍明显低于生成温度，
+   修逻辑与一致性的稳定性还在，但不再系统性稀释情感强度。UI 滑杆可继续调。 */
+const SMP_DEF={tempGen:1.35,topPGen:0.96,tempPlan:1.50,tempPolish:0.95,thinkMode:"disabled"};
 function _smpNum(v,d,lo,hi){
   const n=parseFloat(v);
   if(!isFinite(n)) return d;
@@ -8937,6 +9093,38 @@ function volDigestRolling(vid){
   return capDigestForPrompt(v.text||"", ROLL_MAXCHARS);
 }
 /* 注入 prompt 用的本卷档案：rolling(≤40%) + 最近章档案块(≤60%)，总量受 budget 控制 */
+/* v131：取本卷「当前章之前最近一章已完稿正文」的尾段，给精修当「文风参照」。
+   档案摘要是压缩产物，句子短、信息密度高、没有语气起伏，拿它当范本会主动拉平文笔；
+   真实正文才带着作者的句式节奏与用词习惯。取尾部是因为结尾最能代表本章落笔状态。
+
+   两条硬约束（缺一不可，否则等于把草稿喂回去当范本）：
+   ① 只要 status==='done'。v103 的草稿隔离原则同样适用于文风范本——
+      草稿 / 待修改是未定稿内容，让它当范本，等于让 AI 模仿你自己都还没认可的句子。
+   ② 章号必须 < 当前章号（beforeNum）。若按「最大章号」取，精修正在改的这一章
+      本身往往就是最大章号，于是模型拿到的「上一章片段」其实就是本章自己的草稿——
+      自我循环复制，越修越像自己，文风反而僵死。 */
+function lastChapterExcerpt(vid, budget, beforeNum){
+  try{
+    const bn=Number(beforeNum);
+    const chs=(load("chapters",[])||[]).filter(function(c){
+      if(String(c.vol||"none")!==String(vid||"none")) return false;
+      if(!(c.body||"").trim()) return false;
+      if((c.status||"draft")!=="done") return false;          /* ① 草稿隔离 */
+      if(isFinite(bn) && bn>0 && (Number(c.num)||0)>=bn) return false;  /* ② 不含当前章及以后 */
+      return true;
+    });
+    if(!chs.length) return "";
+    chs.sort(function(a,b){ return (Number(a.num)||0)-(Number(b.num)||0); });
+    const last=chs[chs.length-1];
+    const b=(last.body||"").trim();
+    if(!b) return "";
+    const n=Math.max(0, Number(budget)||1500);
+    const cut=b.length>n ? b.slice(b.length-n) : b;
+    /* 从第一个完整句子起切，避免半句话开头造成语感污染 */
+    const p=cut.search(/[。！？…]/);
+    return (p>=0 && p<200) ? cut.slice(p+1).trim() : cut.trim();
+  }catch(e){ return ""; }
+}
 function volDigestForPrompt(vid, budget){
   budget=budget||4000;
   const r=(volDigestRolling(vid)||"").trim();
@@ -10788,12 +10976,12 @@ async function aiGen(){
     if(prior.full.length) userMsg+=`\n\n【前文详读（本分卷最近若干章完整正文，请严格据此保持人物性格、关系动态与情感线连贯，不要重置）】\n${prior.full.join("\n\n")}`;
     if(prior.curVolDigest && prior.curVolDigest.trim()) userMsg+=`\n\n【当前分卷子档案（本卷局部人物/伏笔/事件，优先参照）】\n${prior.curVolDigest}`;
   }
-  userMsg+=`\n\n【一致性要求】请基于前文已建立的人物性格、关系动态与情感线继续推进：情感状态须连贯、人物行为须符合其已有性格与前文依据；可在本章让情感 / 关系产生新的进展或转折，但不可凭空跳变；结尾留强钩子。`;
+  userMsg+=`\n\n【一致性要求】请基于前文已建立的人物性格、关系动态与情感线继续推进：情感状态须连贯、人物行为须符合其已有性格与前文依据；可在本章让情感 / 关系产生新的进展或转折，但不可凭空跳变；结尾落在有力的收束或一个未完成的动作上（不必每章都留强钩子，钩子用多了会贬值）。`;
   /* v97：本章形态（长篇推进 / 单章完整事件 / 情绪特写 / 番外小品）——只加一句约束，不改原有链路 */
   const _shape=shapePrompt(); if(_shape) userMsg+="\n\n"+_shape;
   /* v100：冲突类型 + 视角/信息差（默认自动轮换，保证相邻章节不落同类冲突） */
   const _conf=conflictPrompt(); if(_conf) userMsg+="\n\n"+_conf;
-  userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ 保持"主动观察式记录"的第一人称视角，避免被动承受式句式；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
+  userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ ${povPhrase(_vgVol)}；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
   const btn=document.getElementById("aiBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="生成中…";
   try{
     const _base=body.trim();
@@ -11587,7 +11775,7 @@ async function aiDeepGen(){
        v79 重构：约束/上下文在前，写指令放最后一条（消除 lost-in-the-middle）；
        原 ~20 条「禁止/严禁」负向约束合并为 1 条正向【写作要求】，
        模型注意力聚焦「写好」而非「避雷」，文笔立刻松绑。 */
-    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾留强钩子。② 句式长短、比喻系统、幽默感、用词密度严格延续前文既定文风，视角保持第一人称「主动观察式记录」，任何风格跳脱视为不合格。③ 感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利但分寸得当——宁可少一句俏皮话，也不要为凑金句戳破刚建立的情绪。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。⑧ 禁止 info-dump：世界观/年代/典故只通过物件、他人反应与人物行动侧面透露，严禁借角色之口大段解释背景（如长篇交代某年事件、机构沿革）。⑨ 同一意象/比喻母题一章最多出现 2 次，重复即视为失控。⑩ 本章正文控制在 2500–3500 字，聚焦深写 1–2 个场景，宁深勿广。⑪ 惊喜感优先：要「意外但必然」的转折——读者回头看会觉得早有伏笔，而不是按套路直线推进；避免第一眼就能猜到的走向，以及「该发生就发生了」的惰性剧情。`;
+    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾落在有力的收束或一个未完成的动作上。② 句式长短、比喻系统、幽默感、用词密度延续前文既定文风，${povPhrase(curVol)}；允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。③ 感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利但分寸得当——宁可少一句俏皮话，也不要为凑金句戳破刚建立的情绪。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。⑧ 禁止 info-dump：世界观/年代/典故只通过物件、他人反应与人物行动侧面透露，严禁借角色之口大段解释背景（如长篇交代某年事件、机构沿革）。⑨ 同一意象/比喻母题一章最多出现 2 次，重复即视为失控。⑩ 本章正文参考 2500–3500 字，聚焦深写 1–2 个场景，宁深勿广；高潮章与转折章不受此限，以写透为准，字数让位于质量。⑪ 惊喜感优先：要「意外但必然」的转折——读者回头看会觉得早有伏笔，而不是按套路直线推进；避免第一眼就能猜到的走向，以及「该发生就发生了」的惰性剧情。`;
     let ctx="";
     if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
     if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
@@ -11669,20 +11857,34 @@ async function aiDeepGen(){
          而卷档案是按章序追加的，头部=最老内容——精修看到的依据与生成时看到的不是同一段。 */
       const _volText=volDigestForPrompt((curVol||"none"), 4000);
       const _globalText=capDigestForPrompt(getGlobalDigestText(), 3000);
+      /* v131：精修的文风参照改用真实正文，不用档案摘要。
+         摘要是把多章压成几千字的产物，天然是去风格化的平均表达；
+         拿它当「严格延续前文既定语气与用词密度」的范本，等于主动把文笔往平均值拉。
+         现在：正文片段作文风参照，档案仍保留但只作事实依据（人物/伏笔/事件）。 */
+      const _nearText=lastChapterExcerpt(curVol||"none", 1500, Number(num)||0);
       let _rUser="下面是第"+num+"章《"+title+"》的草稿。请作为「首席编辑」深度审读，先内部分析其内容质量与逻辑结构（不要输出分析报告），然后直接输出【优化后的完整正文】。\n\n"+
         "【优化要求】\n"+
         "① 修正逻辑断裂、时间线/因果错误、动机缺失\n"+
         "② 强化人物动机与情感递进，让人物行为符合其性格与前文依据\n"+
         "③ 统一文风：语言节奏、比喻系统、幽默感与前后章节保持一致\n"+
-        "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写；做减法——删去重复、拖沓、解释过度的段落，让节奏更紧凑\n"+
+        "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写；删去真正的重复与空转，让节奏更紧凑；凡承载情绪层次、人物动机或感官细节的段落，一律压缩而非删除\n"+
         "⑤ 人物年龄/年级/亲属称谓严格符合分卷专属设定与 HP 原著考据；严禁成人化抒情、现代网络用语\n"+
-        "⑥ 保持第一人称「主动观察式记录」视角，避免被动承受式句式\n"+
+        "⑥ "+povPhrase(curVol)+"\n"+
         "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n\n";
-      _rUser+="【文风一致性·最高优先级】严格延续前文既定语气、比喻系统与用词密度，不得出现风格跳脱；保持第一人称主动观察式视角。\n";
+      _rUser+="【文风一致性】延续前文既定语气与比喻系统；"+povPhrase(curVol)+"。允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。\n";
       _rUser+="【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n";
       if(volSec) _rUser+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
-      if(_volText) _rUser+="【当前分卷档案（滚动摘要+最近章节档案，人物/伏笔/事件依据）】\n"+_volText+"\n\n";
-      if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔）】\n"+_globalText+"\n\n";
+      if(_nearText) _rUser+="【上一章真实正文片段（文风参照以此为准）】\n"+_nearText+"\n\n";
+      if(_volText) _rUser+="【当前分卷档案（滚动摘要+最近章节档案，仅作人物/伏笔/事件的事实依据，不作文字范本）】\n"+_volText+"\n\n";
+      if(_globalText) _rUser+="【全书总档案（跨卷人设/长线伏笔，仅作事实依据）】\n"+_globalText+"\n\n";
+      /* v131：上下文分工与冲突裁决。
+         没有这段声明时，模型面对「摘要说伏笔未回收 / 片段里已回收」这类矛盾，
+         最常见的处理是自行编造第三种说法来调和——那正是最难察觉的一类幻觉。 */
+      _rUser+="【上下文分工与冲突裁决（硬性）】\n";
+      if(_nearText) _rUser+="① 【上一章真实正文片段】只用于对齐文风与承接当前状态：句式节奏、用词密度、叙述语气，以及本章开始时的人物处境与情感落点，一律以它为准。\n";
+      if(_volText||_globalText) _rUser+="② 【档案摘要】只用于提供片段之外的事实依据：早期人物关系、长线伏笔、时间线与已发生事件；其措辞与语气不具备范本效力，不得模仿其表达。\n";
+      _rUser+="③ 上述材料对同一事实描述不一致时，以真实正文片段为准（它更新鲜）；不一致只说明档案尚未消化到该章，不得据此断定任一版本为「错误」，严禁自行编造第三种说法来调和。\n";
+      _rUser+="④ 材料未覆盖的内容，一律视为尚未发生，严禁补白。\n\n";
       _rUser+="【草稿原文】\n"+_refBody;
       const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
       if(_refined&&_refined.trim()){
@@ -11731,20 +11933,29 @@ async function aiOptimize(){
   const d=getDigest();
   const volText=(d.volumes[curVol||"none"]&&d.volumes[curVol||"none"].text)||"";
   const globalText=d.global||"";
+  /* v131：同自动精修——文风参照取真实正文，档案只作事实依据 */
+  const nearText=lastChapterExcerpt(curVol||"none", 1500, Number(num)||0);
   let userMsg="下面是第"+num+"章《"+title+"》的草稿。请作为「首席编辑」深度审读，先内部分析其内容质量与逻辑结构（不要输出分析报告），然后直接输出【优化后的完整正文】。\n\n"+
     "【优化要求】\n"+
     "① 修正逻辑断裂、时间线/因果错误、动机缺失\n"+
     "② 强化人物动机与情感递进，让人物行为符合其性格与前文依据\n"+
     "③ 统一文风：语言节奏、比喻系统、幽默感与前后章节保持一致\n"+
-    "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写\n"+
+    "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写；删去真正的重复与空转，让节奏更紧凑；凡承载情绪层次、人物动机或感官细节的段落，一律压缩而非删除\n"+
     "⑤ 人物年龄/年级/亲属称谓严格符合分卷专属设定与 HP 原著考据；严禁成人化抒情、现代网络用语\n"+
-    "⑥ 保持第一人称「主动观察式记录」视角，避免被动承受式句式\n"+
+    "⑥ "+povPhrase(curVol)+"\n"+
     "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n\n";
-  userMsg+="【文风一致性·最高优先级】严格延续前文既定语气、比喻系统与用词密度，不得出现风格跳脱；保持第一人称主动观察式视角。\n";
+  userMsg+="【文风一致性】延续前文既定语气与比喻系统；"+povPhrase(curVol)+"。允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。\n";
   userMsg+="【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n";
   if(volSec) userMsg+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
-  if(volText) userMsg+="【当前分卷档案（人物/伏笔/事件依据）】\n"+volText.slice(0,4000)+"\n\n";
+  if(nearText) userMsg+="【上一章真实正文片段（文风参照以此为准）】\n"+nearText+"\n\n";
+  if(volText) userMsg+="【当前分卷档案（仅作人物/伏笔/事件的事实依据，不作文字范本）】\n"+volText.slice(0,4000)+"\n\n";
   if(globalText) userMsg+="【全书总档案（跨卷人设/长线伏笔）】\n"+globalText.slice(0,3000)+"\n\n";
+  /* v131：上下文分工与冲突裁决（与自动精修同一套声明，措辞保持一致） */
+  userMsg+="【上下文分工与冲突裁决（硬性）】\n";
+  if(nearText) userMsg+="① 【上一章真实正文片段】只用于对齐文风与承接当前状态：句式节奏、用词密度、叙述语气，以及本章开始时的人物处境与情感落点，一律以它为准。\n";
+  if(volText||globalText) userMsg+="② 【档案摘要】只用于提供片段之外的事实依据：早期人物关系、长线伏笔、时间线与已发生事件；其措辞与语气不具备范本效力，不得模仿其表达。\n";
+  userMsg+="③ 上述材料对同一事实描述不一致时，以真实正文片段为准（它更新鲜）；不一致只说明档案尚未消化到该章，不得据此断定任一版本为「错误」，严禁自行编造第三种说法来调和。\n";
+  userMsg+="④ 材料未覆盖的内容，一律视为尚未发生，严禁补白。\n\n";
   userMsg+="【草稿原文】\n"+body;
   const btn=document.getElementById("aiOptBtn"); btn.disabled=true; const old=btn.textContent; btn.textContent="精修中…";
   try{
@@ -11813,7 +12024,7 @@ function openAiEdit(){
 function closeAiEdit(){ document.getElementById("aiEditMask").classList.remove("on"); }
 function aiEditReset(){ document.getElementById("aiEditResultBox").style.display="none"; document.getElementById("aiEditActions").style.display=""; document.getElementById("aiEditStatus").textContent=""; }
 const AI_EDIT_ACT={
-  polish:"润色：修正语病、提升文采，保持第一人称薇拉视角与既定文风，不改变情节",
+  polish:"润色：修正语病、提升文采，保持本分卷既定人称视角与文风，不改变情节",
   expand:"扩写：在不改变情节的前提下，增加细节、心理活动与感官描写，使内容更丰满",
   condense:"缩写：删减冗余表达、保留核心信息与文风，使文字更凝练"
 };
@@ -11830,7 +12041,7 @@ async function aiEdit(mode){
   const curChObj=curChId?allChs.find(c=>c.id===curChId):null;
   const curVolForEdit=curChObj?(curChObj.vol||"none"):"none";
   const volSecEdit=getVolSetting(curVolForEdit);
-  const userMsg=`请对下面这段《${(curBook().title||"本书")}》第一人称（薇拉·奎克）正文进行【${AI_EDIT_ACT[mode]}】。
+  const userMsg=`请对下面这段《${(curBook().title||"本书")}》正文进行【${AI_EDIT_ACT[mode]}】。${povPhrase(curVolForEdit)}
 ${volSecEdit?"【本分卷「"+volName(curVolForEdit)+"」专属设定（最高优先级，文风/年龄/称谓必须严格符合）】\n"+volSecEdit+"\n\n":""}只输出处理后的正文本身，不要任何解释、不要加章节标题、不要加引号或代码块。
 \n原文：
 ${src}`;
@@ -13087,7 +13298,7 @@ const QS_MODERN=["破防","社死","无语子","YYDS","老铁","内卷","躺平"
    只收「叙述者替读者总结」的标记，不收 于是/所以 这类普通连接词，避免误报。 */
 const QS_TELL=["她知道","他知道","她明白","他明白","她意识到","他意识到","她清楚","他清楚","意识到","这意味着","也就是说","换句话说","事实上","其实","显然","总之","表明","说明了","可以看出","不得不说","她没想到","他没想到","她这才明白","他这才明白","对于她来说","对于他来说"];
 const QS_SHAPE={
-  long:"【本章形态：长篇推进】承接前文已建立的关系与情绪线向前推进，本章要有实质性进展或转折，结尾留钩子。",
+  long:"【本章形态：长篇推进】承接前文已建立的关系与情绪线向前推进，本章要有实质性进展或转折，结尾落在有力的收束或一个未完成的动作上。",
   single:"【本章形态：单章完整事件】本章要自带完整起承转合：一个明确的目标或麻烦 → 受阻/升级 → 解决或反转 → 余波。读者即使单看这一章也能读懂并得到情绪满足；但仍需与前文人物关系一致。",
   mood:"【本章形态：情绪特写】弱化外部事件，把镜头压在一个场景、一段时间或一次对话里，放大感官细节与心理层次；允许情节推进很少，但情绪必须真实、具体、有变化曲线，不要靠形容词堆砌。",
   extra:"【本章形态：番外小品】篇幅可短、基调可轻松或幽默，允许日常、玩笑、小意外；不改变主线走向与人物根本性格，不引入需要后续回收的新伏笔。"
@@ -13104,10 +13315,23 @@ const QS_CONFLICT={
   value:"【本章冲突类型：价值与立场】本章矛盾来自两套都站得住脚的价值观或立场：双方都不算错，但只能选一个；不要把任何一方写成单纯的反派。",
   environment:"【本章冲突类型：人物与规则/环境】本章核心阻力来自外部规则、制度、场地或自然条件（校规、天气、时间限制、空间局促等）；人物必须靠具体办法绕开或硬扛，而不是靠人帮忙摆平。"
 };
+/* v131：自动轮换改用「软建议」版本。
+   原实现按章号取模硬性指定本章冲突类型——剧情自然走向是内心挣扎时，轮换却落到
+   「人物与规则/环境」，模型被迫生造外部阻力，转折因此生硬、冲突反而弱化。
+   这是「可控性」压过「文本质量」，按质量优先原则让位：
+   · 用户手动选定 → 仍用强约束原文（那是明确意图，照办）
+   · 默认 auto     → 只用软建议，剧情该往哪走就往哪走 */
+const QS_CONFLICT_SOFT={
+  interpersonal:"（可选倾向）若本章自然走向允许多种冲突，可考虑把重心放在人物之间的意志对撞上；若剧情另有更自然、更有张力的走向，以剧情为准。",
+  inner:"（可选倾向）若本章自然走向允许多种冲突，可考虑把重心放在主角自身的取舍上；若剧情另有更自然、更有张力的走向，以剧情为准。",
+  secret:"（可选倾向）若本章自然走向允许多种冲突，可考虑保留一处「有人知道、有人不知道」的关键信息；若剧情另有更自然、更有张力的走向，以剧情为准。",
+  value:"（可选倾向）若本章自然走向允许多种冲突，可考虑让矛盾来自两套都站得住的价值观；若剧情另有更自然、更有张力的走向，以剧情为准。",
+  environment:"（可选倾向）若本章自然走向允许多种冲突，可考虑让阻力来自外部规则或环境；若剧情另有更自然、更有张力的走向，以剧情为准。"
+};
 const QS_CONFLICT_ROTATE=["interpersonal","inner","secret","value","environment"];
 const QS_POV={
   follow:"",
-  limit:"【视角约束：限制性第一人称】只写薇拉当场看到、听到、闻到与能合理推断的；不得写她不在场的场景，不得直接写出他人未说出口的想法，他人情绪只通过可见细节呈现。",
+  limit:"【视角约束：限制性视角】只写叙述者当场看到、听到、闻到与能合理推断的；不得写其不在场的场景，不得直接写出他人未说出口的想法，他人情绪只通过可见细节呈现。",
   gap:"【视角约束：刻意信息差】本章保留一处薇拉理解错了、或读者看得懂而她没看懂的信息；用她自己的误判去解释眼前发生的事，事后回看要自洽，本章不点破。"
 };
 let _qsTab="local", _qsScan=null, _qsRewrites=null, _qsExtra="";
@@ -13510,11 +13734,13 @@ function shapePrompt(){
 /* v100：冲突类型（auto 时按章号轮换）+ 视角约束 → 生成指令；同样是纯附加，不改链路 */
 function conflictPrompt(){
   let k=((document.getElementById("chConflict")||{}).value)||"auto";
+  let soft=false;
   if(k==="auto"){
     const n=Number((document.getElementById("chNum")||{}).value)||0;
     k=QS_CONFLICT_ROTATE[n>0?((n-1)%QS_CONFLICT_ROTATE.length):0];
+    soft=true;
   }
-  const c=QS_CONFLICT[k]||"";
+  const c=(soft?(QS_CONFLICT_SOFT[k]||""):(QS_CONFLICT[k]||""));
   const p=QS_POV[((document.getElementById("chPov")||{}).value)||"follow"]||"";
   return [c,p].filter(function(s){return s;}).join("\n");
 }
@@ -13546,6 +13772,9 @@ async function bootApp(){
   allRender();
   _appBooted=true; /* 应用初始化完成：此后任何保存都会正常触发自动同步 */
   applyDisplay();
+  /* v131：人称体检放在首屏渲染之后——此时 volumes / chapters / ai 都已就绪，
+     判定结果才可信。confirm 会阻塞，所以必须是启动流程的最后一步。 */
+  try{ setTimeout(povBootCheck, 400); }catch(e){}
 }
 /* ==================================================================
    v111 · 剧情参谋（讨论槽）+ 本地审稿槽（0 token）+ 最小插件总线
