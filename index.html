@@ -1306,6 +1306,18 @@
       <div id="gsPluginList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;"></div>
     </div>
 
+    <!-- v138：人称体检（原先在启动时弹 confirm，取消后每次刷新都再弹，压住首屏。
+         现在改为这里的主动入口，检测与中性化逻辑完全沿用，未删任何分支。 -->
+    <div class="gs-group" id="gsPovGroup">
+      <h4 class="gs-gtitle">🎭 人称体检</h4>
+      <p class="meta gs-desc">检查「系统提示词 / 文风准则」里写死的人称是否与分卷设定冲突。冲突时模型会同时收到两个矛盾的视角指令，容易出现人称串篇。<b>启动时不再弹窗</b>，需要时在这里检查。</p>
+      <div id="gsPovStatus" class="meta" style="margin:6px 0 8px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="ai-usage-btn" onclick="povSysWarn(true)" title="仅检查并提示；确认后才改，取消则一字不动">🔎 检查人称冲突</button>
+        <button type="button" class="ai-usage-btn" onclick="povLockSuggest()" title="把已能从正文判定人称的分卷锁死，写死后再不受系统提示词影响">🔒 锁死分卷人称</button>
+      </div>
+    </div>
+
     <div class="gs-group" id="gsAiGroup">
       <h4 class="gs-gtitle">AI 生成设置（每本书独立）</h4>
       <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「接着写 / 深度续写 / 整章精修 / 润色」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
@@ -1518,7 +1530,7 @@
     <!-- AI 生成设置已移至「⚙ 全局设置」弹窗（子标题分组，id=gsAiGroup），章节页顶部不再显示，避免挤占写作区 -->
 
     <div class="card collapsible collapsed">
-      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>前文理解档案<span class="pill">AI 持续消化</span><span class="pill" id="dgWarnPill" style="display:none;background:#c0392b;color:#fff;" onclick="event.stopPropagation();showDigestScopeAudit()"></span><span class="caret">▼</span></h2>
+      <h2 onclick="toggleCard(this)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M12 7v5l3 3"/></svg>前文理解档案<span class="pill">AI 持续消化</span><span class="pill" id="dgWarnPill" style="display:none;background:#c0392b;color:#fff;" onclick="event.stopPropagation();showDigestScopeAudit()"></span><span class="pill" id="dgStalePill" style="display:none;background:#c0392b;color:#fff;" onclick="event.stopPropagation();gotoStaleList()" title="有档案与章节状态对不上（章节已删 / 状态已改回草稿或待修改）。点这里直接看清单"></span><span class="caret">▼</span></h2>
       <div id="digestPanel" class="dg-panel"></div>
     </div>
 
@@ -3238,11 +3250,23 @@ function povSysNeutralize(){
     return true;
   }catch(e){ return false; }
 }
-function povSysWarn(){
+/* v138：非阻塞提示。启动时不再弹 confirm——之前取消后每次刷新都会再弹一次，
+   挡住了首屏。现在只提示「去哪里处理」，把动手交给「⚙ 全局设置 → 人称体检」。
+   force=true（用户主动点按钮）时才走 confirm，因为那时是明确的操作意图。 */
+function povSysWarn(force){
   try{
     const hits=povSysConflict();
-    if(!hits.length) return false;
+    if(!hits.length){
+      if(force){ try{ toast("人称体检：没有发现冲突，系统提示词与各分卷设定一致 ✓"); }catch(e){} }
+      return false;
+    }
     const names=hits.map(function(h){ return h.name; }).join("、");
+    if(!force){
+      try{
+        toast("⚠️ 人称冲突："+names+" 需要「"+hits[0].want+"」，但系统提示词写死了「"+hits[0].got+"」 → ⚙ 全局设置 › 人称体检 可一键改中性");
+      }catch(e){}
+      return true;
+    }
     const msg="⚠️ 人称冲突：系统提示词或「文风准则」里写死了「"+hits[0].got+"」，"
       +"但分卷「"+names+"」是「"+hits[0].want+"」。\n\n"
       +"两边打架会让模型收到互相矛盾的视角指令，容易出现人称串篇。\n\n"
@@ -3283,13 +3307,24 @@ function povLockSuggest(){
     return true;
   }catch(e){ return false; }
 }
-/* 启动体检入口：一会话只跑一次 */
+/* 启动体检入口：一会话只跑一次。
+   v138：启动时**不再弹任何 confirm**。原先这里会连弹两个阻塞框
+   （「要不要锁死分卷人称」「人称冲突要不要改中性」），取消之后什么都没变，
+   于是每次刷新页面都再弹一遍，直接压住首屏。
+   现在：启动只做「检测 + 一次性非阻塞提示」，同一组冲突只提示一次；
+   真正动手的入口移到「⚙ 全局设置 › 人称体检」，业务逻辑一个都没删。 */
 var _povBootDone=false;
 function povBootCheck(){
   try{
     if(_povBootDone) return; _povBootDone=true;
-    povLockSuggest();
-    povSysWarn();
+    const hits=povSysConflict();
+    if(!hits.length) return;
+    /* 同一组冲突只提示一次：提示过就记下来，冲突变了才会再提示 */
+    const key=hits.map(function(h){ return h.id+":"+h.got+"→"+h.want; }).sort().join("|");
+    let seen=""; try{ seen=String(rawLoad("povHinted", "")||""); }catch(e){}
+    if(seen===key) return;
+    try{ rawSave("povHinted", key); }catch(e){}
+    setTimeout(function(){ try{ povSysWarn(false); }catch(e){} }, 1200);
   }catch(e){}
 }
 /* v110：人称体检。粗判一段文字是第一人称还是第三人称，用于生成前校验与生成后自检。
@@ -5337,7 +5372,11 @@ function _findSnippet(text, name){
 let _digestCorpusCache=null;
 function _digestCorpus(scopeVol){
   try{
-    if(_digestCorpusCache && _digestCorpusCache.v===scopeVol) return _digestCorpusCache.t;
+    /* v138：缓存键必须带书本 id。原来只按分卷入参做键，而两本书里同名的卷（都有「未分卷」「人物卷」等）
+       键值完全一样，切书后仍返回上一本书的档案，于是人物卡的「原文依据」片段取自另一本书。
+       加上 curId 后互不串台；仍保留按卷缓存的老行为（同书同卷只算一次）。 */
+    const _key=String(curId||"")+"|"+(scopeVol===undefined||scopeVol===null?"":String(scopeVol));
+    if(_digestCorpusCache && _digestCorpusCache.k===_key) return _digestCorpusCache.t;
     const d=getDigest();
     const vids=scopeVol?[scopeVol]:Object.keys(d.volumes||{});
     let t="";
@@ -5346,7 +5385,7 @@ function _digestCorpus(scopeVol){
       Object.keys(v.blocks||{}).forEach(function(chId){ t+=String((v.blocks[chId]&&v.blocks[chId].text)||"")+"\n"; });
       t+=String(v.rolling||"")+"\n";
     });
-    _digestCorpusCache={v:scopeVol,t:t};
+    _digestCorpusCache={k:_key,t:t};
     return t;
   }catch(e){ return ""; }
 }
@@ -7627,7 +7666,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v137";
+const APP_VERSION="v138";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7637,6 +7676,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v138","修好「一进页面就被弹窗挡住」以及由此带出的三处显示问题。① 【不再弹窗】此前每次启动都会在首屏渲染完后连弹两个系统对话框：「要不要锁死分卷人称」和「人称冲突要不要改中性」。这两个框是阻塞的，取消之后什么都不会变，于是下次刷新又弹一遍——手机上一进页面就卡在这儿，连正文都看不到。现在启动只做检测，发现冲突就在底部提示一句「去 ⚙ 全局设置 › 人称体检」，同一组冲突只提示一次；真正动手的入口搬到「⚙ 全局设置 › 人称体检」，里面直接写清「哪一卷需要什么人称、系统提示词写死了什么」，并保留「检查人称冲突（可一键改中性）」与「锁死分卷人称」两个按钮。检测与中性化逻辑一行未删。② 【切书后档案串台】人物卡里的「原文依据」片段取自消化档案，而这段档案有个缓存只按分卷做键。两本书里同名的卷（都有「未分卷」等）键值完全一样，切书后仍返回上一本书的档案，于是第二本书的人物引用了第一本书的原文。现在缓存键带上书本，各书互不干扰。③ 【过期档案看不见】过期档案的条数原先要展开「前文理解档案」再展开「全书总览」两层才看得到，等于没有提示。现在条数直接挂在「前文理解档案」折叠标题上（例如「过期档案 3·已排除」），没有可疑条目不显示；点这个角标一次到位展开两层并直接列出清单，不用再自己找按钮。④ 【主按钮不突出】消化面板里最常用的是「立即消化全部前文」，此前与「导出自检清单」等次要按钮长得一样；现在标为主按钮，其余保持次要样式，不新增任何操作层级。⑤ 【关于「第二集」】代码与随包素材里都没有名为「第二集」的分卷或书本，它属于你自己录入的数据，我无法读取你设备上的本地库，因此不能替你核对其中内容；本版把「第二本书内容显示与关联」这条链路上确实存在的缺陷（第②条）修掉了，并补了逐项显示校验。"],
   ["v137","分级闭环的第 1 级：两类明确过期的档案，不再注入给模型（可一键关掉）。上一版只把可疑条目列出来，这版才真正动手，但只动争议最小的两类，其余一律照旧。① 【过滤哪两类】一是「章节已不在」——档案里还留着摘要，章节列表里却已经查不到（多半是被删除了），删掉的章节不该再当作「已经发生的事」影响后续；二是「状态已改回草稿或待修改」——它消化过，但你自己已经不把它当定稿了。② 【另外两类为什么不动】「正文改过但摘要没刷新」「摘要状态异常」这两类的摘要多半仍然成立，过滤掉反而会丢掉人物关系与伏笔这类长程事实，得不偿失，所以本轮保留原样，只提示。③ 【三条硬边界】早期整段形态的旧档案（未按章拆分）永不过滤；旧数据里没有状态字段的一律保留——缺字段不等于草稿，不能靠猜；只过滤「发给模型的那一瞬」，档案原始数据、界面上看到的档案、导出的备份全部一字不动。④ 【开关】体检台新增「🚫 过期档案不注入」，默认开启，旁边直接显示当前过滤了几条；点一下关掉，注入内容立刻完全回到从前，不需要任何修复操作。开关只写一个本机设置项，不碰章节与档案存储。⑤ 【为什么风险低】判定与过滤都收在一个新函数里，注入链路只多了「排除这些条目」一步，不改变任何既有函数的对外用法；取不到数据时一律返回「不过滤」而不是报错。⑥ 【对文章质量的影响】被排除的都是已经不成立的说法，注入它们才会让模型照着不存在的事实写；排除后模型少了一部分材料，但那部分材料本身就是错的。若你觉得某章的档案仍有用，把该章状态改回「已完稿」即可恢复注入。"],
   ["v136","分级闭环的第 0 级：先「看得见」，先不动手。这一版只加一个**只读**的体检按钮，不改任何数据、不改发给 AI 的一个字。① 【为什么先做这个】消化档案是长程事实的唯一通道：人物关系、伏笔是否回收、上一章发生了什么，全靠它带进每一次生成。但它是「写完就定」的——章节删了、章节从已完稿改回草稿、正文改过而摘要没跟着刷新，档案里的旧说法都还会当作「已经发生的事实」继续注入。越往后写，错的旧事实越多，而你没有任何地方能看到这个清单。② 【现在】体检台新增「🕓 档案过期体检（只看不改）」，列出四类可疑条目：章节已删除但摘要还在、状态已不是已完稿却消化过、正文改过但摘要没刷新、摘要已写入但状态还没跟上。每条都写明是哪一卷哪一章、属于哪一类、以及它为什么会影响生成。另有第五类「旧格式整卷文本」是早期整段文本形态，无法逐章判定，会如实说明而不是假装一切正常。③ 【它不做什么】不写任何存储、不清理任何记录、不改动任何注入内容、不做任何网络请求。点它和没点它，生成结果完全一样——这一条已用「注入内容指纹比对」实测确认。④ 【为什么这一级风险低】纯新增两个函数与一个按钮，不改动任何既有函数的分支；所有读取都包在 try/catch 里，取不到就返回空清单而不是报错。即使这段代码整个出错，最坏情况也只是清单列不出来，体检台其余功能照旧。⑤ 【下一步】等你在真实数据上看到清单，我们再决定哪些类别值得自动过滤——先看清，再动手，避免一上来就改错。"],
   ["v135","修「旧格式备份恢复时会静默丢掉 8 类数据」。这是本轮风险评估里唯一「失败不可逆」的一项——别的缺陷改坏了可以回滚，备份恢复丢掉的东西找不回来。① 症状（实测，非推测）：应用有两种备份格式。现在「导出 JSON」产出的是完整版（含全部书与设定），恢复它没问题；早期还有一种扁平单本的旧格式，恢复时只还原章节/人物/文风准则/比喻体系/线索/AI 设置这 7 类，其余一律丢弃。② 实测丢失清单：书名、封面颜色、分卷结构、灵感笔记、世界观核心设定、设定词条库、剧情时间线、比喻库——共 8 类。用一份字段全部有内容的合成备份跑真实恢复链路验证，8 类全部丢失；修复后 8 类全部还原。③ 其中最要命的是「分卷结构」：实测分卷从 3 个变回 1 个，而章节里还记着原来属于哪一卷，于是这些章节的归属全变成孤儿分卷——卷档案、分卷设定、人称铁律从此都对不上号，而且全程不报任何错，你只会觉得「续写越来越对不上」。④ 你的实际数据：拿 8 月 5 日那份备份跑了真实恢复，它丢的是书名《即刻心动》JAMES 1-52（已导入）与封面颜色，其余 7 类恰好当时是空的没丢——所以这个缺陷到你手里表现为「恢复出来的书没有名字」，而不是「整本书散架」。⑤ 修法：只补提取环节漏传的字段，按「备份里有才传」逐项补齐，缺失的键一律不传、仍走既有默认值；书名若是空串也跳过，避免把默认名冲掉。数据结构、存储、IDB 版本、默认行为、其它模块的调用方式全部未改。验证：恢复链路两遍对照（真实备份 + 字段齐全的合成备份），丢失字段数 8 → 0，运行期 0 错误；原有回归 156 条全部通过。"],
@@ -10928,7 +10968,8 @@ function renderDigest(){
     html+='<textarea readonly class="dg-vol-text" style="min-height:120px;">'+esc(d.global)+'</textarea>';
   }
   html+='<div class="dg-vol-btns">';
-  html+='<button onclick="rebuildDigestUI(this)">立即消化全部前文</button>';
+  /* v138：这一组里最常用的是「立即消化全部前文」，标成主按钮，减少在其中挑按钮的时间 */
+  html+='<button class="primary" onclick="rebuildDigestUI(this)">立即消化全部前文</button>';
   html+='<button onclick="rebuildDigestFull(this)">重新完整消化全书</button>';
   html+='<button onclick="exportDigestAll()">导出全书档案</button>';
   html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
@@ -11014,6 +11055,34 @@ function renderDigest(){
 
   panel.innerHTML=html;
   try{ refreshDigestWarn(false); }catch(e){}
+  try{ refreshStalePill(); }catch(e){}
+}
+/* v138：把「过期档案条数」直接挂在折叠标题上。
+   此前提检结果要展开「前文理解档案」+「全书总览」两层折叠才看得见，
+   等于没有提示。这里只读判定、不改数据；没有可疑条目就完全不显示。 */
+function refreshStalePill(){
+  const el=document.getElementById("dgStalePill"); if(!el) return 0;
+  let n=0;
+  try{ n=Object.keys(digestStaleIds()).length; }catch(e){ n=0; }
+  if(!n){ el.style.display="none"; el.textContent=""; return 0; }
+  el.style.display="";
+  el.textContent="过期档案 "+n+(dgFilterStaleOn()?"·已排除":"·未排除");
+  return n;
+}
+/* 点标题上的角标：一次到位展开两层并直接渲染清单，不用自己找按钮 */
+function gotoStaleList(){
+  try{
+    const dp=document.getElementById("digestPanel");
+    const card=dp&&dp.parentNode;
+    if(card&&card.classList.contains("collapsed")){ toggleCard(card.querySelector("h2")); }
+    try{ _dgCollapsedGlobal=false; }catch(e){}
+    renderDigest();
+    renderDigestStale();
+    setTimeout(function(){
+      const box=document.getElementById("dgStale");
+      if(box) box.scrollIntoView({behavior:"smooth",block:"center"});
+    },150);
+  }catch(e){}
 }
 /* ================= v118：消化问题警示角标 =================
    「前文理解档案」是一张默认折叠的卡，v116/v117 的体检按钮就藏在这张卡里，
@@ -14078,8 +14147,9 @@ async function bootApp(){
   allRender();
   _appBooted=true; /* 应用初始化完成：此后任何保存都会正常触发自动同步 */
   applyDisplay();
-  /* v131：人称体检放在首屏渲染之后——此时 volumes / chapters / ai 都已就绪，
-     判定结果才可信。confirm 会阻塞，所以必须是启动流程的最后一步。 */
+  /* v131：人称体检放在首屏渲染之后——此时 volumes / chapters / ai 都已就绪，判定结果才可信。
+     v138：这里不再弹 confirm（取消后会每次刷新再弹，压住首屏），改为一次性非阻塞提示，
+     动手入口在「⚙ 全局设置 › 人称体检」。 */
   try{ setTimeout(povBootCheck, 400); }catch(e){}
 }
 /* ==================================================================
@@ -15057,7 +15127,23 @@ async function trajReplay(id){
     const cb=box.querySelector("button.primary"); if(cb) cb.dataset.v=String(out||"");
   }catch(e){ toastErr("重跑失败："+String((e&&e.message)||e).slice(0,200)); }
 }
-function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} try{ renderTrajMeta(); }catch(e){} try{ renderPluginToggles(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} try{ renderTrajMeta(); }catch(e){} try{ renderPluginToggles(); }catch(e){} try{ renderPovStatus(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+/* v138：人称体检分组的状态行——把「有没有冲突、冲突在哪一卷」直接写在设置里，
+   不用点按钮就知道要不要处理。只读，不改任何数据。 */
+function renderPovStatus(){
+  const el=document.getElementById("gsPovStatus"); if(!el) return;
+  let hits=[];
+  try{ hits=povSysConflict()||[]; }catch(e){ hits=[]; }
+  if(!hits.length){
+    el.innerHTML='<span style="color:#2e7d4f;">✓ 未发现人称冲突：系统提示词与各分卷设定一致。</span>';
+    return;
+  }
+  const lines=hits.map(function(h){
+    return "· "+esc(h.name)+" 需要「"+esc(h.want)+"」，但系统提示词/文风准则写死了「"+esc(h.got)+"」";
+  }).join("<br>");
+  el.innerHTML='<span style="color:#c0392b;">⚠️ 发现 '+hits.length+' 处人称冲突：</span><br>'+lines
+    +'<br><span style="opacity:.8;">点下面「检查人称冲突」可一键改为中性（只追加覆盖声明并替换文风准则里的人称行，其他设定一字不动）。</span>';
+}
 function renderTrajMeta(){
   const el=document.getElementById("aiTrajMeta"); if(!el) return;
   const arr=trajGet(); const bad=arr.filter(function(t){ return !t.ok; }).length;
