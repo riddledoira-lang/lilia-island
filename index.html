@@ -5562,6 +5562,17 @@ function scanChaptersForNewChars(){
        边缘角色（分院帽、某只孔雀）全放进来了。改为按「被点名了几个不同章」计数，
        默认要求 ≥2 章；确实想收边缘角色时，开「边缘角色 收」开关降为 ≥1 章。 */
     if(c.dgCount && c.dgCount>=(_minorOn?1:2)) return true;
+    /* v140：档案点名 1 章 + 正文里这个名字真的出现过 ≥2 次 —— 两个互相独立的来源同时确认。
+       修的是「正文里露过脸、档案也点过名，却只因不满 2 章就被挡在门外」的配角：
+       这类人通常不以「某某说」的句式出场（说话动词正则抓不到），于是正文与档案各认一半，
+       两边都够不着阈值。只凭档案单方面点名 1 章不放行（那是 v117 收紧的边缘角色通道），
+       必须正文也出现才算。 */
+    if(c.dgCount && c.dgCount>=1){
+      try{
+        const occ=(full.split(c.name).length-1);
+        if(occ>=2) return true;
+      }catch(e){}
+    }
     if(_SURNAMES.indexOf(c.name.charAt(0))>=0 && c.count>=2) return true;
     return c.score>=3 || c.count>=2;
   });
@@ -7668,7 +7679,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v139";
+const APP_VERSION="v140";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7678,6 +7689,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v140","修三个具体的错：档案里混进正文没有的内容、手动加的人物卡参谋看不见、参谋引用没发生过的情节推进。① 【档案为什么会记错】档案块此前是「模型输出什么就原样写什么」——从模型输出到落盘之间没有任何一步回原文比对。于是两种内容会混进来：一是模型没找到时写的「未找到 / 无」这类占位条目；二是张冠李戴——模型把别章的内容（或它自己的推测）当成本章结论，还附一段「原文依据」，于是第 55 章的档案里出现了正文第 55 章根本没有的「消化印记石头」。这类内容一旦进档案，就会被当成已消化的事实，进后面每一次生成。② 【现在写入前先校验】落盘前做两件事，且只做这两件：占位行整行剔除；带摘抄式「原文依据」的行逐条回正文比对，定位不到就整行剔除，并在块尾留一句可核查的说明（剔了几条、可核对的依据是几分之几）。校验不了的行（没有可直接比对的摘抄）一律原样保留——宁可放过，不可错杀，误杀会丢掉真实的长程事实。某块里多数依据都对不上正文时，该章状态自动降为「降级」，界面上会明确标出来，可单章重试；几乎整块都对不上时保留原文、只标降级，不会让这一章的档案凭空消失。③ 【已经写进去的怎么办】消化面板新增「🧪 档案落地体检」：逐块把档案里的摘抄依据回正文比对，列出定位不到的条目（哪一卷哪一章、剔了几条、可核对几分之几），确认后可一键剔除，默认先自动备份。只删这些条目，其余条目、正文、消化状态一律不动。④ 【人物卡为什么看不见】手动新建的人物卡如果只填了外貌（或别名+外貌），会被人物卡的过滤条件整条丢掉——那个条件只认核心特质、说话方式、行为禁区、表层欲望四项，外貌与心理不在其中；名额还固定只取前 8 位。现在与增强模块用同一套判定（外貌、心理、深层渴望、思维模式都算），名额提到 20，并把别名一并输出。⑤ 【问到的人必须出现在人物卡里】此前「作者问到了谁」只是排序时的加分项，本章出场人物一旦占满名额，问到的那个配角照样被切掉——明明问的是菲比，回答里却没有菲比。现在作者问到的人先占位，再按相关度补满。⑥ 【人物扫描补一条双源规则】正文里露过脸、消化档案也点过名，却因「不满两章」被挡在门外的配角（典型：不以「某某说」句式出场，说话动词正则抓不到的人），现在只要档案点名过且这个名字在正文里确实出现两次以上，就允许收录。只凭档案单方面点名一章仍然不放行，避免边缘角色混入。⑦ 【参谋为什么会引用没发生过的情节】它拿到的材料里，消化档案是「已发生过什么」的唯一来源，但此前没有任何一处告诉它这个来源的范围边界在哪。于是档案里某句当年被推测出来的推进（如「先解反噬，再归沙菲克」，正文里从未发生）被当成既成事实反复引用。现在每次对话都会附上「已消化章节清单」，并给一条可执行的铁律：只有清单里的章节才算发生过；档案里的「下一步 / 将要 / 计划 / 先…再…」只是当时的推测不是事实；提到的每个推进都必须能指出出自哪一章，指不出就直接回答「这段还没有写过」；作者说没写过就以作者为准。⑧ 【残留脏数据的出口】参谋弹窗新增「🧹 清空参谋记忆」：点过「采纳」的走向会被长期记住并写进本章指令，若那条走向后来被证明是错的，它会一直跟着后面的生成。这里可以一次清空已采纳与已否决两份清单，并可选择同时删掉指令里当时自动写入的那几行（你自己写的指令不动）。⑨ 【开关与回退】三处改动各有一个开关（DIGEST_GROUND_CHECK、COUNSEL_SCOPE_RULE，人物卡判定沿用增强模块既有开关），置 false 即回到改动前，不需要任何数据修复。⑩ 【对文章质量的影响】预期的正向效果是档案不再夹带正文里没有的内容、参谋不再拿推测当事实；人物卡多进来的人只会让参谋的判断多一份依据，不会改变它不动正文的边界。"],
   ["v139","分级闭环的第 2 级：正文与档案冲突时，明确告诉模型该听谁的。这一版只加一句裁决说明，不改动注入的材料本身。① 【根因】消化档案是「写完就定」的——正文后来改过、章节删了、状态退回草稿，档案都不会自动跟着更新（让它自动更新属第 3 级，风险 15–18%，明确不做）。于是每次生成其实都同时给了模型两份时间不同的材料：新鲜的前文正文，和可能已经落后的档案。两者对同一件事说法不一致又没人告诉它该听谁，它最常见的处理是自己编一个第三种说法把两边调和起来——这是最难发现的一类幻觉，也是「越往后写越对不上」的来源之一。② 【此前只修了一半】这个裁决说明在 v131 就加进了两条精修链路，但生成、续写、审稿这三处从来没有；更糟的是其中两处把档案直接标成「优先参照」，等于明示模型更应该相信过时的那一份。③ 【现在】共五处接入：接着写、深度续写（分析阶段与生成阶段）、AI 审稿、全书大纲规划、剧情参谋。只要确实同时注入了正文与档案，就附上一句裁决：同一件事以更靠后的正文为准；档案仍要用，但用它补正文里没提到的事（更早建立的人物关系、更早埋下的伏笔、更早发生的事件）；不一致只说明档案还没消化到那一章，不许断定哪个版本是错的，更不许自己编第三种说法。剧情参谋虽然不写正文，但你问「这个人这么做合理吗」时，它对剧情的判断会直接影响你怎么改稿，所以同样要裁决；它只在编辑器里有正文时才追加（【最近几章】只是梗概，不算正文）。原来「优先参照」的标注改成「用于补充正文未覆盖的长程事实」——让模型继续读长程事实的原意保留，裁决权归还给正文。④ 【为什么对审稿特别重要】审稿的职责本来就是找「前后矛盾」。以前档案一落后，模型会把每一处不一致都报成硬伤，全是假阳性，复核成本全落在你身上；现在先行声明以正文为准，档案才算回到它该在的位置。⑤ 【为什么风险低】只在两份材料同时出现时才追加约 150 字，只给一类材料时一句话不多说，也不白占预算；材料的取值、排序、封顶、来源一处没动。裁决措辞统一由一个函数产出，避免五处各写一遍导致口径再次分叉。开关 MATERIAL_ARBITER 置 false 即整体回到改动前，不需要任何数据修复。⑥ 【顺带修掉审稿链路的一个入口缺陷】AI 审稿此前直接读「分卷下拉框的原始值」去取本卷档案，而你刚切过书、或还没选过卷时这个下拉是空的——此时本卷档案整个取空，审稿等于对着没有上下文的材料找矛盾。更麻烦的是它和写作不是同一个判据：写这一章时按 A 卷的前文，审这一章时却是空的或有另一套，本来连贯的内容会被判成【硬伤】。生成链路早在 v131 就改成了唯一的解析入口，审稿这一条漏了。现在共用同一个入口，并在审稿时不弹写作用的提示。⑦ 【对文章质量的影响】预期的正向效果是模型不再自行编造调和说法；同时因为明确要求「档案仍要用」，长程事实不会因为这条说明而被丢掉。"],
   ["v138","修好「一进页面就被弹窗挡住」以及由此带出的三处显示问题。① 【不再弹窗】此前每次启动都会在首屏渲染完后连弹两个系统对话框：「要不要锁死分卷人称」和「人称冲突要不要改中性」。这两个框是阻塞的，取消之后什么都不会变，于是下次刷新又弹一遍——手机上一进页面就卡在这儿，连正文都看不到。现在启动只做检测，发现冲突就在底部提示一句「去 ⚙ 全局设置 › 人称体检」，同一组冲突只提示一次；真正动手的入口搬到「⚙ 全局设置 › 人称体检」，里面直接写清「哪一卷需要什么人称、系统提示词写死了什么」，并保留「检查人称冲突（可一键改中性）」与「锁死分卷人称」两个按钮。检测与中性化逻辑一行未删。② 【切书后档案串台】人物卡里的「原文依据」片段取自消化档案，而这段档案有个缓存只按分卷做键。两本书里同名的卷（都有「未分卷」等）键值完全一样，切书后仍返回上一本书的档案，于是第二本书的人物引用了第一本书的原文。现在缓存键带上书本，各书互不干扰。③ 【过期档案看不见】过期档案的条数原先要展开「前文理解档案」再展开「全书总览」两层才看得到，等于没有提示。现在条数直接挂在「前文理解档案」折叠标题上（例如「过期档案 3·已排除」），没有可疑条目不显示；点这个角标一次到位展开两层并直接列出清单，不用再自己找按钮。④ 【主按钮不突出】消化面板里最常用的是「立即消化全部前文」，此前与「导出自检清单」等次要按钮长得一样；现在标为主按钮，其余保持次要样式，不新增任何操作层级。⑤ 【关于「第二集」】代码与随包素材里都没有名为「第二集」的分卷或书本，它属于你自己录入的数据，我无法读取你设备上的本地库，因此不能替你核对其中内容；本版把「第二本书内容显示与关联」这条链路上确实存在的缺陷（第②条）修掉了，并补了逐项显示校验。"],
   ["v137","分级闭环的第 1 级：两类明确过期的档案，不再注入给模型（可一键关掉）。上一版只把可疑条目列出来，这版才真正动手，但只动争议最小的两类，其余一律照旧。① 【过滤哪两类】一是「章节已不在」——档案里还留着摘要，章节列表里却已经查不到（多半是被删除了），删掉的章节不该再当作「已经发生的事」影响后续；二是「状态已改回草稿或待修改」——它消化过，但你自己已经不把它当定稿了。② 【另外两类为什么不动】「正文改过但摘要没刷新」「摘要状态异常」这两类的摘要多半仍然成立，过滤掉反而会丢掉人物关系与伏笔这类长程事实，得不偿失，所以本轮保留原样，只提示。③ 【三条硬边界】早期整段形态的旧档案（未按章拆分）永不过滤；旧数据里没有状态字段的一律保留——缺字段不等于草稿，不能靠猜；只过滤「发给模型的那一瞬」，档案原始数据、界面上看到的档案、导出的备份全部一字不动。④ 【开关】体检台新增「🚫 过期档案不注入」，默认开启，旁边直接显示当前过滤了几条；点一下关掉，注入内容立刻完全回到从前，不需要任何修复操作。开关只写一个本机设置项，不碰章节与档案存储。⑤ 【为什么风险低】判定与过滤都收在一个新函数里，注入链路只多了「排除这些条目」一步，不改变任何既有函数的对外用法；取不到数据时一律返回「不过滤」而不是报错。⑥ 【对文章质量的影响】被排除的都是已经不成立的说法，注入它们才会让模型照着不存在的事实写；排除后模型少了一部分材料，但那部分材料本身就是错的。若你觉得某章的档案仍有用，把该章状态改回「已完稿」即可恢复注入。"],
@@ -9004,9 +9016,25 @@ function getChDigestStatus(chId, vid){
 function setChDigestStatusInPlace(d, chId, vid, status, errorMsg, rawOutput, contentMd5, blockText, chObj){
   const v=ensureVolDigest(d, vid);
   if(!v.chapters) v.chapters={};
-  v.chapters[chId]={status:status, error_msg:errorMsg||"", raw_output:rawOutput||"", content_md5:contentMd5||"", update_at:Date.now()};
+  let _st=status, _em=String(errorMsg||""), _block=blockText;
+  /* v140：写块之前先做「原文落地校验」——
+     一条在正文里定位不到的内容，此前会作为「已消化事实」进档案、再进所有后续生成。
+     校验不通过（多数依据都对不上正文）时把状态降为降级，UI 上会明确标出来，可单章重试。 */
+  if(DIGEST_GROUND_CHECK && chObj && (_st===DS_DIGESTED||_st===DS_DEGRADED) && String(blockText||"").trim()){
+    try{
+      const _au=groundAuditBlock(blockText, chObj);
+      _block=_au.text;
+      if(_st===DS_DIGESTED && _au.suspect){
+        _st=DS_DEGRADED;
+        _em=(_em?(_em+"；"):"")+"原文依据多数无法定位（"+_au.located+"/"+_au.verifiable+" 条可对上正文）";
+      }else if(_au.dropped && !_au.suspect){
+        _em=(_em?(_em+"；"):"")+"已剔除 "+_au.dropped+" 条无法在正文定位的条目";
+      }
+    }catch(e){ console.warn("[档案落地校验] 跳过(非致命):", e&&e.message); }
+  }
+  v.chapters[chId]={status:_st, error_msg:_em, raw_output:rawOutput||"", content_md5:contentMd5||"", update_at:Date.now()};
   /* v106：档案块化。digested/degraded 且带 blockText → 写块；其余状态 → 清掉可能的旧块 */
-  if(chObj) putVolBlock(d, vid, chObj, blockText, status);
+  if(chObj) putVolBlock(d, vid, chObj, _block, _st);
   d.digest_update_at=Date.now();
 }
 /* 独立设置章节消化状态（自带 saveDigest） */
@@ -9191,6 +9219,86 @@ function volBlocksSorted(v){
     .filter(Boolean)
     .filter(function(x){ return typeof x.text==="string" && x.text.trim(); })
     .sort(function(a,b){ return (Number(a.seq)||0)-(Number(b.seq)||0); });
+}
+/* ================= v140 · 档案落地校验（写入前闸门） =================
+   【根因】档案块此前是「模型输出什么就原样写什么」：putVolBlock 只在状态合格时落盘，
+   从模型输出到档案之间没有任何一步回原文比对。于是两种内容会混进档案并长期污染后续生成——
+     ① 占位条目：模型没找到时就写一行「未找到 / 无」；
+     ② 张冠李戴：模型把别章（或自己的推测）当成本章结论，还附上一段「原文依据」，
+        于是第 55 章的档案里出现了「消化印记石头」——正文第 55 章根本没有这件事。
+   【做什么】写入前只做两件事：占位行整行剔除；带摘抄式依据的行回正文比对，
+   定位不到就整行剔除，并在块尾留一句可核查的说明。
+   【不做什么】不改写、不润色、不替模型补内容。校验不了的行（没有可直接比对的摘抄）
+   一律原样保留——宁可放过，不可错杀；误杀会丢掉真实的长程事实。
+   开关做成 var 而非常量：出问题可在控制台直接置 false 回退，不必改代码重新部署。 */
+var DIGEST_GROUND_CHECK=true;
+/* 规范化：去空白与常见标点，让「原文里有换行 / 全半角差异」不影响定位 */
+function _gNorm(s){
+  return String(s||"").replace(/[\s\u3000]/g,"")
+    .replace(/["'‘’“"「」『』《》〈〉（）()【】\[\]…—·~｜|、，。！？；：,.:;!?]/g,"");
+}
+/* 占位行：本身不含任何信息的「没找到」类条目 */
+var _G_PLACEHOLDER=/^(?:[-•·*\s>]*(?:无|没有|暂无|未找到|未发现|未提及|未出现|未涉及|不适用|无关|略|同上|见上|待补|待定|N\/A|n\/a|无相关(?:内容|信息|描写)?|无明确[^。]{0,8}|无新增[^。]{0,8}|无变化|无进展|本章未[^。]{0,10}|本章无[^。]{0,10}|本章没有[^。]{0,10})[。．,，;；:：]?\s*)$/;
+function _gIsPlaceholder(ln){
+  const s=String(ln||"").trim();
+  if(!s) return true;
+  if(_G_PLACEHOLDER.test(s)) return true;
+  /* 「· 物件：未找到」「· 补充：无」——标签是正文，值本身才是占位。
+     只判整行等于占位词会漏掉这一类，它恰恰是档案里最常见的「未找到」条目形态。 */
+  const m=s.match(/^[-•·*\s>]*(?:[^：:]{0,24})[：:]\s*(.+)$/);
+  if(m && String(m[1]).trim().length<=20 && _G_PLACEHOLDER.test(String(m[1]).trim())) return true;
+  return false;
+}
+/* 行内的「摘抄式原文片段」——模型按要求用引号给出，是唯一可直接回原文比对的东西 */
+function _gQuotes(ln){
+  const out=[]; const re=/[「『“"“‘']([^「」『』“”"‘'’]{4,120})[」』”"”‘']/g;
+  let m; while((m=re.exec(String(ln||"")))!==null) out.push(m[1]);
+  return out;
+}
+/* 片段是否能在正文里定位。含省略号的按段拆开逐段找，避免「A……B」整串找不到 */
+function _gLocated(frag, bodyN){
+  if(!frag||!bodyN) return false;
+  const f=_gNorm(frag); if(f.length<4) return false;
+  if(bodyN.indexOf(f)>=0) return true;
+  const parts=f.split(/…+|\.{2,}|～+/).filter(function(x){ return x.length>=4; });
+  if(parts.length<1) return false;
+  return parts.every(function(p){ return bodyN.indexOf(p)>=0; });
+}
+/* 对一个档案块做落地校验。返回 {text, dropped, placeholder, verifiable, located, suspect} */
+function groundAuditBlock(text, ch){
+  const raw=String(text||"");
+  if(!DIGEST_GROUND_CHECK) return {text:raw, dropped:0, placeholder:0, verifiable:0, located:0, suspect:false};
+  const body=String((ch&&ch.body)||"");
+  const bodyN=_gNorm(body);
+  const lines=raw.split(/\r?\n/);
+  let dropped=0, ph=0, verifiable=0, located=0;
+  const kept=[];
+  lines.forEach(function(ln){
+    const s=String(ln||"").trim();
+    if(!s){ kept.push(ln); return; }
+    if(_gIsPlaceholder(s)){ ph++; dropped++; return; }
+    const qs=_gQuotes(s);
+    /* 只要行里存在「可比对」的摘抄，就逐条核验；全部定位不到 → 整行剔除 */
+    if(qs.length && bodyN){
+      verifiable++;
+      let ok=false;
+      for(let i=0;i<qs.length;i++){ if(_gLocated(qs[i], bodyN)){ ok=true; break; } }
+      if(ok){ located++; kept.push(ln); return; }
+      dropped++; return;
+    }
+    kept.push(ln);
+  });
+  let out=kept.join("\n").replace(/\n{3,}/g,"\n\n").trim();
+  /* 极端情况：几乎整块都被剔掉 —— 说明这一整块都对不上正文。
+     此时保留原文、只标降级：整块删掉会让该章档案凭空消失，比留着更糟。 */
+  let emptied=false;
+  if(raw.trim().length>0 && out.length < raw.trim().length*0.15){ out=raw.trim(); emptied=true; }
+  const suspect=emptied || (verifiable>=5 && located/Math.max(1,verifiable) < 0.34);
+  if(dropped && !emptied){
+    out+="\n\n（档案落地校验：本块剔除 "+dropped+" 条无法在正文定位的条目"+(ph?("，其中占位条目 "+ph+" 条"):"")+"；"
+       +"可核对的依据 "+located+"/"+verifiable+" 条。这不影响其余条目。）";
+  }
+  return {text:out, dropped:dropped, placeholder:ph, verifiable:verifiable, located:located, suspect:suspect};
 }
 /* text 只是 blocks 的渲染缓存；无块时保留 legacy text 原样 */
 function renderVolText(v){
@@ -9524,6 +9632,63 @@ function materialArbiterNote(hasBody, hasDigest){
     "两者对同一件事说法不一致时，一律以更靠后的正文为准；"+
     "档案仍要用，但用它来补正文里没提到的事：更早之前建立的人物关系、更早埋下的伏笔、更早发生的事件。"+
     "不一致只说明档案还没消化到那一章，不得据此断定某一个版本是错的，严禁自己编第三种说法来调和。\n\n";
+}
+/* ===== v140 · 第 3 级：参谋的「可依据范围」必须显式给出来 =====
+   根因：参谋拿到的材料里，消化档案是「已发生过什么」的唯一来源，但此前没有任何一处
+   告诉它这个来源的范围边界在哪。于是档案里某句当年被模型推测出来的推进
+   （例如「先解反噬，再归沙菲克」——正文里从未发生过），会被它当成既成事实反复引用、
+   并据此往下推后续剧情；作者越纠正，它越坚持，因为档案里确实白纸黑字写着。
+   这里做两件事，都不改动任何既有材料的取值：
+     ① 把「已消化章节清单」显式列出来，让模型知道边界在哪、边界外一律算没发生；
+     ② 给一条可执行的铁律：任何一个推进都必须能指出章节号，指不出就直接说「还没写过」。
+   + 只增一段约束文字，不改注入材料的取值、排序、封顶与来源。 */
+var COUNSEL_SCOPE_RULE=true;
+function digestedScopeNote(vol){
+  if(!COUNSEL_SCOPE_RULE) return "";
+  try{
+    const d=getDigest();
+    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=c; });
+    const lines=[];
+    (allVolIds()||[]).forEach(function(vid){
+      const v=(d.volumes||{})[vid]||{};
+      const rec=v.chapters||{};
+      const nums=[];
+      Object.keys(rec).forEach(function(id){
+        const st=rec[id]&&rec[id].status;
+        if(st!==DS_DIGESTED&&st!==DS_DEGRADED) return;
+        const c=live[id]; if(!c||String(c.vol||"none")!==String(vid)) return;
+        const n=Number(c.num)||0; if(n>0) nums.push(n);
+      });
+      if(!nums.length) return;
+      nums.sort(function(a,b){return a-b;});
+      const mn=nums[0], mx=nums[nums.length-1];
+      let tail;
+      if(nums.length<=30){
+        tail="第"+nums.join("、第")+"章";
+      }else{
+        const miss=[]; for(let i=mn;i<=mx;i++){ if(nums.indexOf(i)<0) miss.push(i); }
+        tail="第"+mn+"–第"+mx+"章（共 "+nums.length+" 章"
+           +(miss.length?("，区间内未消化：第"+miss.slice(0,20).join("、第")+"章"+(miss.length>20?" 等":"")):"，区间内无缺口")
+           +"）";
+      }
+      lines.push("· "+volName(vid)+(String(vid)===String(vol)?"（当前分卷）":"")+"："+tail);
+    });
+    if(!lines.length){
+      return "【已消化章节清单】目前还没有任何章节完成消化。\n"
+        +"【情节推进铁律】因此下面的档案为空是正常的：此时禁止引用任何「已发生的具体情节」，"
+        +"只能依据正文、人物卡与分卷设定作答；任何推进都必须先问作者确认，不得自行假定。\n\n";
+    }
+    return "【已消化章节清单 · 只有这些章才算是「已经发生过」】\n"+lines.join("\n")+"\n\n"
+      +"【情节推进铁律 · 最高优先级】\n"
+      +"① 只有上面清单里的章节才算「已经发生过」；清单之外的章节一律视为尚未发生，"
+      +"禁止描述其内容、禁止把它们当成推理前提。\n"
+      +"② 档案里出现的「下一步 / 将要 / 计划 / 待解 / 走向 / 先…再…」都只是当时的推测，"
+      +"不是既成事实。把推测当既成事实来引用或续写，是本文最严重的一类错误。\n"
+      +"③ 你提到的每一个情节推进，都必须能指出它出自清单里的哪一章；指不出章节号的，"
+      +"直接回答「这段还没有写过」，不要补全、不要换一种说法圆过去。\n"
+      +"④ 作者说某件事「还没写 / 不是这样 / 没有发生过」时，以作者为准立刻改正，"
+      +"不要拿档案里的说法坚持。\n\n";
+  }catch(e){ return ""; }
 }
 /* 章节正文内容哈希（FNV-1a 32bit，同步快速，用于算力保护：内容未变则跳过API调用）
    替代 chSig 的长度比对——chSig 只看 body.length，改字不改长度检测不到 */
@@ -10772,6 +10937,100 @@ function renderDigestStale(vid){
   box.innerHTML=h;
   return rows.length;
 }
+/* ================= v140 · 档案落地体检 =================
+   写入前的闸门只管得住「以后」。已经躺在档案里的张冠李戴条目（例如第 55 章档案里
+   记着「消化印记石头」，而正文第 55 章根本没有这件事）需要一个能看见、能一次清掉的地方。
+   这里做两段：只读扫描列出可疑块；用户确认后才写的一次性清理。
+   清理前默认自动备份（与幽灵记录清理同一套做法），且只删「无法在正文定位」的条目——
+   其余条目、正文、章节消化状态一律不动。 */
+function digestGroundRows(){
+  const out=[];
+  try{
+    const d=getDigest();
+    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=c; });
+    Object.keys(d.volumes||{}).forEach(function(vid){
+      const v=(d.volumes||{})[vid]||{};
+      const blocks=v.blocks||{};
+      Object.keys(blocks).forEach(function(chId){
+        const b=blocks[chId]; if(!b||!b.text) return;
+        const c=live[chId]; if(!c) return;            /* 章节已不在的交给「过期体检」处理 */
+        const au=groundAuditBlock(b.text, c);
+        if(!au.dropped && !au.suspect) return;
+        out.push({vid:vid, volName:volName(vid), chId:chId, num:c.num||"?",
+                  dropped:au.dropped, verifiable:au.verifiable,
+                  located:au.located, suspect:au.suspect, text:au.text});
+      });
+    });
+  }catch(e){ console.warn("[档案落地体检] 扫描失败(非致命):", e&&e.message); }
+  out.sort(function(a,b){ return ((b.suspect?1:0)-(a.suspect?1:0)) || (b.dropped-a.dropped); });
+  return out;
+}
+function _dgGroundBox(){
+  let box=document.getElementById("dgStale");
+  if(!box){
+    box=document.createElement("div"); box.id="dgStale"; box.style.marginTop="6px";
+    const anchor=document.getElementById("dgAudit");
+    if(anchor&&anchor.parentNode) anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    else { try{ (document.getElementById("digestPanel")||document.body).appendChild(box); }catch(e){} }
+  }
+  return box;
+}
+function renderDigestGroundAudit(){
+  const box=_dgGroundBox(); if(!box) return 0;
+  const rows=digestGroundRows();
+  if(!rows.length){
+    box.innerHTML='<div class="dg-summary ok">🧪 档案落地体检：没有发现「无法在正文定位」的条目，档案内容与正文一致。</div>';
+    return 0;
+  }
+  const bad=rows.filter(function(r){return r.suspect;}).length;
+  const total=rows.reduce(function(s,r){return s+r.dropped;},0);
+  let h='<div class="dg-summary warn">🧪 档案落地体检：'+rows.length+' 个档案块含无法定位的条目，共 '+total+' 条'
+       +(bad?('，其中 <b>'+bad+' 块整体可疑</b>（多数依据都对不上正文，建议重新消化该章）'):'')
+       +'。　（<b>本项只作提示，未改动任何数据</b>）</div>';
+  h+='<div style="max-height:260px;overflow:auto;border:1px solid var(--input-bd);border-radius:8px;">';
+  h+='<table style="width:100%;font-size:11.5px;border-collapse:collapse;">';
+  h+='<tr style="background:var(--soft);position:sticky;top:0;"><th>卷</th><th>章</th><th>可核对依据</th><th>无法定位</th></tr>';
+  rows.forEach(function(r){
+    h+='<tr style="border-bottom:1px solid var(--line);">'
+     + '<td>'+esc(r.volName)+'</td>'
+     + '<td>第'+esc(String(r.num))+'章'+(r.suspect?' <b style="color:#c0392b;">可疑</b>':'')+'</td>'
+     + '<td>'+r.located+' / '+r.verifiable+'</td>'
+     + '<td style="color:#c0392b;">'+r.dropped+' 条</td></tr>';
+  });
+  h+='</table></div>';
+  h+='<div class="dg-vol-btns" style="margin-top:6px;">'
+   + '<button class="primary" onclick="applyDigestGroundClean(false)">剔除这 '+total+' 条（先备份）</button>'
+   + '<button onclick="applyDigestGroundClean(true)">只剔除，不备份</button>'
+   + '</div>';
+  box.innerHTML=h;
+  return rows.length;
+}
+function applyDigestGroundClean(skipBackup){
+  const rows=digestGroundRows();
+  if(!rows.length){ toast("没有需要剔除的条目"); return false; }
+  const total=rows.reduce(function(s,r){return s+r.dropped;},0);
+  if(!confirm("将从 "+rows.length+" 个档案块里剔除 "+total+" 条「无法在正文定位」的条目。\n\n"
+    +"· 只删这些条目，其余条目、正文、章节消化状态一律不动；\n"
+    +"· "+(skipBackup?"本次不备份，不可撤销。":"清理前会自动备份一份档案。")+"\n\n确定继续？")) return false;
+  try{
+    const d=getDigest();
+    if(!skipBackup){ try{ idbSet("digest_bak_ground_"+Date.now(), JSON.stringify(d)); }catch(e){} }
+    let n=0;
+    rows.forEach(function(r){
+      const v=(d.volumes||{})[r.vid]; if(!v||!v.blocks||!v.blocks[r.chId]) return;
+      v.blocks[r.chId].text=r.text;
+      v.blocks[r.chId].at=Date.now();
+      n+=r.dropped;
+    });
+    Object.keys(d.volumes||{}).forEach(function(vid){
+      const v=d.volumes[vid]; if(v&&v.blocks) v.text=renderVolText(v);
+    });
+    saveDigest(d);
+    toast("已剔除 "+n+" 条无法定位的条目"+(skipBackup?"":"（已备份）"));
+    try{ renderDigest(); }catch(e){}
+    return true;
+  }catch(e){ toastErr("清理失败："+(e&&e.message)); return false; }
+}
 function renderDigestAudit(vid){
   const box=document.getElementById("dgAudit");
   if(!box) return;
@@ -11007,6 +11266,7 @@ function renderDigest(){
   html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
   html+='<button onclick="renderDigestStale()" title="只读体检：列出「章节已删除 / 状态已不是已完稿 / 正文改过但摘要没刷新 / 摘要状态异常」的档案条目。只提示，不改动任何数据，也不改变发给 AI 的内容">🕓 档案过期体检（只看不改）</button>';
   html+='<button onclick="showDigestScopeAudit()" title="不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文/状态/幽灵分卷哪一关」，并列出缺失章号与重复章号">🧭 消化范围体检</button>';
+  html+='<button onclick="renderDigestGroundAudit()" title="逐块把档案里的「原文摘抄依据」回正文比对：列出定位不到的条目（占位条目 / 张冠李戴的别章内容）。只提示，确认后才改">🧪 档案落地体检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
   html+='</div>';
@@ -14548,15 +14808,25 @@ function counselCtx(){
   const vsec=getVolSetting(vol); if(vsec) s+="【本卷设定】"+String(vsec).slice(0,900)+"\n";
   /* v112：人物卡——只取有实质字段的人，字段封顶，避免把整张卡表灌进去 */
   try{
+    /* v140：与增强模块用同一套「有实质字段」判定，名额 8 → 20。
+       原判定只认 core / langSys / taboos / desire 四项，漏了 appearance / psyche /
+       deepDesire / thinkMode：手动建卡时若只填了外貌（或只填了别名+外貌），这张卡会被
+       整条过滤掉 —— 表现为「人明明加进去了，参谋的回答里却完全没有这个人」。
+       名额 8 在人物多的书里也会把后建的人直接切掉。 */
     const chs=(load("chars",[])||[]).filter(function(c){
-      return c&&c.name&&((c.core||"").trim()||(c.langSys||"").trim()||(c.taboos||"").trim()||(c.desire||"").trim());
-    }).sort(function(a,b){ return (b.protagonist?1:0)-(a.protagonist?1:0); }).slice(0,8);
+      if(!c||!c.name) return false;
+      return ["core","desire","deepDesire","langSys","thinkMode","taboos","appearance","psyche"]
+        .some(function(k){ return String(c[k]||"").trim(); });
+    }).sort(function(a,b){ return (b.protagonist?1:0)-(a.protagonist?1:0); }).slice(0,20);
     if(chs.length){
       s+="【人物卡（判断「这个人会不会这么做」必须以此为准）】\n";
       s+=chs.map(function(c){
-        var ln="· "+(c.protagonist?"【主角】":"")+c.name;
+        var ln="· "+(c.protagonist?"【主角】":"")+c.name
+             +(((c.aliases||[]).filter(function(a){return String(a||"").trim()&&String(a).trim()!==String(c.name).trim();}).length)
+                ?("（别名："+c.aliases.filter(function(a){return String(a||"").trim()&&String(a).trim()!==String(c.name).trim();}).join("、")+"）"):"");
         var segs=[];
         if((c.core||"").trim()) segs.push("核心特质 "+String(c.core).trim().slice(0,120));
+        if((c.appearance||"").trim()) segs.push("外貌 "+String(c.appearance).trim().slice(0,120));
         if((c.desire||"").trim()) segs.push("表层欲望 "+String(c.desire).trim().slice(0,80));
         if((c.deepDesire||"").trim()) segs.push("深层欲望 "+String(c.deepDesire).trim().slice(0,80));
         if((c.langSys||"").trim()) segs.push("说话方式 "+String(c.langSys).trim().slice(0,120));
@@ -14661,7 +14931,8 @@ async function counselSend(){
          【最近几章】只到梗概层，不算「已写正文」，所以编辑器为空时不追加。 */
     const _ctxText=(ctx.text||"")+
       (((ctx.text||"").indexOf("【本卷已消化档案（节选）】")>=0||(ctx.text||"").indexOf("【全书总档案（跨卷脉络")>=0)
-        && (ctx.text||"").indexOf("【当前编辑器正文尾部】")>=0 ? "\n"+materialArbiterNote(true,true) : "");
+        && (ctx.text||"").indexOf("【当前编辑器正文尾部】")>=0 ? "\n"+materialArbiterNote(true,true) : "")
+      + digestedScopeNote(ctx.vol);
     const user="下面是当前作品的相关信息：\n\n"+_ctxText+"\n\n下面是讨论记录：\n"+hist+"\n\n请作为剧情参谋回答作者最新的这个问题。";
     /* v115：记下「在干什么 + 问了什么」。切走被回收后回来能一键重跑，而不是只剩一句「进程断了」 */
     try{ aiTaskSet("剧情参谋",{q:q}); }catch(e){}
@@ -14706,6 +14977,51 @@ function counselClear(){
     _counselLog=[]; counselSave();
     counselRender();
   }catch(e){}
+}
+/* v140：清空参谋的长期记忆（已采纳 / 已否决的走向）。
+   为什么需要：点「✓ 采纳」时，那条走向会被写进「本章专属指令」并长期记住。
+   如果后来发现那条走向本身是错的（典型：它是参谋依据一段并不存在的情节推出来的），
+   它会一直挂在记忆与指令里，被后面每一次生成反复采用 —— 这正是「反复提及、
+   并据此续写」的一类残留脏数据。这里给一个能一次清干净、且不动正文的出口。
+   清理范围只有这两份清单本身；「本章专属指令」里已经写进去的文字另行单独确认，
+   避免顺手删掉作者自己写的其它指令。 */
+function counselPurgeMemory(){
+  try{
+    const a=_cpReadRoutes("counselAdopted"), v=_cpReadRoutes("counselVeto");
+    if(!a.length&&!v.length){ toast("参谋目前没有记住任何走向"); return; }
+    const msg="参谋现在记着：\n· 已采纳 "+a.length+" 条（点「采纳」时被写进本章指令）\n· 已否决 "+v.length+" 条\n\n"
+      +"清空后，参谋不再受这些走向约束，也不再重复提它们。\n正文一个字都不会动。\n\n确定清空？";
+    if(!confirm(msg)) return;
+    _cpClearRoutes("counselAdopted"); _cpClearRoutes("counselVeto");
+    let removed=0;
+    const ta=document.getElementById("chBrief");
+    if(ta&&a.length){
+      if(confirm("是否同时从「本章专属指令」里删掉这 "+a.length+" 条被采纳的走向？\n\n（只删当时自动写入的「【已确定的剧情走向】…」行，你自己写的其它指令不动）")){
+        const lines=String(ta.value||"").split(/\r?\n/);
+        const kept=lines.filter(function(ln){
+          const s=String(ln||"").trim();
+          const hit=s.indexOf("【已确定的剧情走向】")===0 && a.some(function(t){ return s.indexOf(String(t).trim())>=0; });
+          if(hit) removed++;
+          return !hit;
+        });
+        ta.value=kept.join("\n").replace(/\n{3,}/g,"\n\n");
+      }
+    }
+    toast("参谋记忆已清空"+(removed?("，并删掉指令中的 "+removed+" 条走向"):""));
+  }catch(e){ toastErr("清空失败："+(e&&e.message)); }
+}
+/* 读取 / 清空参谋记忆。存两处（书内 kv 与本地兜底），两处都要处理到 */
+function _cpReadRoutes(key){
+  try{
+    let o=null;
+    try{ o=load(key,null); }catch(e){}
+    if(!o){ try{ o=JSON.parse(localStorage.getItem("lilia_cp_"+key)||"null"); }catch(e){ o=null; } }
+    return (o&&Array.isArray(o.items))?o.items:[];
+  }catch(e){ return []; }
+}
+function _cpClearRoutes(key){
+  try{ save(key,{at:Date.now(),items:[]}); }catch(e){}
+  try{ localStorage.setItem("lilia_cp_"+key, JSON.stringify({at:Date.now(),items:[]})); }catch(e){}
 }
 /* 落地 1：把参谋最后一轮结论写进「本章专属指令」 */
 function counselToBrief(){
@@ -15329,6 +15645,7 @@ window.addEventListener('load',function(){
       <button type="button" onclick="counselToBrief()">写进本章指令</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
+      <button type="button" onclick="counselPurgeMemory()" title="清掉参谋长期记住的「已采纳 / 已否决走向」。采纳过的走向当时被写进了本章指令，若那条走向后来被证明是错的，就该在这里清掉，否则它会一直跟着后面的生成。">🧹 清空参谋记忆</button>
       <button type="button" onclick="counselClose()">关闭</button>
     </div>
     <div class="meta" style="margin-top:8px;">参谋只做判断与选项，绝不代写正文；结论可用上面两个按钮落地，否则关掉就蒸发了。</div>

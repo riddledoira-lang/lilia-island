@@ -137,9 +137,23 @@
     var withS = pool.filter(hasSubstance), noS = pool.filter(function (c) { return !hasSubstance(c); });
     withS.sort(function (a, b) { return rankChar(b, ctx) - rankChar(a, ctx); });
     noS.sort(function (a, b) { return rankChar(b, ctx) - rankChar(a, ctx); });
-    var picked = withS.slice(0, CFG.charMax);
+    /* v140：作者这一次问到的人先占位，再按相关度补满。
+       原实现把「问到」只当作 +300 的排序权重：当本章出场人物已经占满名额时，
+       问到的那个配角照样被切掉 —— 表现为「明明问的是菲比，参谋的回答里却没有菲比」。
+       问到的人通常只有 0–3 个，先塞进来不会挤压正文相关度更高的卡。 */
+    var forced = [], fk = {};
+    try {
+      pool.forEach(function (c) {
+        var k = c.id || c.name;
+        if (fk[k]) return;
+        if (hitIn(namesOf(c), ctx.question)) { fk[k] = 1; forced.push(c); }
+      });
+    } catch (e) {}
+    var restW = withS.filter(function (c) { return !fk[c.id || c.name]; });
+    var restN = noS.filter(function (c) { return !fk[c.id || c.name]; });
+    var picked = forced.concat(restW).slice(0, CFG.charMax);
     var room = CFG.charMax - picked.length;
-    if (room > 0) picked = picked.concat(noS.slice(0, room));
+    if (room > 0) picked = picked.concat(restN.slice(0, room));
 
     if (!picked.length) return '';
     var lines = picked.map(function (c) {
