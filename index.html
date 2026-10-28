@@ -7627,7 +7627,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v136";
+const APP_VERSION="v137";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7637,6 +7637,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v137","分级闭环的第 1 级：两类明确过期的档案，不再注入给模型（可一键关掉）。上一版只把可疑条目列出来，这版才真正动手，但只动争议最小的两类，其余一律照旧。① 【过滤哪两类】一是「章节已不在」——档案里还留着摘要，章节列表里却已经查不到（多半是被删除了），删掉的章节不该再当作「已经发生的事」影响后续；二是「状态已改回草稿或待修改」——它消化过，但你自己已经不把它当定稿了。② 【另外两类为什么不动】「正文改过但摘要没刷新」「摘要状态异常」这两类的摘要多半仍然成立，过滤掉反而会丢掉人物关系与伏笔这类长程事实，得不偿失，所以本轮保留原样，只提示。③ 【三条硬边界】早期整段形态的旧档案（未按章拆分）永不过滤；旧数据里没有状态字段的一律保留——缺字段不等于草稿，不能靠猜；只过滤「发给模型的那一瞬」，档案原始数据、界面上看到的档案、导出的备份全部一字不动。④ 【开关】体检台新增「🚫 过期档案不注入」，默认开启，旁边直接显示当前过滤了几条；点一下关掉，注入内容立刻完全回到从前，不需要任何修复操作。开关只写一个本机设置项，不碰章节与档案存储。⑤ 【为什么风险低】判定与过滤都收在一个新函数里，注入链路只多了「排除这些条目」一步，不改变任何既有函数的对外用法；取不到数据时一律返回「不过滤」而不是报错。⑥ 【对文章质量的影响】被排除的都是已经不成立的说法，注入它们才会让模型照着不存在的事实写；排除后模型少了一部分材料，但那部分材料本身就是错的。若你觉得某章的档案仍有用，把该章状态改回「已完稿」即可恢复注入。"],
   ["v136","分级闭环的第 0 级：先「看得见」，先不动手。这一版只加一个**只读**的体检按钮，不改任何数据、不改发给 AI 的一个字。① 【为什么先做这个】消化档案是长程事实的唯一通道：人物关系、伏笔是否回收、上一章发生了什么，全靠它带进每一次生成。但它是「写完就定」的——章节删了、章节从已完稿改回草稿、正文改过而摘要没跟着刷新，档案里的旧说法都还会当作「已经发生的事实」继续注入。越往后写，错的旧事实越多，而你没有任何地方能看到这个清单。② 【现在】体检台新增「🕓 档案过期体检（只看不改）」，列出四类可疑条目：章节已删除但摘要还在、状态已不是已完稿却消化过、正文改过但摘要没刷新、摘要已写入但状态还没跟上。每条都写明是哪一卷哪一章、属于哪一类、以及它为什么会影响生成。另有第五类「旧格式整卷文本」是早期整段文本形态，无法逐章判定，会如实说明而不是假装一切正常。③ 【它不做什么】不写任何存储、不清理任何记录、不改动任何注入内容、不做任何网络请求。点它和没点它，生成结果完全一样——这一条已用「注入内容指纹比对」实测确认。④ 【为什么这一级风险低】纯新增两个函数与一个按钮，不改动任何既有函数的分支；所有读取都包在 try/catch 里，取不到就返回空清单而不是报错。即使这段代码整个出错，最坏情况也只是清单列不出来，体检台其余功能照旧。⑤ 【下一步】等你在真实数据上看到清单，我们再决定哪些类别值得自动过滤——先看清，再动手，避免一上来就改错。"],
   ["v135","修「旧格式备份恢复时会静默丢掉 8 类数据」。这是本轮风险评估里唯一「失败不可逆」的一项——别的缺陷改坏了可以回滚，备份恢复丢掉的东西找不回来。① 症状（实测，非推测）：应用有两种备份格式。现在「导出 JSON」产出的是完整版（含全部书与设定），恢复它没问题；早期还有一种扁平单本的旧格式，恢复时只还原章节/人物/文风准则/比喻体系/线索/AI 设置这 7 类，其余一律丢弃。② 实测丢失清单：书名、封面颜色、分卷结构、灵感笔记、世界观核心设定、设定词条库、剧情时间线、比喻库——共 8 类。用一份字段全部有内容的合成备份跑真实恢复链路验证，8 类全部丢失；修复后 8 类全部还原。③ 其中最要命的是「分卷结构」：实测分卷从 3 个变回 1 个，而章节里还记着原来属于哪一卷，于是这些章节的归属全变成孤儿分卷——卷档案、分卷设定、人称铁律从此都对不上号，而且全程不报任何错，你只会觉得「续写越来越对不上」。④ 你的实际数据：拿 8 月 5 日那份备份跑了真实恢复，它丢的是书名《即刻心动》JAMES 1-52（已导入）与封面颜色，其余 7 类恰好当时是空的没丢——所以这个缺陷到你手里表现为「恢复出来的书没有名字」，而不是「整本书散架」。⑤ 修法：只补提取环节漏传的字段，按「备份里有才传」逐项补齐，缺失的键一律不传、仍走既有默认值；书名若是空串也跳过，避免把默认名冲掉。数据结构、存储、IDB 版本、默认行为、其它模块的调用方式全部未改。验证：恢复链路两遍对照（真实备份 + 字段齐全的合成备份），丢失字段数 8 → 0，运行期 0 错误；原有回归 156 条全部通过。"],
   ["v134","补三项「做好了却根本用不上」的功能——这次不是加新东西，是把已经写好的东西接到界面上。所有改动均为纯新增，不改动任何既有函数的原有分支。①「AI 分析：人物·关系·情感线」此前完全不可达：它有完整实现、也有完整弹窗，但全项目没有任何调用点，而弹窗又只能在这个函数内部才被打开，形成「没人能开，开了也无处点开始」的死锁。现在补了打开入口（更多 → 诊断工具）、弹窗里的「开始分析」按钮，并加了一层重复点击保护——分析一次要读全本章节，连点两下就是两次真实计费。②「人物事件线」：渲染函数、样式、数据（消化后自动提取）早就全齐了，唯独人物卡没渲染，导致这些事件只能去时间线页一个个人肉筛。现在人物卡直接列出该角色参与的事件；顺带把原来写在循环里的「每读一条事件就扫一遍全部章节」提到循环外，结果完全一致，上百条事件时省下上百次遍历。③「生成守卫开关」：人称守卫、归属守卫的开关函数此前同样没有调用点，两个守卫只能永远停在默认开启，觉得人称提醒是误报也没法关。现在「⚙ 全局设置」里新增「🛡 生成守卫」分组，可单独开关，写的是原本就在写的同一个存储键，不改变「没记录时按默认值」的既有语义。另：另有 6 个零引用函数经核实是被同版本的另一实现取代或字段无人消费（见旧榜），非欠债，本次不动它们，避免为了「清零」而误删仍在被动态拼接调用的代码。"],
@@ -9169,8 +9170,57 @@ function putVolBlock(d, vid, ch, text, status){
   return v;
 }
 /* 读取侧统一入口：本卷全部档案块（按章序） */
+/* ================= v137 · 第 1 级：过期档案不注入（可关） =================
+   第 0 级只把可疑条目列出来，这一级才真正动手，且只动争议最小的两类：
+     ① 章节已不在（档案有块、章节库查不到）
+     ② 状态显式为「草稿 / 待修改」（消化过，但后来不再是已完稿）
+   两类之外的（正文改过而摘要没刷新、摘要状态异常）本轮一律不动——
+   它们的摘要多半仍然成立，过滤掉反而丢长程事实，风险大于收益。
+   三条硬边界：
+     · __legacy__（早期整段档案保留块）永不过滤；
+     · 旧数据没有 status 字段时一律保留（缺字段不等于草稿，不能靠猜）；
+     · 只过滤「注入给模型的那一瞬」，blocks 真相数据、UI 展示、导出均不改。 */
+function dgFilterStaleOn(){
+  try{
+    const v=rawLoad("dgFilterStale",null);
+    /* 没记录过时默认开启：这是本级的预期行为 */
+    if(v===null||v===undefined||v==="") return true;
+    return (v===true||v==="1"||v==="on"||v==="true");
+  }catch(e){ return true; }
+}
+function setDgFilterStale(on){
+  try{ rawSave("dgFilterStale", !!on); }catch(e){}
+  try{ _digestCorpusCache=null; }catch(e){}          /* 清语料缓存，避免沿用旧结果 */
+}
+/* 返回需要排除的章节 id 集合（键为章 id，值为 1）。开关关闭时恒为空集。 */
+function digestStaleIds(vid){
+  const out={};
+  if(!dgFilterStaleOn()) return out;
+  try{
+    const d=getDigest();
+    const byId={};
+    (load("chapters",[])||[]).forEach(function(c){ if(c&&c.id) byId[c.id]=c; });
+    const vols=(vid!==undefined&&vid!==null)?[vid]:allVolIds();
+    vols.forEach(function(v){
+      const vd=(d.volumes&&d.volumes[v])||{};
+      Object.keys(vd.blocks||{}).forEach(function(chId){
+        if(chId==="__legacy__") return;                        /* 保留块不是章节 */
+        const b=vd.blocks[chId];
+        if(!b||!String(b.text||"").trim()) return;
+        const c=byId[chId];
+        if(!c){ out[chId]=1; return; }                         /* ① 章节已不在 */
+        /* ② 只有显式写了 status 且不是 done 才过滤；缺 status 的旧数据保留 */
+        if(c.status!==undefined && c.status!==null && c.status!=="done") out[chId]=1;
+      });
+    });
+  }catch(e){ return {}; }
+  return out;
+}
 function volBlocksOf(vid){
-  return volBlocksSorted(ensureVolDigest(getDigest(), vid));
+  const a=volBlocksSorted(ensureVolDigest(getDigest(), vid));
+  const bad=digestStaleIds(vid);
+  if(!Object.keys(bad).length) return a;
+  return a.filter(function(b){ return !bad[b.__k]; });
 }
 function volRecentBlocks(vid, n){
   const a=volBlocksOf(vid);
@@ -9182,7 +9232,19 @@ function volDigestRolling(vid){
   if(v.rolling && v.rolling.trim()) return v.rolling;
   /* v106：回退也必须是头尾兼顾——早期长线设定在头部、最新进展在尾部，只取头部会重犯
      v104 修掉的「早期线索整段消失」。 */
-  return capDigestForPrompt(v.text||"", ROLL_MAXCHARS);
+  /* v137：回退同样要排除过期块，否则「最近章块过滤了、整段文本里还在」，等于没过滤。 */
+  return capDigestForPrompt(volTextForPrompt(vid), ROLL_MAXCHARS);
+}
+/* v137：按「过滤后」的块渲染本卷文本，只用于注入，不写回 v.text。
+   与 renderVolText 的唯一差别是排除 digestStaleIds 命中的块；
+   旧格式整段文本（没有按章块）原样返回，不参与判定。 */
+function volTextForPrompt(vid){
+  const v=ensureVolDigest(getDigest(), vid);
+  const real=Object.keys((v&&v.blocks)||{}).filter(function(k){ return k!=="__legacy__"; }).length;
+  const arr=volBlocksOf(vid);
+  if(arr.length) return arr.map(function(b){ return b.text; }).join("\n\n---\n\n");
+  if(real) return "";                 /* 有按章块但全部命中过滤：这些块已被判定为过期 */
+  return (v&&v.text)||"";             /* 旧格式整段文本：不逐章判定，原样保留 */
 }
 /* 注入 prompt 用的本卷档案：rolling(≤40%) + 最近章档案块(≤60%)，总量受 budget 控制 */
 /* v131：取本卷「当前章之前最近一章已完稿正文」的尾段，给精修当「文风参照」。
@@ -10616,9 +10678,16 @@ function renderDigestStale(vid){
     return 0;
   }
   const cnt={}; rows.forEach(function(r){ cnt[r.type]=(cnt[r.type]||0)+1; });
+  /* v137 第 1 级：① ② 两类已不注入，③ ④ ⑤ 仍按原样注入——说清楚，别让人以为全都过滤了 */
+  const on=dgFilterStaleOn();
+  const filtered=rows.filter(function(r){ return r.type.indexOf("①")===0||r.type.indexOf("②")===0; }).length;
   let h='<div class="dg-summary warn">🕓 档案过期体检：共 '+rows.length+' 条可疑。'
        + Object.keys(cnt).sort().map(function(k){ return k+' '+cnt[k]; }).join(' · ')
        + '　（<b>本项只作提示，未改动任何数据</b>）</div>';
+  h+='<div class="dg-summary '+(on?"ok":"")+'">'
+    + (on?('🚫 其中 '+filtered+' 条（① 章节已不在 · ② 状态已不是已完稿）当前<b>不注入</b>给模型；其余 '+(rows.length-filtered)+' 条仍按原样注入。')
+         :('当前已关闭过滤，'+rows.length+' 条全部按原样注入。'))
+    + '</div>';
   h+='<div style="max-height:260px;overflow:auto;border:1px solid var(--input-bd);border-radius:8px;">';
   h+='<table style="width:100%;font-size:11.5px;border-collapse:collapse;">';
   h+='<tr style="background:var(--soft);position:sticky;top:0;"><th>卷</th><th>章</th><th>类型</th><th>说明</th></tr>';
@@ -10752,6 +10821,13 @@ function toggleDigestExtras(btn){
   if(btn) btn.textContent="附加提取 "+(v?"开":"关");
   try{ renderDigest(); }catch(e){}
 }
+/* v137 第 1 级开关：只切换开关本身，不触碰任何档案数据 */
+function toggleDigestStaleFilter(btn){
+  const v=!dgFilterStaleOn();
+  setDgFilterStale(v);
+  try{ toast(v?("已开启：生成时不再注入明确过期的档案（章节已删 / 状态已改回草稿或待修改）"):"已关闭：档案注入恢复原样，不再排除任何条目"); }catch(e){}
+  try{ renderDigest(); }catch(e){}
+}
 function cycleDigestCooldown(btn){
   const opts=[30000,15000,5000,0];
   const cur=digestCooldownMs();
@@ -10860,6 +10936,10 @@ function renderDigest(){
   html+='<button onclick="showDigestScopeAudit()" title="不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文/状态/幽灵分卷哪一关」，并列出缺失章号与重复章号">🧭 消化范围体检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
+  html+='</div>';
+  /* v137 第 1 级开关：关掉即完全回到 v136 及更早的行为 */
+  html+='<div class="dg-vol-btns" style="margin-top:6px;">';
+  html+='<button onclick="toggleDigestStaleFilter(this)" title="生成时不再注入两类明确过期的档案：① 章节已删除但摘要还在；② 状态已改回草稿或待修改。只影响发给 AI 的内容，不删除任何数据，关掉即完全恢复原样">🚫 过期档案不注入 '+(dgFilterStaleOn()?("开 · "+Object.keys(digestStaleIds()).length+" 条"):"关")+'</button>';
   html+='</div>';
   html+='</div></div>';
 
