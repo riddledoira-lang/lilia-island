@@ -4460,7 +4460,7 @@ async function oppToBeatCard(btn){
 }
 /* 预览确认后执行挂载：写入 activeDeduction 供深度续写读取，与原「🎲 一键灵感推演」挂接链一致 */
 function oppBeatCommit(beats, vol, raw){
-  save("activeDeduction",{idx:"大纲·"+(vol==="all"?"全书":volName(vol)), tone:(vol==="all"?"全书":volName(vol)), beats:beats, raw:raw, at:Date.now()});
+  save("activeDeduction",{idx:"大纲·"+(vol==="all"?"全书":volName(vol)), tone:(vol==="all"?"全书":volName(vol)), beats:beats, raw:raw, fp:_beatFp(beats), at:Date.now()});
   try{renderDeductions();}catch(e){}
   const hint=document.getElementById("oppHint"); if(hint)hint.textContent="🎯 已转写为「深度续写」节拍卡并挂载（共 "+beats.length+" 个节拍）。去写章点「🧠深度续写」将严格按此推进。";
   toast("🎯 已挂载为续写节拍卡（"+beats.length+" 节拍）");
@@ -7767,7 +7767,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v141";
+const APP_VERSION="v142";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7777,6 +7777,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v142","这一版只处理「灵感会不会被悄悄换掉」这件事，都是先实测确认再动手，改动面窄。① 【上一轮不再一去不回】点「🎲 一键灵感推演」时，新的 3 套会整体替换旧的 3 套，此前连副本都不留——重新推演后若新的不合意，那个更好的想法就再也找不回来，只能再烧一次 token 碰运气。现在覆盖前会自动留一份上一轮，并在下方给两个出口：「↩ 还原上一轮」直接换回去（当前这一轮会顶替成上一轮，于是能来回切，不会单向丢失）、「👀 先看上一轮内容」只显示不动数据。上一轮不存在时这两个按钮不出现，界面与改动前一样。② 【挂载标记不会再错落到别的方案上】判断「哪套被挂载」此前只比方案编号（1/2/3），而编号是每次解析时按顺序重排的序号，两轮之间毫无对应关系。实测过：重新推演后，界面会把新的方案一标成「已挂载」，而列表里方案一的内容早已换成新的，真正生效的却是列表里已经不存在的那套旧内容——你按显示去理解，就会以为正在用的是眼前这套。现在改用方案内容算指纹来认，跨轮稳定；旧的挂载记录没有指纹时自动退回按编号比对，行为与改动前一致。万一挂载的那套确实不在这一轮里（比如你刚重推过），上方会明确写出来并给一个「解除挂载」，不再闷着。③ 【自动灵感不再偏爱堆场景】这是唯一一处会实际影响产出质量的改动。开「🎲 自动灵感」且不弹窗自动择优时，原规则是「节拍数最多者优先」，而同一段生成要求里写的是「每套严格 4-6 个节拍、只推进 1-2 个核心新场景，不得堆砌」——择优规则与生成要求正好相反。实测：一套 8 节拍的堆砌方案会赢过 4 节拍的合规方案，而堆砌恰恰违反场景预算铁律，容易写成走马灯。现在改成先看是否落在 4-6 的合规区间，再看数量，最后取靠前的。手动弹窗自己挑的那条路径完全不受影响，挂载灵感推演方案时也不走这条。④ 【三套到底差多少，现在看得见】3 套要求「基调/冲突重心明显不同」，此前没有任何一处检查——模型偷懒给出 3 套相近的，你就是在一个假选择里挑。现在本地算两两之间的节拍重合率（汉字二元组，0 token、纯计算），重合过高或基调写重复时，上方会提示是哪两套、重合多少。只提示，不改方案、不自动重推。⑤ 【弹窗里标出节拍数】选方案时每套会显示几个节拍，超出 4-6 的标「偏堆砌」、不足的标「偏薄」，挑的时候多一个最直观的依据。⑥ 【回滚】上一轮留存只新增一个存档键，不动原有 deductions 的结构；指纹比对对旧数据自动退回原逻辑；差异化提示与节拍数标注都是纯显示；只有③会改变自动灵感的实际采用结果，若你觉得不如从前，这一处可单独退回。⑦ 【对文章质量的影响】③是朝「更贴合场景预算铁律」的方向改，其余都不触碰注入给模型的内容。"],
   ["v141","这一版不动任何生成逻辑与注入内容，只把上一轮风险评估里「已经识别但还没设防」的缺口补上，全部做成只看不改或默认不动。① 【冲突期间丢了多少次，现在看得见】检测到另一个窗口改过这本书时，本窗口会暂停写入以免覆盖对方——这个设计是对的。但暂停期间每一次保存都被直接丢弃且毫无动静：内存照常改、界面照常显示新内容，你完全看不出一个字节都没落盘，手机上切后台被回收就整个蒸发。现在提示条上会实时显示「期间已有 N 次改动没能落盘，切后台或刷新就会丢」。暂停写入这个行为本身一点没变，只是不再静默。② 【可选的自动解除，默认关闭】另给一个开关 CF_HOLD_AUTORELEASE_MS，默认 0 = 永不自动解除，与改动前完全一致；你自己设成比如 600000（10 分钟），超时后才按「以本窗口为准」自动恢复保存。之所以默认关：自动解除等于替你选了一边，与「绝不在你不知情时覆盖」的初衷相反，该由你决定。③ 【档案一致性体检】v106 把档案块化时立过三条不变量，原话是「三缺一即视为数据损坏」，但那三条当时只写进了注释，全库没有任何一处代码去核对。现在新增「🧭 档案一致性体检」（只读、不改任何数据）：列出三类违例——正文改过而摘要没刷新、标成已消化却没有档案块、未消化却留着档案块。第三类最要紧，它会作为既成事实进每一次生成，且不报错、不提示。它与「🧪 档案落地体检」的分工是：那条查块里的摘抄能不能在正文定位，这条查块与章节记录对不对得上。④ 【增强模块的加载自检】主程序之后会加载三个增强模块，设计上「加载失败就退回基础能力」，这对，但副作用是少加载一个也毫无提示：剧情参谋会悄悄失去章号硬约束、人物辨识铁律、已否决走向、最近章节回补四块，却照常作答，你分不出它跑在哪条路径上（这次修人物卡时实测过两条路径的差别）。现在打开版本日志会直接写明哪几个模块没加载、缺了之后具体少什么。只做显示，不动加载流程。⑤ 【删数据前的备份不再形同虚设】清理失效记录与档案落地剔除这两处，此前都是「发一个异步写入就往下删」，既不等它完成也不看它成没成；写入失败时界面照样说「已备份」，而删除已经执行，档案再也回不来。现在改成写完读回来确认，确认不了就中止、一条不删。成功路径与改动前完全一致，只有原本会静默丢数据的那条失败路径，从「继续删」改成「中止并告诉你」。两个函数仍保持同步返回 boolean 的原有契约。⑥ 【部署后不再让你误判「改了没生效」】离线策略是缓存优先，好处是秒开、断网也能用，代价是刚部署完的那一次打开拿到的还是旧包，而你没有任何迹象知道。现在后台拉到新版本时会比一下版本号，不一样就在底部给一条「检测到新版本，刷新一次即可用上」，带「立刻刷新 / 稍后」两个出口。绝不自动刷新——正在跑的 AI 不会被打断。缓存优先这条主线一点没动。⑦ 【参谋不再拿错卷】主程序的参谋上下文此前直接读分卷下拉框的原始值：刚切过书或还没选过卷时下拉是空的，于是本卷已消化档案、本卷设定、本卷人称铁律三样同时取空，而参谋照常作答。生成链路 v131 起、审稿链路 v139 起都已改用统一的解析入口，参谋这一条漏了，现在补上；你已经明确选过卷时，取值与改动前逐字一致。⑧ 【腾空间时删了什么，现在会说】存储接近上限时会自动腾空间保住正文，方向没错，但被腾掉的其实是 40 章以前的消化档案（人物关系与早期伏笔，要重跑 AI 才拿得回来），此前既不提示也不记录。现在提示里会写明腾掉了几个档案块。⑨ 【存储写入找不到当前书本时会提示】这条极罕见（切书竞态），但发生时是静默丢数据，现在补一次节流提示。⑩ 【落地校验的松紧改成可调】档案落地校验有两个阈值此前是写死的：参与校验的最短摘抄长度、以及命中率低于多少才判整块可疑。合适的松紧只有你自己的真实语料能说话，我把默认值定成什么样都是猜，所以给成两个可调量（GROUND_MIN_QUOTE_LEN、GROUND_SUSPECT_RATIO），默认值与改动前完全一致，你在控制台调完即可生效，不用重新部署；调之前先看每个块尾那句「已剔除 N 条、可核对 X/Y」。⑪ 【回滚】每处改动各带开关或各自独立：PLUS_LOAD_CHECK 置 false 即不显示模块自检；CF_HOLD_AUTORELEASE_MS 保持 0 即无自动解除；两个体检都是只读，点不点都不改变任何数据；备份校验只在备份失败时才会有不同表现；参谋卷解析只在下拉为空时才启用。⑫ 【顺带】给五个已经没有调用点的老函数各补一句说明（它们分别被内联重写或被新接口取代），保留不删，避免后人误当成现役功能去改——其中「自动抽取人物」那个空壳正是本次排查一开始误判方向的来源。⑬ 【对文章质量的影响】无。这一版不改动任何注入给模型的内容、不改动任何生成与消化逻辑。"],
   ["v140","修三个具体的错：档案里混进正文没有的内容、手动加的人物卡参谋看不见、参谋引用没发生过的情节推进。① 【档案为什么会记错】档案块此前是「模型输出什么就原样写什么」——从模型输出到落盘之间没有任何一步回原文比对。于是两种内容会混进来：一是模型没找到时写的「未找到 / 无」这类占位条目；二是张冠李戴——模型把别章的内容（或它自己的推测）当成本章结论，还附一段「原文依据」，于是第 55 章的档案里出现了正文第 55 章根本没有的「消化印记石头」。这类内容一旦进档案，就会被当成已消化的事实，进后面每一次生成。② 【现在写入前先校验】落盘前做两件事，且只做这两件：占位行整行剔除；带摘抄式「原文依据」的行逐条回正文比对，定位不到就整行剔除，并在块尾留一句可核查的说明（剔了几条、可核对的依据是几分之几）。校验不了的行（没有可直接比对的摘抄）一律原样保留——宁可放过，不可错杀，误杀会丢掉真实的长程事实。某块里多数依据都对不上正文时，该章状态自动降为「降级」，界面上会明确标出来，可单章重试；几乎整块都对不上时保留原文、只标降级，不会让这一章的档案凭空消失。③ 【已经写进去的怎么办】消化面板新增「🧪 档案落地体检」：逐块把档案里的摘抄依据回正文比对，列出定位不到的条目（哪一卷哪一章、剔了几条、可核对几分之几），确认后可一键剔除，默认先自动备份。只删这些条目，其余条目、正文、消化状态一律不动。④ 【人物卡为什么看不见】手动新建的人物卡如果只填了外貌（或别名+外貌），会被人物卡的过滤条件整条丢掉——那个条件只认核心特质、说话方式、行为禁区、表层欲望四项，外貌与心理不在其中；名额还固定只取前 8 位。现在与增强模块用同一套判定（外貌、心理、深层渴望、思维模式都算），名额提到 20，并把别名一并输出。⑤ 【问到的人必须出现在人物卡里】此前「作者问到了谁」只是排序时的加分项，本章出场人物一旦占满名额，问到的那个配角照样被切掉——明明问的是菲比，回答里却没有菲比。现在作者问到的人先占位，再按相关度补满。⑥ 【人物扫描补一条双源规则】正文里露过脸、消化档案也点过名，却因「不满两章」被挡在门外的配角（典型：不以「某某说」句式出场，说话动词正则抓不到的人），现在只要档案点名过且这个名字在正文里确实出现两次以上，就允许收录。只凭档案单方面点名一章仍然不放行，避免边缘角色混入。⑦ 【参谋为什么会引用没发生过的情节】它拿到的材料里，消化档案是「已发生过什么」的唯一来源，但此前没有任何一处告诉它这个来源的范围边界在哪。于是档案里某句当年被推测出来的推进（如「先解反噬，再归沙菲克」，正文里从未发生）被当成既成事实反复引用。现在每次对话都会附上「已消化章节清单」，并给一条可执行的铁律：只有清单里的章节才算发生过；档案里的「下一步 / 将要 / 计划 / 先…再…」只是当时的推测不是事实；提到的每个推进都必须能指出出自哪一章，指不出就直接回答「这段还没有写过」；作者说没写过就以作者为准。⑧ 【残留脏数据的出口】参谋弹窗新增「🧹 清空参谋记忆」：点过「采纳」的走向会被长期记住并写进本章指令，若那条走向后来被证明是错的，它会一直跟着后面的生成。这里可以一次清空已采纳与已否决两份清单，并可选择同时删掉指令里当时自动写入的那几行（你自己写的指令不动）。⑨ 【开关与回退】三处改动各有一个开关（DIGEST_GROUND_CHECK、COUNSEL_SCOPE_RULE，人物卡判定沿用增强模块既有开关），置 false 即回到改动前，不需要任何数据修复。⑩ 【对文章质量的影响】预期的正向效果是档案不再夹带正文里没有的内容、参谋不再拿推测当事实；人物卡多进来的人只会让参谋的判断多一份依据，不会改变它不动正文的边界。"],
   ["v139","分级闭环的第 2 级：正文与档案冲突时，明确告诉模型该听谁的。这一版只加一句裁决说明，不改动注入的材料本身。① 【根因】消化档案是「写完就定」的——正文后来改过、章节删了、状态退回草稿，档案都不会自动跟着更新（让它自动更新属第 3 级，风险 15–18%，明确不做）。于是每次生成其实都同时给了模型两份时间不同的材料：新鲜的前文正文，和可能已经落后的档案。两者对同一件事说法不一致又没人告诉它该听谁，它最常见的处理是自己编一个第三种说法把两边调和起来——这是最难发现的一类幻觉，也是「越往后写越对不上」的来源之一。② 【此前只修了一半】这个裁决说明在 v131 就加进了两条精修链路，但生成、续写、审稿这三处从来没有；更糟的是其中两处把档案直接标成「优先参照」，等于明示模型更应该相信过时的那一份。③ 【现在】共五处接入：接着写、深度续写（分析阶段与生成阶段）、AI 审稿、全书大纲规划、剧情参谋。只要确实同时注入了正文与档案，就附上一句裁决：同一件事以更靠后的正文为准；档案仍要用，但用它补正文里没提到的事（更早建立的人物关系、更早埋下的伏笔、更早发生的事件）；不一致只说明档案还没消化到那一章，不许断定哪个版本是错的，更不许自己编第三种说法。剧情参谋虽然不写正文，但你问「这个人这么做合理吗」时，它对剧情的判断会直接影响你怎么改稿，所以同样要裁决；它只在编辑器里有正文时才追加（【最近几章】只是梗概，不算正文）。原来「优先参照」的标注改成「用于补充正文未覆盖的长程事实」——让模型继续读长程事实的原意保留，裁决权归还给正文。④ 【为什么对审稿特别重要】审稿的职责本来就是找「前后矛盾」。以前档案一落后，模型会把每一处不一致都报成硬伤，全是假阳性，复核成本全落在你身上；现在先行声明以正文为准，档案才算回到它该在的位置。⑤ 【为什么风险低】只在两份材料同时出现时才追加约 150 字，只给一类材料时一句话不多说，也不白占预算；材料的取值、排序、封顶、来源一处没动。裁决措辞统一由一个函数产出，避免五处各写一遍导致口径再次分叉。开关 MATERIAL_ARBITER 置 false 即整体回到改动前，不需要任何数据修复。⑥ 【顺带修掉审稿链路的一个入口缺陷】AI 审稿此前直接读「分卷下拉框的原始值」去取本卷档案，而你刚切过书、或还没选过卷时这个下拉是空的——此时本卷档案整个取空，审稿等于对着没有上下文的材料找矛盾。更麻烦的是它和写作不是同一个判据：写这一章时按 A 卷的前文，审这一章时却是空的或有另一套，本来连贯的内容会被判成【硬伤】。生成链路早在 v131 就改成了唯一的解析入口，审稿这一条漏了。现在共用同一个入口，并在审稿时不弹写作用的提示。⑦ 【对文章质量的影响】预期的正向效果是模型不再自行编造调和说法；同时因为明确要求「档案仍要用」，长程事实不会因为这条说明而被丢掉。"],
@@ -11943,11 +11944,26 @@ async function planBeatCard(opts){
   /* 解析3套方案 */
   const plans=parseBeatPlans(raw);
   if(!plans.length) return null;
-  /* v106：autoPick=true（自动灵感）时不弹窗，直接择优：
-     节拍数最多者优先（信息量最大），同数量取靠前的一套（AI 通常把最稳的放第一）。 */
+  /* v106：autoPick=true（自动灵感）时不弹窗，直接择优。
+     v142：原来的规则是「节拍数最多者优先」，而下面这段 prompt 自己写的是
+     「每套严格 4-6 个节拍」「每套只推进 1-2 个核心新场景，不得堆砌」——
+     择优规则与生成要求正好相反：模型越堆场景越容易被自动选中，
+     实测一套 8 节拍的堆砌方案会赢过 4 节拍的合规方案，而它恰恰违反场景预算铁律。
+     现在改成先看是否落在 4-6 的合规区间，再比数量，最后取靠前的一套；
+     手动挑选那一条路径（弹窗自己选）完全不受影响。 */
   if(opts.autoPick){
+    const _beatScore=function(p){
+      const n=(p.beats||[]).length;
+      if(n>=4&&n<=6) return 2;   /* 合规区间 */
+      if(n>6) return 1;          /* 超节拍：堆场景，与场景预算铁律冲突 */
+      return 0;                  /* 不足 4 个：骨架太薄 */
+    };
     let best=plans[0];
-    plans.forEach(function(p){ if(p.beats.length>best.beats.length) best=p; });
+    plans.forEach(function(p){
+      const a=_beatScore(p), b=_beatScore(best);
+      if(a>b) best=p;
+      else if(a===b && (p.beats||[]).length>(best.beats||[]).length) best=p;
+    });
     return best;
   }
   /* 动态弹窗让用户选。
@@ -11964,8 +11980,30 @@ function parseBeatPlans(text){
   return parts.map((p,i)=>{
     const t=p.trim();
     const toneMatch=t.match(/基调[：:]\s*([^\n]+)/);
-    return {idx:i+1, raw:t, tone:toneMatch?toneMatch[1].trim():"", beats:t.split("\n").filter(l=>/^\d+\./.test(l.trim())).map(l=>l.trim())};
+    const beats=t.split("\n").filter(l=>/^\d+\./.test(l.trim())).map(l=>l.trim());
+    /* v142：给每套方案算一个内容指纹。
+       此前「是否挂载」只靠 idx（1/2/3）比对，而 idx 是每次解析时按顺序重排的序号，
+       两轮推演之间没有任何对应关系——重新推演后，新方案一会被误认成旧方案一，
+       界面显示「方案1 已挂载」，而列表里方案1 的内容早已换成新的，
+       真正生效的却是列表里已经不存在的那套旧内容。指纹用内容算，跨轮稳定。 */
+    return {idx:i+1, raw:t, tone:toneMatch?toneMatch[1].trim():"", beats:beats, fp:_beatFp(beats)};
   }).filter(p=>p.beats.length>=3);
+}
+/* v142：节拍内容指纹（djb2，纯本地，0 token）。用于跨轮识别「是不是同一套方案」。 */
+function _beatFp(beats){
+  try{
+    const s=Array.isArray(beats)?beats.join(""):String(beats||"");
+    let h=5381;
+    for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))>>>0;
+    return "b"+h.toString(36);
+  }catch(e){ return ""; }
+}
+/* v142：判断挂载态与列表里的某套是否同一套。
+   两边都有指纹就按指纹；任一边没有（旧数据）就退回原来的 idx 比对，行为与改动前一致。 */
+function _beatMountMatch(mount,p){
+  if(!mount||!p) return false;
+  if(mount.fp&&p.fp) return mount.fp===p.fp;
+  return mount.idx===p.idx;
 }
 /* v100 修复：① 原实现只能点方案按钮，误触/不想选时 Promise 永远不 resolve，
       生成流程就此永久挂起；② 重复进入会覆盖 window.__pickPlan，旧遮罩永远留在页面上（且旧 Promise 卡死）。
@@ -11992,7 +12030,7 @@ function _closeBeatPlan(i){
        下次深度续写会自动采用；明确放弃则什么都不挂。 */
     try{
       if(chosen){
-        save("activeDeduction",{idx:chosen.idx, tone:chosen.tone, beats:chosen.beats, raw:chosen.raw, at:Date.now()});
+        save("activeDeduction",{idx:chosen.idx, tone:chosen.tone, beats:chosen.beats, raw:chosen.raw, fp:_beatFp(chosen.beats), at:Date.now()});
         try{ renderBeatMount(); }catch(e){}
         try{ renderDeductions(); }catch(e){}
         toast("已采用方案"+chosen.idx+" → 挂接为下次深度续写的强制前置约束 ✓");
@@ -12021,7 +12059,10 @@ function chooseBeatPlan(plans, opts){
     }
     plans.forEach((p,i)=>{
       html+='<div style="border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;padding:12px;margin-bottom:10px;cursor:pointer;" onclick="window.__pickPlan('+i+')">';
-      html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(' · '+esc(p.tone)):'')+'</div>';
+      /* v142：把节拍数标出来。合规区间是 4-6 个，超了通常是堆场景——
+         原来是三套并排、看不出哪个在堆，选的时候少了这个最直观的判断依据。 */
+      var _n=p.beats.length, _nf=(_n>=4&&_n<=6)?'':(' <span style="font-weight:400;font-size:12px;color:var(--warn,#d96);">（'+_n+' 个节拍'+( _n>6?'，偏堆砌':'，偏薄')+'）</span>');
+      html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(' · '+esc(p.tone)):'')+' <span style="font-weight:400;font-size:12px;color:var(--meta,#888);">'+_n+' 节拍</span>'+_nf+'</div>';
       html+='<div style="font-size:12px;color:var(--meta,#888);line-height:1.6;">'+p.beats.map(b=>esc(b)).join('<br>')+'</div>';
       html+='</div>';
     });
@@ -12382,9 +12423,17 @@ async function genDeductions(btn){
     var out=await callAI({sys:sys,user:user,...creaParams("plan"),max_tokens:3000,modelOverride:ai.model});
     var plans=parseBeatPlans(out||"");
     if(!plans.length){ toast("AI 返回格式异常，可重试"); return; }
+    /* v142：覆盖前先留一份上一轮。
+       此前 save("deductions") 是整体替换，旧的 3 套连副本都没有：重新推演后若新的不合意，
+       只能再烧一次 token 碰运气，而且「上一轮那个更好的想法」从此找不回来。
+       只新增一个 key，不动 deductions 的结构，也不影响任何读取它的既有路径。 */
+    try{
+      var _prev=load("deductions",null);
+      if(_prev&&_prev.plans&&_prev.plans.length) save("deductionsPrev",_prev);
+    }catch(e){ console.warn("[灵感推演] 上一轮留存失败(非致命)：",e&&e.message); }
     save("deductions",{plans:plans,at:Date.now()});
     renderDeductions();
-    toast("已生成 "+plans.length+" 套差异化大纲，请采用一套");
+    toast("已生成 "+plans.length+" 套差异化大纲，请采用一套（上一轮已留存，可还原/对比）");
   }catch(e){ aiFail("AI 灵感推演",e); }
   finally{ if(btn){btn.disabled=false;btn.textContent=_ot;} }
 }
@@ -12392,22 +12441,114 @@ function renderDeductions(){
   var box=document.getElementById("deductionBox"); if(!box)return;
   var d=load("deductions",null);
   var mount=load("activeDeduction",null);
-  if(!d||!d.plans||!d.plans.length){ box.innerHTML='<div class="ana-empty">还没有推演结果。点上方「🎲 一键灵感推演」读取全本+线索，生成3套差异化章节大纲骨架。</div>'; renderBeatMount(); return; }
+  if(!d||!d.plans||!d.plans.length){ box.innerHTML='<div class="ana-empty">还没有推演结果。点上方「🎲 一键灵感推演」读取全本+线索，生成3套差异化章节大纲骨架。</div>'+_dedPrevBar(); renderBeatMount(); return; }
   var html="";
+  /* v142：挂载态改用内容指纹匹配（_beatMountMatch 内部对旧数据仍退回 idx 比对）。
+     顺带判一次「挂载的这套还在不在当前这一轮里」——不在就明说，
+     否则界面显示「方案1 已挂载」、而列表里方案1 的内容早已是另一套，
+     你按显示去理解，就会以为正在用的是眼前这套。 */
+  var _mountFound=!mount?true:d.plans.some(function(p){ return _beatMountMatch(mount,p); });
+  if(mount&&!_mountFound){
+    html+='<div style="background:var(--warn-soft,rgba(220,150,0,.12));border:1px solid var(--warn,rgba(220,150,0,.45));border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;line-height:1.6;">⚠️ 当前挂载的是<b>上一轮</b>的方案（'+esc(String(mount.idx||""))+(mount.tone?(" · "+esc(mount.tone)):"")+'），不在这一轮的 3 套里。深度续写仍然用它；想改用这一轮的方案，请点下面任意一套。<button onclick="clearDeduction()" style="margin-left:6px;">解除挂载</button></div>';
+  }
+  /* v142：差异化自检（纯本地计算，0 token，只做提示不改任何数据）。
+     3 套如果其实长得很像，你就是在一个假选择里挑——提示出来，好让你决定要不要重推。 */
+  var _diff=_deductionDiff(d.plans);
+  if(_diff&&_diff.warn){
+    html+='<div style="background:var(--warn-soft,rgba(220,150,0,.12));border:1px solid var(--warn,rgba(220,150,0,.45));border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;line-height:1.6;">⚠️ 这 3 套区分度偏低：'+_diff.text+'。可以在「AI 生成设置」重推一次，或直接挑最合意的一套。</div>';
+  }
   d.plans.forEach(function(p,i){
-    var on=(mount&&mount.idx===p.idx);
+    var on=_beatMountMatch(mount,p);
     html+='<div style="border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;padding:12px;margin-bottom:10px;cursor:pointer;'+(on?'background:var(--brand-soft,rgba(99,102,241,.1));':'')+'" onclick="useDeduction('+i+')">';
-    html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(" · "+esc(p.tone)):"")+(on?' <span class="pill">已挂载</span>':"")+"</div>";
+    html+='<div style="font-weight:500;font-size:14px;margin-bottom:4px;">方案'+p.idx+(p.tone?(" · "+esc(p.tone)):"")+(on?' <span class="pill">已挂载</span>':"")+' <span style="font-weight:400;font-size:12px;color:var(--meta,#888);">'+p.beats.length+' 个节拍</span>'+"</div>";
     html+='<div style="font-size:12px;color:var(--meta,#888);line-height:1.6;">'+p.beats.map(function(b){return esc(b);}).join("<br>")+"</div>";
     html+="</div>";
   });
-  box.innerHTML=html;
+  box.innerHTML=html+_dedPrevBar();
   renderBeatMount();
+}
+/* v142：上一轮留存的入口条。没有上一轮时返回空串，界面与改动前完全一致。 */
+function _dedPrevBar(){
+  try{
+    var pv=load("deductionsPrev",null);
+    if(!pv||!pv.plans||!pv.plans.length) return "";
+    var n=pv.plans.length, at=pv.at?new Date(pv.at).toLocaleString("zh-CN",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}):"";
+    return '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'+
+      '<button onclick="restorePrevDeduction()" style="padding:8px 12px;border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;background:transparent;font-size:13px;cursor:pointer;">↩ 还原上一轮（'+n+' 套'+(at?("，"+esc(at)):"")+'）</button>'+
+      '<button onclick="showPrevDeduction()" style="padding:8px 12px;border:1px solid var(--bd,rgba(0,0,0,.15));border-radius:8px;background:transparent;font-size:13px;cursor:pointer;">👀 先看上一轮内容</button>'+
+      "</div>";
+  }catch(e){ return ""; }
+}
+/* v142：把上一轮换回来（当前这一轮先存成上一轮，于是可以来回切，不会单向丢失）。 */
+function restorePrevDeduction(){
+  try{
+    var cur=load("deductions",null), pv=load("deductionsPrev",null);
+    if(!pv||!pv.plans||!pv.plans.length){ toast("没有可还原的上一轮"); return; }
+    save("deductionsPrev",(cur&&cur.plans&&cur.plans.length)?cur:null);
+    save("deductions",pv);
+    renderDeductions();
+    toast("已还原上一轮的 "+pv.plans.length+" 套方案（这一轮换成了上一轮，可再切回来）");
+  }catch(e){ toast("还原失败："+(e&&e.message)); }
+}
+/* v142：只显示上一轮内容，不动任何数据。 */
+function showPrevDeduction(){
+  try{
+    var pv=load("deductionsPrev",null);
+    if(!pv||!pv.plans||!pv.plans.length){ toast("没有上一轮记录"); return; }
+    var t=pv.plans.map(function(p){
+      return "方案"+p.idx+(p.tone?("（基调："+p.tone+"）"):"")+"\n"+(p.beats||[]).join("\n");
+    }).join("\n\n");
+    var w=window.open("","_blank");
+    if(!w){ alert("上一轮内容：\n\n"+t); return; }
+    w.document.write('<meta name="viewport" content="width=device-width,initial-scale=1"><title>上一轮推演内容</title><pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;padding:16px;">'+esc(t)+'</pre>');
+    w.document.close();
+  }catch(e){ toast("显示失败："+(e&&e.message)); }
+}
+/* v142：3 套方案的区分度自检（纯本地，0 token，只返回文案供界面提示）。
+   用汉字二元组重合率衡量「两套是不是其实在讲同一件事」；
+   再单独看基调有没有写重。两者任一越界就提示。重合率是确定性计算，不含随机性。 */
+function _deductionDiff(plans){
+  try{
+    if(!plans||plans.length<2) return {warn:false,text:""};
+    var maxOv=0, pair="";
+    for(var i=0;i<plans.length;i++){
+      for(var j=i+1;j<plans.length;j++){
+        var ov=_dedOverlap((plans[i].beats||[]).join(""),(plans[j].beats||[]).join(""));
+        if(ov>maxOv){ maxOv=ov; pair="方案"+plans[i].idx+" 与 方案"+plans[j].idx; }
+      }
+    }
+    var tones={}, dupTone=false;
+    plans.forEach(function(p){
+      var t=String(p.tone||"").trim();
+      if(!t) return;
+      if(tones[t]) dupTone=true; else tones[t]=1;
+    });
+    var segs=[];
+    if(maxOv>0.55) segs.push(pair+" 节拍重合 "+Math.round(maxOv*100)+"%");
+    if(dupTone) segs.push("有两套基调写法重复");
+    if(!segs.length) return {warn:false,text:""};
+    return {warn:true,text:segs.join("；")};
+  }catch(e){ return {warn:false,text:""}; }
+}
+function _dedOverlap(a,b){
+  try{
+    var A=_dedTokens(a), B=_dedTokens(b);
+    var ka=Object.keys(A), inter=0;
+    if(!ka.length) return 0;
+    ka.forEach(function(k){ if(B[k]) inter++; });
+    return inter/ka.length;
+  }catch(e){ return 0; }
+}
+function _dedTokens(s){
+  var t=String(s||"").replace(/[^\u4e00-\u9fa5]/g,"");
+  var set={};
+  for(var i=0;i<t.length-1;i++) set[t.substr(i,2)]=1;
+  return set;
 }
 function useDeduction(i){
   var d=load("deductions",null); if(!d||!d.plans[i])return;
   var p=d.plans[i];
-  save("activeDeduction",{idx:p.idx,tone:p.tone,beats:p.beats,raw:p.raw,at:Date.now()});
+  save("activeDeduction",{idx:p.idx,tone:p.tone,beats:p.beats,raw:p.raw,fp:_beatFp(p.beats),at:Date.now()});
   toast("已采用方案"+p.idx+(p.tone?(" · "+p.tone):"")+" → 挂接为深度续写强制前置约束 ✓");
   renderDeductions();
 }

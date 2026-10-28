@@ -510,7 +510,7 @@
         if ((now() - (picked.at || 0)) > 86400000) {          /* 24 小时后作废 */
           put('beatPicked', null);
         } else if (!get1('activeDeduction')) {                 /* 还没挂上才补 */
-          put('activeDeduction', { idx: picked.idx, tone: picked.tone, beats: picked.beats, raw: picked.raw, at: now() });
+          put('activeDeduction', { idx: picked.idx, tone: picked.tone, beats: picked.beats, raw: picked.raw, fp: (typeof _beatFp === 'function') ? _beatFp(picked.beats) : '', at: now() });
           try { renderBeatMount(); } catch (e) {}
           try { renderDeductions(); } catch (e2) {}
           toast('上次你选了方案' + picked.idx + '，已自动恢复挂接');
