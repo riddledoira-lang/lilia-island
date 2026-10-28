@@ -1,5 +1,5 @@
 /* 莉莉娅的写作岛 · 离线 Service Worker（让网页变成可离线打开的 APP，且自动同步新版本） */
-const CACHE = 'jkd-app-v140';
+const CACHE = 'jkd-app-v141';
 const STATIC = [
   './',
   './index.html',
@@ -52,10 +52,31 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') {
     e.respondWith(
       caches.match('./index.html').then(function (cached) {
-        fetch(req, { cache: 'no-cache' }).then(function (resp) {
-          if (resp && resp.ok) {
-            caches.open(CACHE).then(function (c) { c.put('./index.html', resp.clone()); }).catch(function () {});
-          }
+        /* v141（R4）：后台拉到新版本后，通知页面「有新版本，刷新即可用上」。
+           缓存优先本身是对的（秒开、离线兜底都不能丢），但它的代价是：刚部署完的那一次打开
+           拿到的仍是旧包，而你没有任何迹象知道这一点——于是会出现「明明改了却没生效」的误判。
+           这里不动「立刻返回缓存」这条主线，只在后台更新成功后比一下版本号，
+           不一样就给页面发一条消息，由页面自己决定要不要提示你刷新。
+           NAV_TIMEOUT 此前声明了却没接线，这里顺便用上，避免后台请求无限挂着。 */
+        var opt = { cache: 'no-cache' };
+        try { if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opt.signal = AbortSignal.timeout(NAV_TIMEOUT); } catch (e0) {}
+        fetch(req, opt).then(function (resp) {
+          if (!(resp && resp.ok)) return;
+          var fresh = resp.clone();
+          caches.open(CACHE).then(function (c) { c.put('./index.html', fresh.clone()); }).catch(function () {});
+          try {
+            Promise.all([
+              cached ? cached.clone().text() : Promise.resolve(''),
+              fresh.clone().text()
+            ]).then(function (t) {
+              var ov = (String(t[0] || '').match(/APP_VERSION="(v\d+)"/) || [])[1];
+              var nv = (String(t[1] || '').match(/APP_VERSION="(v\d+)"/) || [])[1];
+              if (!ov || !nv || ov === nv) return;
+              self.clients.matchAll({ type: 'window' }).then(function (cs) {
+                cs.forEach(function (c) { try { c.postMessage({ type: 'app-updated', from: ov, to: nv }); } catch (e2) {} });
+              }).catch(function () {});
+            }).catch(function () {});
+          } catch (e1) {}
         }).catch(function () {});
         return cached || fetch(req);
       })

@@ -2553,6 +2553,7 @@ function _quotaFail(k){
    直接就地修改 v（即 BOOKS 本体），重试时用更小体积落盘，从而保住用户刚写的正文。 */
 function _quotaRecover(k,v){
   let trimmed=false;
+  let rolled=0, droppedBlocks=0;   /* v141：只做记录与提示，不参与腾空间的判断 */
   if(k==="books" && Array.isArray(v)){
     v.forEach(function(b){
       (b.chapters||[]).forEach(function(c){
@@ -2567,12 +2568,25 @@ function _quotaRecover(k,v){
           if(!vv) return;
           /* v106：blocks 是唯一真相。腾空间 = 丢掉可重建的滚动摘要 + 最旧档案块（保留最近 40 章），
              并重新渲染 text。此前只截 text，裁完 text 与 chapters 就不再是同一份数据（D-2）。 */
-          if(vv.rolling){ vv.rolling=""; vv.rollingAt=0; vv.rollingSeq=0; vv.globalDirty=true; trimmed=true; }
-          if(dropOldVolBlocks(vv, 40)){ vv.globalDirty=true; trimmed=true; }
+          if(vv.rolling){ vv.rolling=""; vv.rollingAt=0; vv.rollingSeq=0; vv.globalDirty=true; trimmed=true; rolled++; }
+          /* v141（R7）：删掉的档案块此前一声不响。
+             这一步是「为了保住你刚写的正文，把可重建的旧档案腾掉」，方向没错；
+             但被腾掉的是超过 40 章的更早档案——也就是人物关系与早期伏笔，
+             需要重跑 AI 才能拿回来（要花钱）。原来既不提示也不记录，你只会发现「后面写的东西对不上了」。
+             这里只把「删了几个块」记下来并在提示里说清楚，不改变腾空间这个行为本身。 */
+          const _dropN=dropOldVolBlocks(vv, 40);
+          if(_dropN){ vv.globalDirty=true; trimmed=true; droppedBlocks+=Number(_dropN)||0; }
           vv.text=renderVolText(vv);
         });
       }
     });
+  }
+  /* v141：腾掉了什么，得让你知道 */
+  if(trimmed && (droppedBlocks>0 || rolled>0)){
+    try{
+      console.warn("[容量回收] 已清掉滚动摘要 "+rolled+" 份 / 旧档案块 "+droppedBlocks+" 个以腾出空间。");
+      window.__quotaTrimInfo={droppedBlocks:droppedBlocks, rolled:rolled, at:Date.now()};
+    }catch(e){}
   }
   return trimmed;
 }
@@ -2580,7 +2594,15 @@ function rawSave(k,v){
   if(k==="books"||k==="curBook"){
     /* v96：检测到别的窗口改过这本书 → 暂停写 books，绝不静默覆盖对方改动（等你在提示条上选）。
        curBook 只是「当前选中哪本」，写它不会覆盖正文，照常放行。 */
-    if(k==="books" && _conflictHold){ try{ showConflictBar(); }catch(e){} return; }
+    if(k==="books" && _conflictHold){
+      /* v141：被丢弃的每一次写入都要留下痕迹。
+         此前这里只 return，连计数都没有：内存照常改（save() 先改内存再调这里），
+         界面也照常显示新内容，于是在你看来一切正常，而实际上一个字节都没落盘——
+         手机上切后台被回收，这段就整个蒸发。失败本身是设计选择（不能覆盖对方），
+         但「失败得毫无动静」不是。这里只加计数与提示，不改变暂停写入这个既定行为。 */
+      try{ _conflictDropped++; showConflictBar(); }catch(e){}
+      return;
+    }
     /* 内存已在 save() 内更新；此处只异步落盘到 IndexedDB（突破 localStorage 5MB 上限）。
        IDB 失败（极端：磁盘满）才告警，正常情况不再受配额限制。 */
     idbSet(k,v).then(function(){ if(k==="books") _markBooksWritten(); })
@@ -2602,6 +2624,15 @@ const TAB_ID=(function(){ try{ return Math.random().toString(36).slice(2,10); }c
 let _myWriteAt=0;          /* 本窗口最后一次成功落盘的时间 */
 let _conflictHold=false;   /* true = 别处已改过，本窗口暂停写入，等用户决定 */
 let _conflictAt=0;
+/* v141：hold 期间被丢弃的写入次数（只做展示，不参与任何判断） */
+let _conflictDropped=0;
+/* v141：hold 的自动解除时长（毫秒）。默认 0 = 永不自动解除，与改动前完全一致。
+   为什么要留这个开关：hold 的本意是「绝不在你不知情时覆盖对方的改动」，
+   自动解除等于替你选了一边，方向上是相反的。所以默认不动，只有你自己设了时长才启用。
+   启用后超时按「以本窗口为准」恢复（走既有的 cfKeepMine，不新增一条解除路径）。
+   控制台设 CF_HOLD_AUTORELEASE_MS=600000 即可在本次会话生效。 */
+var CF_HOLD_AUTORELEASE_MS=0;
+let _cfHoldTimer=null;
 let _bc=null;
 try{ if(typeof BroadcastChannel==="function") _bc=new BroadcastChannel("lilia-books"); }catch(e){ _bc=null; }
 function _markBooksWritten(){
@@ -2622,10 +2653,40 @@ function markConflict(at){
   if(_conflictHold) return;
   _conflictHold=true; _conflictAt=at||Date.now();
   try{ showConflictBar(); }catch(e){}
+  /* v141：可选的自动解除。CF_HOLD_AUTORELEASE_MS 为 0（默认）时不排任何定时器，
+     行为与改动前逐字一致。只有你主动设了时长，才会在超时后按「以本窗口为准」恢复写入。 */
+  try{
+    const ms=Number(CF_HOLD_AUTORELEASE_MS)||0;
+    if(ms>0){
+      if(_cfHoldTimer) clearTimeout(_cfHoldTimer);
+      _cfHoldTimer=setTimeout(function(){
+        _cfHoldTimer=null;
+        try{ if(_conflictHold){ cfKeepMine(); toast("等待超时，已按本窗口内容恢复保存"); } }catch(e){}
+      },ms);
+    }
+  }catch(e){}
+}
+function _cfClearHoldState(){
+  _conflictDropped=0;
+  if(_cfHoldTimer){ try{ clearTimeout(_cfHoldTimer); }catch(e){} _cfHoldTimer=null; }
 }
 function showConflictBar(){
   const bar=document.getElementById("cfBar"); if(!bar) return;
   bar.classList.add("on");
+  /* v141：把「已经丢了几次」写在提示条上。原来这条只说「已暂停保存」，
+     没告诉你丢了多少——而每多写一段，丢的就更多。只追加一个节点，不改动原有文案与按钮。 */
+  try{
+    let el=document.getElementById("cfDropInfo");
+    if(!el){
+      el=document.createElement("div"); el.id="cfDropInfo";
+      el.style.cssText="font-size:11.5px;line-height:1.6;margin-top:4px;color:#b8860b;";
+      const txt=bar.querySelector(".cf-txt");
+      if(txt&&txt.parentNode) txt.parentNode.insertBefore(el,txt.nextSibling); else bar.appendChild(el);
+    }
+    el.textContent = _conflictDropped>0
+      ? ("⚠️ 期间已有 "+_conflictDropped+" 次改动没能落盘（只存在于本窗口内存，切后台或刷新就会丢）。请尽快在上面选一边。")
+      : "";
+  }catch(e){}
 }
 function hideConflictBar(){ const bar=document.getElementById("cfBar"); if(bar) bar.classList.remove("on"); }
 async function checkBooksConflict(){
@@ -2644,14 +2705,14 @@ async function cfLoadLatest(){
     }
     const st=await idbGet("booksStamp");
     _myWriteAt=st?(st.at||0):Date.now();
-    _conflictHold=false; hideConflictBar();
+    _conflictHold=false; hideConflictBar(); try{ _cfClearHoldState(); }catch(e){}
     try{ allRender(); applyDisplay(); }catch(e){}
     toast("已载入另一个窗口的最新版本");
   }catch(e){ toastErr("载入失败："+((e&&e.message)||e)); }
 }
 /* 「以本窗口为准」：把当前内存内容写回去，并让它成为最新的戳 */
 function cfKeepMine(){
-  _conflictHold=false; hideConflictBar();
+  _conflictHold=false; hideConflictBar(); try{ _cfClearHoldState(); }catch(e){}
   _myWriteAt=Date.now()-1;
   rawSave("books",BOOKS);
   try{ maybeAutoSync(); }catch(e){}
@@ -2687,7 +2748,12 @@ function _rawSaveLocal(k,v){
       if(_quotaRecover(k,v)){
         try{ localStorage.setItem(PREFIX+k,JSON.stringify(v)); }
         catch(e2){ return _quotaFail(k); }
-        _quotaWarn("⚠️ 本地存储曾接近上限，已自动精简历史/缓存以保住本章内容，建议尽快「导出JSON备份」并清理历史缓存。");
+        /* v141（R7）：把「腾掉了多少档案」说清楚。以前只说「已自动精简历史/缓存」，
+           你不知道被精简掉的其实是 40 章以前的消化档案（要重跑 AI 才拿得回来）。 */
+        let _ti=null; try{ _ti=window.__quotaTrimInfo; }catch(e){}
+        _quotaWarn("⚠️ 本地存储曾接近上限，已自动精简历史/缓存以保住本章内容"
+          +((_ti&&_ti.droppedBlocks)?("，其中腾掉了 "+_ti.droppedBlocks+" 个较早章节的档案块（可重新消化取回）"):"")
+          +"，建议尽快「导出JSON备份」并清理历史缓存。");
         return;
       }
       return _quotaFail(k);
@@ -2953,7 +3019,24 @@ window.fixVolIdCollision=fixVolIdCollision;
 function curBook(){ return BOOKS && BOOKS.length ? (BOOKS.find(b=>b.id===curId) || BOOKS[0]) : null; }
 /* 关键：所有旧代码的 load/save 现在都指向「当前书」 */
 function load(k,d){ const b=curBook(); return (b && b[k]!==undefined)?b[k]:d; }
-function save(k,v){ const b=curBook(); if(!b){console.error("[save] 当前书本不存在，无法保存",k);return;} b[k]=v; rawSave("books",BOOKS); }
+/* v141（R11）：找不到当前书本时，原来只往控制台打一行就 return —— 写入丢了而界面毫无动静。
+   这条路径很罕见（切书竞态 / 书本刚被删），但一旦发生就是静默丢数据，且你没有任何迹象可循。
+   这里补一次节流提示；正常路径（b 存在）一行未动。 */
+function save(k,v){
+  const b=curBook();
+  if(!b){
+    console.error("[save] 当前书本不存在，无法保存",k);
+    try{
+      const now=Date.now();
+      if(!window.__noBookWarnT || now-window.__noBookWarnT>8000){
+        window.__noBookWarnT=now;
+        toastErr("没能保存到当前书本（书本不存在）。请到「书架」确认当前书本，并先做一次备份导出。");
+      }
+    }catch(e){}
+    return;
+  }
+  b[k]=v; rawSave("books",BOOKS);
+}
 
 /* ============== 书架 / 抽屉 ============== */
 function renderSwatches(){
@@ -5934,6 +6017,8 @@ function renderCharCorrections(){
   box.innerHTML=html||'<div class="meta">暂无纠偏报告。</div>';
 }
 
+/* v141（R9）：已无调用点——纠偏列表现在用的是「已修复 / 恢复注入」（resolveCorrection / unresolveCorrection）。
+   保留不删：万一有旧的本地数据或手写的调用还在用它。看到它就当历史遗留，不要当成现役功能改。 */
 function ackCorrection(id){
   const list=getCharCorrections();
   const i=list.findIndex(function(r){return r.id===id;});
@@ -7030,6 +7115,8 @@ function autoGenEmotionalArcs(analysisText){
 }
 
 /* 渲染人物卡片时显示情感线 */
+/* v141（R9）：已无调用点——情感线脉络现在由人物卡渲染里那段内联代码负责（见 renderCharCard 里的 emo-arc）。
+   保留不删（避免误伤可能的外部调用），但它是历史遗留，改情感线请改内联那段，不要改这里。 */
 function renderEmotionalArc(c){
   if(!c.emotionalArcs||!c.emotionalArcs.length)return"";
   const arcs=c.emotionalArcs.slice().reverse(); /* 最新在前 */
@@ -7528,6 +7615,7 @@ function renderSamplingPreview(){
     '<span style="opacity:.8;">本次作用于「续写模型」：'+model+'（分析链路固定低温，不受此处影响）</span>';
 }
 /* 兼容旧调用点 */
+/* v141（R9）：已无调用点，只是转发一次。保留不删。 */
 function renderCreaHint(){ renderSamplingPreview(); }
 
 /* ===== v87 章节分卷（按标题归卷，傻瓜式） =====
@@ -7679,7 +7767,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v140";
+const APP_VERSION="v141";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7689,6 +7777,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v141","这一版不动任何生成逻辑与注入内容，只把上一轮风险评估里「已经识别但还没设防」的缺口补上，全部做成只看不改或默认不动。① 【冲突期间丢了多少次，现在看得见】检测到另一个窗口改过这本书时，本窗口会暂停写入以免覆盖对方——这个设计是对的。但暂停期间每一次保存都被直接丢弃且毫无动静：内存照常改、界面照常显示新内容，你完全看不出一个字节都没落盘，手机上切后台被回收就整个蒸发。现在提示条上会实时显示「期间已有 N 次改动没能落盘，切后台或刷新就会丢」。暂停写入这个行为本身一点没变，只是不再静默。② 【可选的自动解除，默认关闭】另给一个开关 CF_HOLD_AUTORELEASE_MS，默认 0 = 永不自动解除，与改动前完全一致；你自己设成比如 600000（10 分钟），超时后才按「以本窗口为准」自动恢复保存。之所以默认关：自动解除等于替你选了一边，与「绝不在你不知情时覆盖」的初衷相反，该由你决定。③ 【档案一致性体检】v106 把档案块化时立过三条不变量，原话是「三缺一即视为数据损坏」，但那三条当时只写进了注释，全库没有任何一处代码去核对。现在新增「🧭 档案一致性体检」（只读、不改任何数据）：列出三类违例——正文改过而摘要没刷新、标成已消化却没有档案块、未消化却留着档案块。第三类最要紧，它会作为既成事实进每一次生成，且不报错、不提示。它与「🧪 档案落地体检」的分工是：那条查块里的摘抄能不能在正文定位，这条查块与章节记录对不对得上。④ 【增强模块的加载自检】主程序之后会加载三个增强模块，设计上「加载失败就退回基础能力」，这对，但副作用是少加载一个也毫无提示：剧情参谋会悄悄失去章号硬约束、人物辨识铁律、已否决走向、最近章节回补四块，却照常作答，你分不出它跑在哪条路径上（这次修人物卡时实测过两条路径的差别）。现在打开版本日志会直接写明哪几个模块没加载、缺了之后具体少什么。只做显示，不动加载流程。⑤ 【删数据前的备份不再形同虚设】清理失效记录与档案落地剔除这两处，此前都是「发一个异步写入就往下删」，既不等它完成也不看它成没成；写入失败时界面照样说「已备份」，而删除已经执行，档案再也回不来。现在改成写完读回来确认，确认不了就中止、一条不删。成功路径与改动前完全一致，只有原本会静默丢数据的那条失败路径，从「继续删」改成「中止并告诉你」。两个函数仍保持同步返回 boolean 的原有契约。⑥ 【部署后不再让你误判「改了没生效」】离线策略是缓存优先，好处是秒开、断网也能用，代价是刚部署完的那一次打开拿到的还是旧包，而你没有任何迹象知道。现在后台拉到新版本时会比一下版本号，不一样就在底部给一条「检测到新版本，刷新一次即可用上」，带「立刻刷新 / 稍后」两个出口。绝不自动刷新——正在跑的 AI 不会被打断。缓存优先这条主线一点没动。⑦ 【参谋不再拿错卷】主程序的参谋上下文此前直接读分卷下拉框的原始值：刚切过书或还没选过卷时下拉是空的，于是本卷已消化档案、本卷设定、本卷人称铁律三样同时取空，而参谋照常作答。生成链路 v131 起、审稿链路 v139 起都已改用统一的解析入口，参谋这一条漏了，现在补上；你已经明确选过卷时，取值与改动前逐字一致。⑧ 【腾空间时删了什么，现在会说】存储接近上限时会自动腾空间保住正文，方向没错，但被腾掉的其实是 40 章以前的消化档案（人物关系与早期伏笔，要重跑 AI 才拿得回来），此前既不提示也不记录。现在提示里会写明腾掉了几个档案块。⑨ 【存储写入找不到当前书本时会提示】这条极罕见（切书竞态），但发生时是静默丢数据，现在补一次节流提示。⑩ 【落地校验的松紧改成可调】档案落地校验有两个阈值此前是写死的：参与校验的最短摘抄长度、以及命中率低于多少才判整块可疑。合适的松紧只有你自己的真实语料能说话，我把默认值定成什么样都是猜，所以给成两个可调量（GROUND_MIN_QUOTE_LEN、GROUND_SUSPECT_RATIO），默认值与改动前完全一致，你在控制台调完即可生效，不用重新部署；调之前先看每个块尾那句「已剔除 N 条、可核对 X/Y」。⑪ 【回滚】每处改动各带开关或各自独立：PLUS_LOAD_CHECK 置 false 即不显示模块自检；CF_HOLD_AUTORELEASE_MS 保持 0 即无自动解除；两个体检都是只读，点不点都不改变任何数据；备份校验只在备份失败时才会有不同表现；参谋卷解析只在下拉为空时才启用。⑫ 【顺带】给五个已经没有调用点的老函数各补一句说明（它们分别被内联重写或被新接口取代），保留不删，避免后人误当成现役功能去改——其中「自动抽取人物」那个空壳正是本次排查一开始误判方向的来源。⑬ 【对文章质量的影响】无。这一版不改动任何注入给模型的内容、不改动任何生成与消化逻辑。"],
   ["v140","修三个具体的错：档案里混进正文没有的内容、手动加的人物卡参谋看不见、参谋引用没发生过的情节推进。① 【档案为什么会记错】档案块此前是「模型输出什么就原样写什么」——从模型输出到落盘之间没有任何一步回原文比对。于是两种内容会混进来：一是模型没找到时写的「未找到 / 无」这类占位条目；二是张冠李戴——模型把别章的内容（或它自己的推测）当成本章结论，还附一段「原文依据」，于是第 55 章的档案里出现了正文第 55 章根本没有的「消化印记石头」。这类内容一旦进档案，就会被当成已消化的事实，进后面每一次生成。② 【现在写入前先校验】落盘前做两件事，且只做这两件：占位行整行剔除；带摘抄式「原文依据」的行逐条回正文比对，定位不到就整行剔除，并在块尾留一句可核查的说明（剔了几条、可核对的依据是几分之几）。校验不了的行（没有可直接比对的摘抄）一律原样保留——宁可放过，不可错杀，误杀会丢掉真实的长程事实。某块里多数依据都对不上正文时，该章状态自动降为「降级」，界面上会明确标出来，可单章重试；几乎整块都对不上时保留原文、只标降级，不会让这一章的档案凭空消失。③ 【已经写进去的怎么办】消化面板新增「🧪 档案落地体检」：逐块把档案里的摘抄依据回正文比对，列出定位不到的条目（哪一卷哪一章、剔了几条、可核对几分之几），确认后可一键剔除，默认先自动备份。只删这些条目，其余条目、正文、消化状态一律不动。④ 【人物卡为什么看不见】手动新建的人物卡如果只填了外貌（或别名+外貌），会被人物卡的过滤条件整条丢掉——那个条件只认核心特质、说话方式、行为禁区、表层欲望四项，外貌与心理不在其中；名额还固定只取前 8 位。现在与增强模块用同一套判定（外貌、心理、深层渴望、思维模式都算），名额提到 20，并把别名一并输出。⑤ 【问到的人必须出现在人物卡里】此前「作者问到了谁」只是排序时的加分项，本章出场人物一旦占满名额，问到的那个配角照样被切掉——明明问的是菲比，回答里却没有菲比。现在作者问到的人先占位，再按相关度补满。⑥ 【人物扫描补一条双源规则】正文里露过脸、消化档案也点过名，却因「不满两章」被挡在门外的配角（典型：不以「某某说」句式出场，说话动词正则抓不到的人），现在只要档案点名过且这个名字在正文里确实出现两次以上，就允许收录。只凭档案单方面点名一章仍然不放行，避免边缘角色混入。⑦ 【参谋为什么会引用没发生过的情节】它拿到的材料里，消化档案是「已发生过什么」的唯一来源，但此前没有任何一处告诉它这个来源的范围边界在哪。于是档案里某句当年被推测出来的推进（如「先解反噬，再归沙菲克」，正文里从未发生）被当成既成事实反复引用。现在每次对话都会附上「已消化章节清单」，并给一条可执行的铁律：只有清单里的章节才算发生过；档案里的「下一步 / 将要 / 计划 / 先…再…」只是当时的推测不是事实；提到的每个推进都必须能指出出自哪一章，指不出就直接回答「这段还没有写过」；作者说没写过就以作者为准。⑧ 【残留脏数据的出口】参谋弹窗新增「🧹 清空参谋记忆」：点过「采纳」的走向会被长期记住并写进本章指令，若那条走向后来被证明是错的，它会一直跟着后面的生成。这里可以一次清空已采纳与已否决两份清单，并可选择同时删掉指令里当时自动写入的那几行（你自己写的指令不动）。⑨ 【开关与回退】三处改动各有一个开关（DIGEST_GROUND_CHECK、COUNSEL_SCOPE_RULE，人物卡判定沿用增强模块既有开关），置 false 即回到改动前，不需要任何数据修复。⑩ 【对文章质量的影响】预期的正向效果是档案不再夹带正文里没有的内容、参谋不再拿推测当事实；人物卡多进来的人只会让参谋的判断多一份依据，不会改变它不动正文的边界。"],
   ["v139","分级闭环的第 2 级：正文与档案冲突时，明确告诉模型该听谁的。这一版只加一句裁决说明，不改动注入的材料本身。① 【根因】消化档案是「写完就定」的——正文后来改过、章节删了、状态退回草稿，档案都不会自动跟着更新（让它自动更新属第 3 级，风险 15–18%，明确不做）。于是每次生成其实都同时给了模型两份时间不同的材料：新鲜的前文正文，和可能已经落后的档案。两者对同一件事说法不一致又没人告诉它该听谁，它最常见的处理是自己编一个第三种说法把两边调和起来——这是最难发现的一类幻觉，也是「越往后写越对不上」的来源之一。② 【此前只修了一半】这个裁决说明在 v131 就加进了两条精修链路，但生成、续写、审稿这三处从来没有；更糟的是其中两处把档案直接标成「优先参照」，等于明示模型更应该相信过时的那一份。③ 【现在】共五处接入：接着写、深度续写（分析阶段与生成阶段）、AI 审稿、全书大纲规划、剧情参谋。只要确实同时注入了正文与档案，就附上一句裁决：同一件事以更靠后的正文为准；档案仍要用，但用它补正文里没提到的事（更早建立的人物关系、更早埋下的伏笔、更早发生的事件）；不一致只说明档案还没消化到那一章，不许断定哪个版本是错的，更不许自己编第三种说法。剧情参谋虽然不写正文，但你问「这个人这么做合理吗」时，它对剧情的判断会直接影响你怎么改稿，所以同样要裁决；它只在编辑器里有正文时才追加（【最近几章】只是梗概，不算正文）。原来「优先参照」的标注改成「用于补充正文未覆盖的长程事实」——让模型继续读长程事实的原意保留，裁决权归还给正文。④ 【为什么对审稿特别重要】审稿的职责本来就是找「前后矛盾」。以前档案一落后，模型会把每一处不一致都报成硬伤，全是假阳性，复核成本全落在你身上；现在先行声明以正文为准，档案才算回到它该在的位置。⑤ 【为什么风险低】只在两份材料同时出现时才追加约 150 字，只给一类材料时一句话不多说，也不白占预算；材料的取值、排序、封顶、来源一处没动。裁决措辞统一由一个函数产出，避免五处各写一遍导致口径再次分叉。开关 MATERIAL_ARBITER 置 false 即整体回到改动前，不需要任何数据修复。⑥ 【顺带修掉审稿链路的一个入口缺陷】AI 审稿此前直接读「分卷下拉框的原始值」去取本卷档案，而你刚切过书、或还没选过卷时这个下拉是空的——此时本卷档案整个取空，审稿等于对着没有上下文的材料找矛盾。更麻烦的是它和写作不是同一个判据：写这一章时按 A 卷的前文，审这一章时却是空的或有另一套，本来连贯的内容会被判成【硬伤】。生成链路早在 v131 就改成了唯一的解析入口，审稿这一条漏了。现在共用同一个入口，并在审稿时不弹写作用的提示。⑦ 【对文章质量的影响】预期的正向效果是模型不再自行编造调和说法；同时因为明确要求「档案仍要用」，长程事实不会因为这条说明而被丢掉。"],
   ["v138","修好「一进页面就被弹窗挡住」以及由此带出的三处显示问题。① 【不再弹窗】此前每次启动都会在首屏渲染完后连弹两个系统对话框：「要不要锁死分卷人称」和「人称冲突要不要改中性」。这两个框是阻塞的，取消之后什么都不会变，于是下次刷新又弹一遍——手机上一进页面就卡在这儿，连正文都看不到。现在启动只做检测，发现冲突就在底部提示一句「去 ⚙ 全局设置 › 人称体检」，同一组冲突只提示一次；真正动手的入口搬到「⚙ 全局设置 › 人称体检」，里面直接写清「哪一卷需要什么人称、系统提示词写死了什么」，并保留「检查人称冲突（可一键改中性）」与「锁死分卷人称」两个按钮。检测与中性化逻辑一行未删。② 【切书后档案串台】人物卡里的「原文依据」片段取自消化档案，而这段档案有个缓存只按分卷做键。两本书里同名的卷（都有「未分卷」等）键值完全一样，切书后仍返回上一本书的档案，于是第二本书的人物引用了第一本书的原文。现在缓存键带上书本，各书互不干扰。③ 【过期档案看不见】过期档案的条数原先要展开「前文理解档案」再展开「全书总览」两层才看得到，等于没有提示。现在条数直接挂在「前文理解档案」折叠标题上（例如「过期档案 3·已排除」），没有可疑条目不显示；点这个角标一次到位展开两层并直接列出清单，不用再自己找按钮。④ 【主按钮不突出】消化面板里最常用的是「立即消化全部前文」，此前与「导出自检清单」等次要按钮长得一样；现在标为主按钮，其余保持次要样式，不新增任何操作层级。⑤ 【关于「第二集」】代码与随包素材里都没有名为「第二集」的分卷或书本，它属于你自己录入的数据，我无法读取你设备上的本地库，因此不能替你核对其中内容；本版把「第二本书内容显示与关联」这条链路上确实存在的缺陷（第②条）修掉了，并补了逐项显示校验。"],
@@ -7722,6 +7811,44 @@ const APP_CHANGELOG=[
   ["v82","清理历史死代码（悬空 DOM 引用归零）"],
   ["v81","生成参数中枢 · top_p 透传 · 创造力滑杆 · 文档模式（自动识别章节拆分）"]
 ];
+/* ===== v141 · 三个增强模块的加载自检（只读，不改变任何行为） =====
+   背景：主程序之后按 counsel → digest → guard 的顺序加载三个独立模块，
+   它们都用「保存原函数 → 覆盖同名全局」的方式接入，本文件加载失败时主程序照常能跑。
+   这个设计是对的，但它有个副作用：**少加载一个，应用不会报错，也不会有任何提示**，
+   只是能力悄悄退回基础版。剧情参谋尤其明显——章号硬约束、人物辨识铁律、已否决走向、
+   最近章节回补四块全部来自增强模块，缺了之后参谋仍会作答，只是不再受这些约束，
+   而你在界面上完全看不出它跑在哪条路径上（本次修菲比人物卡时实测过两条路径的差异）。
+   这里只做「看得见」：读各模块对外挂的那一个全局函数判断在不在，不动任何加载流程。
+   判定用各模块独有的标记（cpAdoptRoute / dpDigestLog / dpDegradeLog），
+   不用被多个模块接力覆写的同名函数，否则会互相误判。 */
+var PLUS_LOAD_CHECK=true;
+function plusModuleStatus(){
+  if(!PLUS_LOAD_CHECK) return {checked:false, counsel:true, digest:true, guard:true};
+  try{
+    return {
+      checked:true,
+      counsel: (typeof window.cpAdoptRoute==="function"),
+      digest:  (typeof window.dpDigestLog==="function"),
+      guard:   (typeof window.dpDegradeLog==="function")
+    };
+  }catch(e){ return {checked:false, counsel:true, digest:true, guard:true}; }
+}
+function plusStatusLineHtml(){
+  const s=plusModuleStatus();
+  if(!s.checked) return "";
+  const miss=[];
+  if(!s.counsel) miss.push("剧情参谋增强");
+  if(!s.digest)  miss.push("消化增强");
+  if(!s.guard)   miss.push("稳定性兜底");
+  if(!miss.length){
+    return '<div class="vlog-note" style="margin-top:6px;">✅ 三个增强模块均已加载，参谋与消化按完整能力运行。</div>';
+  }
+  /* 挂独立节点、不写进 .vlog-stat：那个节点会被消化增强模块整段重写（它要显示已消化条数），
+     写进去会被覆盖掉。 */
+  return '<div class="vlog-note" style="margin-top:6px;color:#b8860b;">⚠️ 有 '+miss.length+' 个增强模块未加载（'+miss.join("、")
+    +'）。正文、章节、保存等一切照常，但剧情参谋会退回基础能力：章号硬约束、人物辨识铁律、'
+    +'已否决走向、最近章节回补都不会生效。常见于刚部署完缓存还没更新——下拉刷新一次即可。</div>';
+}
 function showVersion(){
   const box=document.getElementById("versionBody");
   const mask=document.getElementById("versionPanel");
@@ -7738,6 +7865,7 @@ function showVersion(){
     '<div class="vlog-head"><b>莉莉娅的写作岛</b> · '+APP_VERSION+'</div>'+
     '<div class="vlog-stat">章节 '+chs.length+' 篇 · 累计 '+chars.toLocaleString()+' 字 · 已消化 '+digested+' 章</div>'+
     '<div class="vlog-note">全部数据只存在你这台设备的浏览器里，不会上传任何服务器；换设备或清缓存前请先「全部书籍备份导出」。</div>'+
+    plusStatusLineHtml()+
     '<div class="vlog-title">近期更新</div>'+ body;
   mask.classList.add("on");
 }
@@ -9037,7 +9165,9 @@ function setChDigestStatusInPlace(d, chId, vid, status, errorMsg, rawOutput, con
   if(chObj) putVolBlock(d, vid, chObj, _block, _st);
   d.digest_update_at=Date.now();
 }
-/* 独立设置章节消化状态（自带 saveDigest） */
+/* 独立设置章节消化状态（自带 saveDigest）
+   v141（R9）：已无调用点——现役路径走的是 setChDigestStatusInPlace（不自带保存，由批量队列统一落盘）。
+   保留不删，作为对外可用的便捷入口。 */
 function setChDigestStatus(chId, vid, status, errorMsg, rawOutput, contentMd5){
   const d=getDigest();
   setChDigestStatusInPlace(d, chId, vid, status, errorMsg, rawOutput, contentMd5);
@@ -9074,21 +9204,46 @@ function digestGhostAudit(vid){
 }
 /* v110：清理幽灵记录。只删「档案里指向已不存在章节」的条目，
    不动正文、不动真实章节的消化记录；清理前自动备份一份档案，且需二次确认。 */
+/* v141：删数据前的备份补上「确认」这一步。
+   原来两处都是 try{ idbSet(备份key, ...) }catch(e){} 之后立刻往下删——
+   idbSet 是异步的，既不等它完成、也不看它成没成。于是 IDB 写入慢或失败时
+   （磁盘满、隐私模式、切后台被挂起），界面照样说「已备份」，而删除已经执行，
+   这份档案就再也回不来了 —— 备份形同虚设，反而给了一种虚假的安全感。
+   这里只补「写完读回来再看一眼」，读不到就让调用方中止。
+   成功路径与改动前完全一致（都是先备份、再删除）；
+   只有原本会静默丢数据的那条失败路径，从「继续删」改成「中止并告诉你」。 */
+async function backupDigestSafe(tag){
+  const key="digest_bak_"+tag+"_"+Date.now();
+  try{
+    const d=getDigest();
+    await idbSet(key, JSON.stringify(d));
+    const back=await idbGet(key);
+    if(back===null||back===undefined){ console.error("[档案备份] 写完读不回来，备份未成功：",key); return false; }
+    return true;
+  }catch(e){ console.error("[档案备份] 失败：",(e&&e&&e.message)||e); return false; }
+}
+/* 注意：这里保持同步函数、同步返回 boolean 的原有契约（调用点是按钮 onclick，不看返回值，
+   但为了不改动任何既有接口，删除动作放进备份确认的回调里，而不是把整个函数改成 async）。 */
 function pruneDigestGhosts(vid){
   try{
     const a=digestGhostAudit(vid);
     if(!a.ghost){ toast("「"+volName(vid)+"」档案里没有失效记录，无需清理"); return false; }
-    if(!confirm("「"+volName(vid)+"」的档案里有 "+a.ghost+" 条失效记录（共 "+a.total+" 条，指向已不存在或被重建过的章节）。\n\n这些记录只影响「已消化章数」的统计，不占用正文，也不会让档案内容变少。清理后统计会回到真实值。\n\n清理前会自动备份一份档案。确定清理？")) return false;
-    const d=getDigest();
-    try{ idbSet("digest_bak_ghostprune_"+Date.now(), JSON.stringify(d)); }catch(e){}
-    const v=(d.volumes||{})[vid]; if(!v) return false;
-    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=1; });
-    Object.keys(v.chapters||{}).forEach(function(id){ if(!live[id]) delete v.chapters[id]; });
-    if(v.sig) Object.keys(v.sig).forEach(function(id){ if(!live[id]) delete v.sig[id]; });
-    saveDigest(d);
-    toast("已清理 "+a.ghost+" 条失效记录（清理前的档案已备份）");
-    try{ renderDigest(); }catch(e){}
-    try{ renderDigestGhost(); }catch(e){}
+    if(!confirm("「"+volName(vid)+"」的档案里有 "+a.ghost+" 条失效记录（共 "+a.total+" 条，指向已不存在或被重建过的章节）。\n\n这些记录只影响「已消化章数」的统计，不占用正文，也不会让档案内容变少。清理后统计会回到真实值。\n\n清理前会自动备份一份档案（备份没写成功会自动中止，不会硬删）。确定清理？")) return false;
+    /* 备份没确认成功就不删：宁可这次不清理，也不能清完回不来 */
+    backupDigestSafe("ghostprune").then(function(ok){
+      if(!ok){ toastErr("备份没写成功，已中止清理（档案一条未动）"); return; }
+      try{
+        const d=getDigest();
+        const v=(d.volumes||{})[vid]; if(!v) return;
+        const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=1; });
+        Object.keys(v.chapters||{}).forEach(function(id){ if(!live[id]) delete v.chapters[id]; });
+        if(v.sig) Object.keys(v.sig).forEach(function(id){ if(!live[id]) delete v.sig[id]; });
+        saveDigest(d);
+        toast("已清理 "+a.ghost+" 条失效记录（清理前的档案已备份）");
+        try{ renderDigest(); }catch(e){}
+        try{ renderDigestGhost(); }catch(e){}
+      }catch(e){ try{ toast("清理失败："+(e&&e.message)); }catch(e2){} }
+    });
     return true;
   }catch(e){ try{ toast("清理失败："+(e&&e.message)); }catch(e2){} return false; }
 }
@@ -9232,6 +9387,16 @@ function volBlocksSorted(v){
    一律原样保留——宁可放过，不可错杀；误杀会丢掉真实的长程事实。
    开关做成 var 而非常量：出问题可在控制台直接置 false 回退，不必改代码重新部署。 */
 var DIGEST_GROUND_CHECK=true;
+/* v141（R5）：把两个阈值从写死的常量改成可调的开关，默认值与改动前完全一致。
+   为什么不直接改判定：这两个数定的是「多严才算可疑」，而合适的松紧只有你自己的真实语料能说话——
+   我把默认值定成什么样都是猜。给成可调量，你在真机上觉得剔多了就把 GROUND_MIN_QUOTE_LEN 调大
+   （更短的摘抄不再参与校验 → 更少的行被判）、或把 GROUND_SUSPECT_RATIO 调小（更不容易整块降级），
+   不用重新部署；觉得剔得不够就反过来。每一块的块尾都写着「已剔除 N 条、可核对 X/Y」，
+   调之前先看那行数字。
+     GROUND_MIN_QUOTE_LEN   参与校验的最短摘抄长度（默认 4 字）
+     GROUND_SUSPECT_RATIO   可核对依据的命中率低于此值才判整块可疑（默认 0.34，即三分之一） */
+var GROUND_MIN_QUOTE_LEN=4;
+var GROUND_SUSPECT_RATIO=0.34;
 /* 规范化：去空白与常见标点，让「原文里有换行 / 全半角差异」不影响定位 */
 function _gNorm(s){
   return String(s||"").replace(/[\s\u3000]/g,"")
@@ -9251,16 +9416,18 @@ function _gIsPlaceholder(ln){
 }
 /* 行内的「摘抄式原文片段」——模型按要求用引号给出，是唯一可直接回原文比对的东西 */
 function _gQuotes(ln){
-  const out=[]; const re=/[「『“"“‘']([^「」『』“”"‘'’]{4,120})[」』”"”‘']/g;
+  const out=[];
+  const mn=Math.max(2, Number(GROUND_MIN_QUOTE_LEN)||4);
+  const re=new RegExp("[「『“\"“‘']([^「」『』“”\"‘'’]{"+mn+",120})[」』”\"”‘']","g");
   let m; while((m=re.exec(String(ln||"")))!==null) out.push(m[1]);
   return out;
 }
 /* 片段是否能在正文里定位。含省略号的按段拆开逐段找，避免「A……B」整串找不到 */
 function _gLocated(frag, bodyN){
   if(!frag||!bodyN) return false;
-  const f=_gNorm(frag); if(f.length<4) return false;
+  const f=_gNorm(frag); if(f.length<(Number(GROUND_MIN_QUOTE_LEN)||4)) return false;
   if(bodyN.indexOf(f)>=0) return true;
-  const parts=f.split(/…+|\.{2,}|～+/).filter(function(x){ return x.length>=4; });
+  const parts=f.split(/…+|\.{2,}|～+/).filter(function(x){ return x.length>=(Math.max(2,Number(GROUND_MIN_QUOTE_LEN)||4)); });
   if(parts.length<1) return false;
   return parts.every(function(p){ return bodyN.indexOf(p)>=0; });
 }
@@ -9293,7 +9460,7 @@ function groundAuditBlock(text, ch){
      此时保留原文、只标降级：整块删掉会让该章档案凭空消失，比留着更糟。 */
   let emptied=false;
   if(raw.trim().length>0 && out.length < raw.trim().length*0.15){ out=raw.trim(); emptied=true; }
-  const suspect=emptied || (verifiable>=5 && located/Math.max(1,verifiable) < 0.34);
+  const suspect=emptied || (verifiable>=5 && located/Math.max(1,verifiable) < (Number(GROUND_SUSPECT_RATIO)||0.34));
   if(dropped && !emptied){
     out+="\n\n（档案落地校验：本块剔除 "+dropped+" 条无法在正文定位的条目"+(ph?("，其中占位条目 "+ph+" 条"):"")+"；"
        +"可核对的依据 "+located+"/"+verifiable+" 条。这不影响其余条目。）";
@@ -9447,10 +9614,13 @@ function dropOldVolBlocks(v, keep){
   const b=v.blocks||{};
   const arr=Object.keys(b).map(function(k){ return {k:k, seq:Number(b[k].seq)||0}; })
     .sort(function(a,c){ return a.seq-c.seq; });
-  if(arr.length<=keep) return false;
-  arr.slice(0, arr.length-keep).forEach(function(x){ delete b[x.k]; });
+  if(arr.length<=keep) return 0;
+  const _cut=arr.slice(0, arr.length-keep);
+  _cut.forEach(function(x){ delete b[x.k]; });
   v.text=renderVolText(v);
-  return true;
+  /* v141：返回「实际删了几个块」而不是笼统的 true。
+     两处调用点都只做真值判断，语义不变；腾空间提示里报的数字因此才是块数而非卷数。 */
+  return _cut.length;
 }
 /* 本地归纳初始 rolling（零 API 成本，用于离线档案包导入后的兜底） */
 function seedRollingFromBlocks(v){
@@ -11005,31 +11175,118 @@ function renderDigestGroundAudit(){
   box.innerHTML=h;
   return rows.length;
 }
+/* 同样保持同步返回 boolean 的原有契约；需要备份时，删除动作放进备份确认的回调里。 */
 function applyDigestGroundClean(skipBackup){
   const rows=digestGroundRows();
   if(!rows.length){ toast("没有需要剔除的条目"); return false; }
   const total=rows.reduce(function(s,r){return s+r.dropped;},0);
   if(!confirm("将从 "+rows.length+" 个档案块里剔除 "+total+" 条「无法在正文定位」的条目。\n\n"
     +"· 只删这些条目，其余条目、正文、章节消化状态一律不动；\n"
-    +"· "+(skipBackup?"本次不备份，不可撤销。":"清理前会自动备份一份档案。")+"\n\n确定继续？")) return false;
+    +"· "+(skipBackup?"本次不备份，不可撤销。":"清理前会自动备份一份档案（备份没写成功会自动中止，不会硬删）。")+"\n\n确定继续？")) return false;
+  const doClean=function(){
+    try{
+      const d=getDigest();
+      let n=0;
+      rows.forEach(function(r){
+        const v=(d.volumes||{})[r.vid]; if(!v||!v.blocks||!v.blocks[r.chId]) return;
+        v.blocks[r.chId].text=r.text;
+        v.blocks[r.chId].at=Date.now();
+        n+=r.dropped;
+      });
+      Object.keys(d.volumes||{}).forEach(function(vid){
+        const v=d.volumes[vid]; if(v&&v.blocks) v.text=renderVolText(v);
+      });
+      saveDigest(d);
+      toast("已剔除 "+n+" 条无法定位的条目"+(skipBackup?"":"（已备份）"));
+      try{ renderDigest(); }catch(e){}
+      return true;
+    }catch(e){ toastErr("清理失败："+(e&&e.message)); return false; }
+  };
+  if(skipBackup) return doClean();
+  /* v141：与幽灵记录清理同一条规则——备份写完并读回来确认过才动手 */
+  backupDigestSafe("ground").then(function(ok){
+    if(!ok){ toastErr("备份没写成功，已中止剔除（档案一条未动）"); return; }
+    doClean();
+  });
+  return true;
+}
+/* ================= v141 · 档案一致性体检（只看不改） =================
+   v106 在把档案块化时立过三条不变量，原话是「三缺一即视为数据损坏」：
+     C1 blocks[chId].hash === chapters[chId].content_md5 === chapterContentHash(ch)
+     C2 blocks 必须按 seq(=章号) 排序渲染，不得依赖插入顺序
+     C3 status ∈ {digested,degraded} 必须有块；其余状态不得有块
+   但这三条当时只写进了注释——全库没有任何一处代码去核对它们。
+   C2 后来由 renderVolText 按 seq 排序兜住了，C1 与 C3 至今无人看管。
+   后果就是本次修的那个 bug 的同类：档案与真实章节悄悄错位，
+   而「未消化却留着块」这一条更危险——它会作为既成事实进每一次生成，且不报错、不提示。
+   这里只做只读扫描并把违例列出来，不写任何存储、不改任何注入内容。
+   与「🧪 档案落地体检」的分工：那一条查「块里的摘抄能不能在正文定位」，
+   这一条查「块与章节记录对不对得上」。两者都不动数据。 */
+function digestInvariantRows(){
+  const out=[];
   try{
     const d=getDigest();
-    if(!skipBackup){ try{ idbSet("digest_bak_ground_"+Date.now(), JSON.stringify(d)); }catch(e){} }
-    let n=0;
-    rows.forEach(function(r){
-      const v=(d.volumes||{})[r.vid]; if(!v||!v.blocks||!v.blocks[r.chId]) return;
-      v.blocks[r.chId].text=r.text;
-      v.blocks[r.chId].at=Date.now();
-      n+=r.dropped;
-    });
+    const live={}; (load("chapters",[])||[]).forEach(function(c){ live[c.id]=c; });
     Object.keys(d.volumes||{}).forEach(function(vid){
-      const v=d.volumes[vid]; if(v&&v.blocks) v.text=renderVolText(v);
+      const v=(d.volumes||{})[vid]||{};
+      const blocks=v.blocks||{}, rec=v.chapters||{};
+      /* C3b：状态不是已消化/降级，档案里却还留着块 —— 会被当既成事实注入 */
+      Object.keys(blocks).forEach(function(id){
+        const st=rec[id]&&rec[id].status;
+        const c=live[id];
+        if(c && id!==("__legacy__")){
+          const bad=(st!==DS_DIGESTED&&st!==DS_DEGRADED);
+          if(bad){
+            out.push({vid:vid, volName:volName(vid), num:c.num||"?", type:"③ 未消化却有档案块",
+                      why:"状态是「"+dsLabelMini(st||"")+"」，但档案里留着这一章的块，生成时会被当作已发生的事实注入。"});
+          }
+        }
+        /* C1：块记录的正文哈希与当前正文对不上（正文改过而摘要没刷新） */
+        if(c && blocks[id] && blocks[id].hash && blocks[id].hash!==chapterContentHash(c) && (st===DS_DIGESTED||st===DS_DEGRADED)){
+          out.push({vid:vid, volName:volName(vid), num:c.num||"?", type:"① 正文已改，摘要未刷新",
+                    why:"档案记录的是改稿前的正文，摘要可能已经不准；重新消化该章即可对齐。"});
+        }
+      });
+      /* C3a：标成已消化/降级，却没有块 —— 统计说消化过，实际没有内容可用 */
+      Object.keys(rec).forEach(function(id){
+        const st=rec[id]&&rec[id].status;
+        if(st!==DS_DIGESTED&&st!==DS_DEGRADED) return;
+        if(blocks[id]) return;
+        const c=live[id]; if(!c) return;   /* 章节已不在的交给「过期体检」 */
+        out.push({vid:vid, volName:volName(vid), num:c.num||"?", type:"② 已消化却没有档案块",
+                  why:"状态标成已消化，但档案里没有这一章的内容，续写时这一段等于没有前文。"});
+      });
     });
-    saveDigest(d);
-    toast("已剔除 "+n+" 条无法定位的条目"+(skipBackup?"":"（已备份）"));
-    try{ renderDigest(); }catch(e){}
-    return true;
-  }catch(e){ toastErr("清理失败："+(e&&e.message)); return false; }
+  }catch(e){ console.warn("[档案一致性体检] 扫描失败(非致命):", e&&e.message); }
+  out.sort(function(a,b){
+    if(a.type!==b.type) return a.type<b.type?-1:1;
+    return (Number(a.num)||0)-(Number(b.num)||0);
+  });
+  return out;
+}
+function renderDigestInvariantAudit(){
+  const box=_dgGroundBox(); if(!box) return 0;
+  const rows=digestInvariantRows();
+  if(!rows.length){
+    box.innerHTML='<div class="dg-summary ok">🧭 档案一致性体检：档案块与章节记录完全对得上（哈希一致、状态与块一一对应）。</div>';
+    return 0;
+  }
+  const c3b=rows.filter(function(r){return r.type.indexOf("③")===0;}).length;
+  let h='<div class="dg-summary warn">🧭 档案一致性体检：'+rows.length+' 条违例'
+       +(c3b?('，其中 <b>'+c3b+' 条是「未消化却留着档案块」</b>——这一类会被当成已发生的事实注入给模型，建议优先处理'):'')
+       +'。　（<b>本项只作提示，未改动任何数据</b>）</div>';
+  h+='<div style="max-height:260px;overflow:auto;border:1px solid var(--input-bd);border-radius:8px;">';
+  h+='<table style="width:100%;font-size:11.5px;border-collapse:collapse;">';
+  h+='<tr style="background:var(--soft);position:sticky;top:0;"><th>卷</th><th>章</th><th>违例</th><th>说明</th></tr>';
+  rows.forEach(function(r){
+    h+='<tr style="border-bottom:1px solid var(--line);">'
+     + '<td>'+esc(r.volName)+'</td><td>第'+esc(String(r.num))+'章</td>'
+     + '<td style="white-space:nowrap;">'+esc(r.type)+'</td>'
+     + '<td style="color:var(--sub);">'+esc(r.why)+'</td></tr>';
+  });
+  h+='</table></div>';
+  box.innerHTML=h;
+  return rows.length;
 }
 function renderDigestAudit(vid){
   const box=document.getElementById("dgAudit");
@@ -11267,6 +11524,7 @@ function renderDigest(){
   html+='<button onclick="renderDigestStale()" title="只读体检：列出「章节已删除 / 状态已不是已完稿 / 正文改过但摘要没刷新 / 摘要状态异常」的档案条目。只提示，不改动任何数据，也不改变发给 AI 的内容">🕓 档案过期体检（只看不改）</button>';
   html+='<button onclick="showDigestScopeAudit()" title="不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文/状态/幽灵分卷哪一关」，并列出缺失章号与重复章号">🧭 消化范围体检</button>';
   html+='<button onclick="renderDigestGroundAudit()" title="逐块把档案里的「原文摘抄依据」回正文比对：列出定位不到的条目（占位条目 / 张冠李戴的别章内容）。只提示，确认后才改">🧪 档案落地体检</button>';
+  html+='<button onclick="renderDigestInvariantAudit()" title="核对 v106 立下的三条档案不变量：① 正文改过而摘要没刷新；② 标成已消化却没有档案块；③ 未消化却留着块（会被当成已发生的事实注入）。只提示，不改任何数据">🧭 档案一致性体检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
   html+='</div>';
@@ -12850,7 +13108,9 @@ function importDigestPack(e){
 }
 /* v95：导入表格去重——写 text 前先剔掉上一次导入写进去的那一段，避免重复导入把卷摘要叠成 N 份。
    新数据用「导入结束」标记精确剔除；v94 及更早写进去的老数据没有结束标记，
-   只在「尾部整段都是导入表格」时才剔除（宁可留下重复，也不误删 AI 生成的摘要）。 */
+   只在「尾部整段都是导入表格」时才剔除（宁可留下重复，也不误删 AI 生成的摘要）。
+   v141（R9）：已无调用点——块化之后档案按 blocks 存，整段 text 去重这一路不再需要。
+   保留不删（它处理的是 v94 及更早的老数据格式，万一还有人导入那种文件）。 */
 function _stripImportedDigestTable(text, vname){
   let t=String(text||"");
   if(!t) return "";
@@ -14797,7 +15057,15 @@ function counselLoad(){
    v112：补上此前完全缺失的两块——① 人物卡（参谋被问"某人这么做合理吗"却看不到人设，
    等于让它瞎猜，这是讨论结论不可信的直接原因）；② 全书总档案（跨卷连贯性判断的依据）。 */
 function counselCtx(){
-  const vol=(document.getElementById("chVol")||{}).value||"none";
+  /* v141（R8）：下拉为空时改用与写作同一个解析入口，而不是直接当「未分卷」。
+     原写法读的是下拉框的原始值：刚切过书、或还没选过卷时这个下拉是空的，
+     vol 直接变成 "none"，于是【本卷已消化档案】【本卷设定】【本卷人称铁律】三样同时取空，
+     而参谋照样作答——你拿到的是一份没有本卷依据的结论，却看不出它缺了什么。
+     生成链路 v131 起、审稿链路 v139 起都已共用 resolveWriteVol，参谋这一条漏了，现在补上。
+     只在「下拉为空/未分卷」时才走解析（{toast:false} 不弹写作用的提示），
+     你已经明确选过卷时取值与改动前逐字一致。 */
+  const _volSel=(document.getElementById("chVol")||{}).value||"";
+  const vol=(_volSel && _volSel!=="none") ? _volSel : resolveWriteVol({toast:false});
   let s="";
   /* v115：参谋同样要给「真实章号清单」——它此前看不到章节全表，被问到「第几章怎么接」时
      只能凭上下文外推，这是「凭空冒出第 76 章内容分析」的直接来源之一。 */
@@ -15089,6 +15357,32 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('sw.js').then(function(reg){_attachSWUpdate(reg);}).catch(function(e){console.warn('SW注册失败（不影响使用）：',e);});
   });
+  /* v141（R4）：离线策略是「缓存优先」——好处是秒开、断网也能用，
+     代价是刚部署完的那一次打开拿到的还是旧包，而你没有任何迹象知道。
+     sw.js 在后台拉到新版本时会比一下 APP_VERSION，不一样就发这条消息；
+     这里只负责把「有新版本」这件事摆到你面前，并给两个出口：立刻刷新 / 稍后再说。
+     绝不自动刷新——v115 定下的规矩是「绝不打断正在跑的 AI」，自动 reload 会把生成进程冲掉。 */
+  try{
+    navigator.serviceWorker.addEventListener('message',function(ev){
+      const d=(ev&&ev.data)||{};
+      if(!d||d.type!=='app-updated') return;
+      try{
+        let bar=document.getElementById('swUpdBar');
+        if(!bar){
+          bar=document.createElement('div'); bar.id='swUpdBar';
+          bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:9998;background:var(--card,#fff);'
+            +'color:var(--ink,#1a1a1a);border-top:1px solid var(--line,rgba(127,127,127,.3));'
+            +'padding:10px 12px;display:flex;gap:8px;align-items:center;font-size:13px;line-height:1.5;'
+            +'box-shadow:0 -4px 16px rgba(0,0,0,.15);flex-wrap:wrap;';
+          document.body.appendChild(bar);
+        }
+        bar.innerHTML='<span style="flex:1 1 100%;min-width:0;">检测到新版本 '+String(d.to||'')+'（当前 '+String(d.from||'')+'）：'
+          +'当前页面还是旧包，刷新一次即可用上。正在跑的 AI 不会被打断——等它跑完再刷更稳妥。</span>'
+          +'<button type="button" class="primary" style="flex:none;" onclick="location.reload()">立刻刷新</button>'
+          +'<button type="button" style="flex:none;" onclick="var b=document.getElementById(\'swUpdBar\');if(b&&b.parentNode)b.parentNode.removeChild(b);">稍后</button>';
+      }catch(e){}
+    });
+  }catch(e){}
   /* v115：新版本接管后「绝不打断正在跑的 AI」。
      原实现只判断 #aiBtn 是否禁用——而剧情参谋 / 人物分析 / 体检台 / 章节分析 都不走 aiBtn，
      于是「切到别的 App 再回来」时 SW 更新触发整页 reload，进程当场蒸发、结果全丢，
