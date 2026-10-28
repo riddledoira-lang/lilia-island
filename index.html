@@ -7627,7 +7627,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v135";
+const APP_VERSION="v136";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7637,6 +7637,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v136","分级闭环的第 0 级：先「看得见」，先不动手。这一版只加一个**只读**的体检按钮，不改任何数据、不改发给 AI 的一个字。① 【为什么先做这个】消化档案是长程事实的唯一通道：人物关系、伏笔是否回收、上一章发生了什么，全靠它带进每一次生成。但它是「写完就定」的——章节删了、章节从已完稿改回草稿、正文改过而摘要没跟着刷新，档案里的旧说法都还会当作「已经发生的事实」继续注入。越往后写，错的旧事实越多，而你没有任何地方能看到这个清单。② 【现在】体检台新增「🕓 档案过期体检（只看不改）」，列出四类可疑条目：章节已删除但摘要还在、状态已不是已完稿却消化过、正文改过但摘要没刷新、摘要已写入但状态还没跟上。每条都写明是哪一卷哪一章、属于哪一类、以及它为什么会影响生成。另有第五类「旧格式整卷文本」是早期整段文本形态，无法逐章判定，会如实说明而不是假装一切正常。③ 【它不做什么】不写任何存储、不清理任何记录、不改动任何注入内容、不做任何网络请求。点它和没点它，生成结果完全一样——这一条已用「注入内容指纹比对」实测确认。④ 【为什么这一级风险低】纯新增两个函数与一个按钮，不改动任何既有函数的分支；所有读取都包在 try/catch 里，取不到就返回空清单而不是报错。即使这段代码整个出错，最坏情况也只是清单列不出来，体检台其余功能照旧。⑤ 【下一步】等你在真实数据上看到清单，我们再决定哪些类别值得自动过滤——先看清，再动手，避免一上来就改错。"],
   ["v135","修「旧格式备份恢复时会静默丢掉 8 类数据」。这是本轮风险评估里唯一「失败不可逆」的一项——别的缺陷改坏了可以回滚，备份恢复丢掉的东西找不回来。① 症状（实测，非推测）：应用有两种备份格式。现在「导出 JSON」产出的是完整版（含全部书与设定），恢复它没问题；早期还有一种扁平单本的旧格式，恢复时只还原章节/人物/文风准则/比喻体系/线索/AI 设置这 7 类，其余一律丢弃。② 实测丢失清单：书名、封面颜色、分卷结构、灵感笔记、世界观核心设定、设定词条库、剧情时间线、比喻库——共 8 类。用一份字段全部有内容的合成备份跑真实恢复链路验证，8 类全部丢失；修复后 8 类全部还原。③ 其中最要命的是「分卷结构」：实测分卷从 3 个变回 1 个，而章节里还记着原来属于哪一卷，于是这些章节的归属全变成孤儿分卷——卷档案、分卷设定、人称铁律从此都对不上号，而且全程不报任何错，你只会觉得「续写越来越对不上」。④ 你的实际数据：拿 8 月 5 日那份备份跑了真实恢复，它丢的是书名《即刻心动》JAMES 1-52（已导入）与封面颜色，其余 7 类恰好当时是空的没丢——所以这个缺陷到你手里表现为「恢复出来的书没有名字」，而不是「整本书散架」。⑤ 修法：只补提取环节漏传的字段，按「备份里有才传」逐项补齐，缺失的键一律不传、仍走既有默认值；书名若是空串也跳过，避免把默认名冲掉。数据结构、存储、IDB 版本、默认行为、其它模块的调用方式全部未改。验证：恢复链路两遍对照（真实备份 + 字段齐全的合成备份），丢失字段数 8 → 0，运行期 0 错误；原有回归 156 条全部通过。"],
   ["v134","补三项「做好了却根本用不上」的功能——这次不是加新东西，是把已经写好的东西接到界面上。所有改动均为纯新增，不改动任何既有函数的原有分支。①「AI 分析：人物·关系·情感线」此前完全不可达：它有完整实现、也有完整弹窗，但全项目没有任何调用点，而弹窗又只能在这个函数内部才被打开，形成「没人能开，开了也无处点开始」的死锁。现在补了打开入口（更多 → 诊断工具）、弹窗里的「开始分析」按钮，并加了一层重复点击保护——分析一次要读全本章节，连点两下就是两次真实计费。②「人物事件线」：渲染函数、样式、数据（消化后自动提取）早就全齐了，唯独人物卡没渲染，导致这些事件只能去时间线页一个个人肉筛。现在人物卡直接列出该角色参与的事件；顺带把原来写在循环里的「每读一条事件就扫一遍全部章节」提到循环外，结果完全一致，上百条事件时省下上百次遍历。③「生成守卫开关」：人称守卫、归属守卫的开关函数此前同样没有调用点，两个守卫只能永远停在默认开启，觉得人称提醒是误报也没法关。现在「⚙ 全局设置」里新增「🛡 生成守卫」分组，可单独开关，写的是原本就在写的同一个存储键，不改变「没记录时按默认值」的既有语义。另：另有 6 个零引用函数经核实是被同版本的另一实现取代或字段无人消费（见旧榜），非欠债，本次不动它们，避免为了「清零」而误删仍在被动态拼接调用的代码。"],
   ["v133","这一版只做四件事，全部属于「风险低于 10%」的确定性修复：不改数据结构、不动存储、不改 IDB 版本、不碰分卷与他人接口。① 【最近一章的前文被从开头截断，丢掉的正是承接处】续写时每章前文一律取开头 12,000 字，而近章另有预算上限：深度续写省算力模式上限 4,200 字、接着写 5,600 字。按你现有 74 章实测（中位 3,075 字、最长 6,759 字），前者有 24 章（32%）、后者有 7 章（9%）会被截断——被切掉的恰好是上一章的结尾：人在哪、情绪停在哪、哪个动作没做完。模型看不到承接点，只能把开头铺陈再写一遍，衔接自然发虚。现在最近的这一章改取结尾并对齐到句首、标注「本章前段略」，第 2、3 近章仍取开头以保留人物与场景的引入段；常量 NEAR_TAIL 置 false 即完全回到旧行为。② 【同一分卷可以存出两个同号章】此前只校验「标题或章号非空」。后果是消化档案按「分卷+章号」匹配会串档、续写时两章一起当上下文注入、「最近一章」按最大章号取可能取错。现在保存时检测同卷同号并提示，但只提示不硬拦——重复章号有时是你有意为之（上/下篇），点取消则停编辑器里改号，正文不丢。③ 【历史版本文案与实际不符】空态写着「最多 8 版」，代码实际只留 5 版，第 6 次保存就把早先版本滚掉了。现在文案与逻辑读同一个常量 HIST_MAX。④ 【超长章消化只看开头】消化一律取前 12,000 字，单章超过这个长度时后半章的人物状态与伏笔不进档案且无提示。你当前最长 6,759 字，从未触发，属预防性改动：超限时改为「头 65% + 尾 35%」并插入显式省略标记，未超限行为与旧版一字不差。以上四项均可单点回滚，回滚方式见各项末尾提到的开关或单一函数。"],
@@ -10539,6 +10540,97 @@ function fallbackCopy(txt){
 }
 
 /* 渲染自检结果 */
+/* ================= v136 · 第 0 级：档案过期体检（只读） =================
+   背景：消化档案写进去之后没有回撤路径。章节被删除 / 改回草稿 / 正文改过却没重消化，
+   旧摘要仍会当作「已发生」注入后续每一次生成。
+   这一级的原则是「先看清楚，再决定动不动手」：
+     · 只读——不写任何存储、不改任何数据、不改注入给模型的任何内容；
+     · 只列——把可疑条目按四类列出来，交给使用者判断；
+     · 无状态时宁可标注「判不了」，也不假装这一卷是干净的。
+   后面几级若要真正过滤，会另加开关，且不共用本函数的判定结果之外的任何东西。 */
+function digestStaleRows(vid){
+  const out=[];
+  try{
+    const d=getDigest();
+    const byId={};
+    (load("chapters",[])||[]).forEach(function(c){ if(c&&c.id) byId[c.id]=c; });
+    const vols=(vid!==undefined&&vid!==null)?[vid]:allVolIds();
+    vols.forEach(function(v){
+      const vd=(d.volumes&&d.volumes[v])||{};
+      const blocks=vd.blocks||{};
+      Object.keys(blocks).forEach(function(chId){
+        /* __legacy__ 是 v106 迁移出来的「早期整段档案」保留块，不是章节，
+           不能按章节判定——否则每个旧格式卷都会被误报成「章节已不在」。 */
+        if(chId==="__legacy__") return;
+        const b=blocks[chId];
+        if(!b||!String(b.text||"").trim()) return;           /* 空块不列 */
+        const c=byId[chId];
+        if(!c){
+          out.push({vol:v, volName:volName(v), num:"—", title:"", type:"① 章节已不在",
+            why:"档案里还留着这一章的摘要，但章节列表里已经查不到它（多半是被删除了）",
+            chars:String(b.text||"").length });
+          return;
+        }
+        if((c.status||"draft")!=="done"){
+          out.push({vol:v, volName:volName(v), num:c.num||"?", title:c.title||"", type:"② 状态已不是已完稿",
+            why:"当前状态＝"+(c.status||"draft")+"，但它曾被消化过；摘要仍会当作已发生的事实注入",
+            chars:String(b.text||"").length });
+          return;
+        }
+        const st=getChDigestStatus(chId, v);
+        if(st.status===DS_DIGESTED||st.status===DS_DEGRADED){
+          /* shouldSkipDigestion 为「内容未变可跳过」；它为假即代表正文改过而摘要没刷新 */
+          if(!shouldSkipDigestion(c,v)){
+            out.push({vol:v, volName:volName(v), num:c.num||"?", title:c.title||"", type:"③ 摘要落后于正文",
+              why:"正文改过但摘要没跟着刷新（内容指纹不一致）", chars:String(b.text||"").length });
+          }
+        }else{
+          out.push({vol:v, volName:volName(v), num:c.num||"?", title:c.title||"", type:"④ 摘要状态异常",
+            why:"摘要已写入，但本章消化状态＝"+(st.status||DS_UNDIGESTED), chars:String(b.text||"").length });
+        }
+      });
+      /* 旧格式整卷文本（只有 __legacy__ 历史块、没有按章块）无法逐章判定，
+         明确说出来，而不是显示「全部正常」假装这一卷是干净的。 */
+      const realBlk=Object.keys(blocks).filter(function(k){ return k!=="__legacy__"; }).length;
+      if(!realBlk && blocks["__legacy__"] && String(blocks["__legacy__"].text||"").trim()){
+        out.push({vol:v, volName:volName(v), num:"—", title:"", type:"⑤ 旧格式整卷文本",
+          why:"这一卷的档案是早期整段文本形态（未按章拆分），无法逐章判定是否过期；不影响使用，仅作说明",
+          chars:String(blocks["__legacy__"].text||"").length });
+      }
+    });
+  }catch(e){ return []; }
+  return out;
+}
+/* 只渲染，不做任何处理动作。返回条数，便于测试断言。 */
+function renderDigestStale(vid){
+  const rows=digestStaleRows(vid);
+  let box=document.getElementById("dgStale");
+  if(!box){
+    box=document.createElement("div"); box.id="dgStale"; box.style.marginTop="6px";
+    const anchor=document.getElementById("dgAudit");
+    if(anchor&&anchor.parentNode) anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    else { try{ (document.getElementById("digestPanel")||document.body).appendChild(box); }catch(e){} }
+  }
+  if(!rows.length){
+    box.innerHTML='<div class="dg-summary ok">🕓 档案过期体检：没有发现可疑条目，当前档案与章节状态一致。</div>';
+    return 0;
+  }
+  const cnt={}; rows.forEach(function(r){ cnt[r.type]=(cnt[r.type]||0)+1; });
+  let h='<div class="dg-summary warn">🕓 档案过期体检：共 '+rows.length+' 条可疑。'
+       + Object.keys(cnt).sort().map(function(k){ return k+' '+cnt[k]; }).join(' · ')
+       + '　（<b>本项只作提示，未改动任何数据</b>）</div>';
+  h+='<div style="max-height:260px;overflow:auto;border:1px solid var(--input-bd);border-radius:8px;">';
+  h+='<table style="width:100%;font-size:11.5px;border-collapse:collapse;">';
+  h+='<tr style="background:var(--soft);position:sticky;top:0;"><th>卷</th><th>章</th><th>类型</th><th>说明</th></tr>';
+  rows.forEach(function(r){
+    h+='<tr style="border-bottom:1px solid var(--line);">'
+     + '<td>'+esc(r.volName)+'</td><td>'+esc(String(r.num))+'</td><td>'+esc(r.type)+'</td>'
+     + '<td style="color:var(--sub);">'+esc(r.why)+'</td></tr>';
+  });
+  h+='</table></div>';
+  box.innerHTML=h;
+  return rows.length;
+}
 function renderDigestAudit(vid){
   const box=document.getElementById("dgAudit");
   if(!box) return;
@@ -10764,6 +10856,7 @@ function renderDigest(){
   html+='<button onclick="rebuildDigestFull(this)">重新完整消化全书</button>';
   html+='<button onclick="exportDigestAll()">导出全书档案</button>';
   html+='<button onclick="renderDigestAudit()">🔍 全书消化自检</button>';
+  html+='<button onclick="renderDigestStale()" title="只读体检：列出「章节已删除 / 状态已不是已完稿 / 正文改过但摘要没刷新 / 摘要状态异常」的档案条目。只提示，不改动任何数据，也不改变发给 AI 的内容">🕓 档案过期体检（只看不改）</button>';
   html+='<button onclick="showDigestScopeAudit()" title="不按分卷遍历，直接扫全部章节：逐章判定「进没进消化队列 + 卡在正文/状态/幽灵分卷哪一关」，并列出缺失章号与重复章号">🧭 消化范围体检</button>';
   html+='<button onclick="cycleDigestCooldown(this)">冷却 '+(digestCooldownMs()?((digestCooldownMs()/1000)+"s"):"关")+'</button>';
   html+='<button onclick="toggleDigestExtras(this)" title="每章消化后自动提取时间线条目与人物行为纠偏（各 1 次 AI 调用，同内容只跑一次）。关闭可省约 2 次调用/章">附加提取 '+(digestExtrasOn()?"开":"关")+'</button>';
