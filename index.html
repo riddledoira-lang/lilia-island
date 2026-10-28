@@ -1299,6 +1299,13 @@
     </div>
 
     <!-- 分组三：AI 生成设置（每本书独立） -->
+    <!-- 分组三：生成守卫（插件） -->
+    <div class="gs-group" id="gsPluginGroup">
+      <h4 class="gs-gtitle">🛡 生成守卫</h4>
+      <p class="meta gs-desc">在生成前后自动校验（人称是否符合本卷设定、新章归属是否与上一章一致）。发现问题<b>只提醒</b>，绝不改动你的正文。默认全部开启；确认某条是误报时可单独关闭。</p>
+      <div id="gsPluginList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;"></div>
+    </div>
+
     <div class="gs-group" id="gsAiGroup">
       <h4 class="gs-gtitle">AI 生成设置（每本书独立）</h4>
       <div class="meta" style="margin:2px 0 10px;">提示：<b>不填 API 也能正常使用</b>——纯本地写作、导入、管理章节都不受影响；只有点「接着写 / 深度续写 / 整章精修 / 润色」按钮时才需要 API。默认走「复制 Prompt」模式（生成后手动粘贴回正文）。</div>
@@ -2095,6 +2102,7 @@
         <button class="more-action" onclick="openAiDiag()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V9M10 20V4M16 20v-7M22 20v-4"/></svg></span> 🩺 模型连接体检（AI 到底通不通）</button>
         <button class="more-action" onclick="closeMore();showTrajPanel()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h4M6 14h8M18 10v4"/></svg></span> 📼 生成轨迹 · AI 当时收到了什么<span class="more-badge" id="moreTrajBadge" style="display:none;"></span></button>
         <button class="more-action" onclick="closeMore();showDigestScopeAudit()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span> 🧭 消化范围体检<span class="more-badge" id="moreDsaBadge" style="display:none;"></span></button>
+        <button class="more-action" onclick="closeMore();openAna()"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M7 9c0-3 3-5 5-5s5 2 5 5"/></svg></span> 🔍 AI 分析：人物 · 关系 · 情感线</button>
         <button class="more-action" onclick="closeMore();goTab('p2');setTimeout(function(){var el=document.getElementById('charList');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},120)"><span class="mi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span> 人物：别名归并 / 忽略名单 / 手动录入</button>
       </div>
     </div>
@@ -2380,9 +2388,10 @@
     <div id="aiAnaStatus" class="meta" style="margin-top:8px;"></div>
     <textarea id="aiAnaResult" style="min-height:240px;margin-top:10px;" placeholder="点击「开始分析」后，这里会显示 AI 的分析报告……"></textarea>
     <div class="mbtn" style="margin-top:12px;">
-      <button onclick="closeAna()">关闭</button>
+      <button class="primary" onclick="aiAnalyze()">🚀 开始分析</button>
       <button onclick="anaCopy()">复制结果</button>
-      <button class="primary" onclick="anaSaveSetting()">存为设定词条</button>
+      <button onclick="anaSaveSetting()">存为设定词条</button>
+      <button onclick="closeAna()">关闭</button>
     </div>
   </div>
 </div>
@@ -6406,6 +6415,10 @@ function renderCharEditor(){
     html+='</div>';
   }
   html+='<div class="arc-add"><input type="text" id="arcNew_'+cid+'" placeholder="手动加一条情感线…" onkeydown="if(event.key===\'Enter\')addArcManual(\''+cid+'\')"><button type="button" onclick="addArcManual(\''+cid+'\')">添加</button></div></div>';
+  /* v134：事件线此前有实现、有样式、数据也早就写好了（消化后自动提取），
+     唯独人物卡没渲染——等于这些事件只能去「时间线」页一个个人肉筛。
+     这里补上；无关联事件时该函数返回空串，不会多出任何东西。 */
+  try{ const _tl=renderCharTimeline(c.name||""); if(_tl) html+=_tl; }catch(e){}
   html+='<div class="ce-ops">'+
     '<button type="button" class="focus-graph" onclick="focusCharInGraph(\''+cid+'\')">↪ 在关系图设为该人中心</button>'+
     '<button type="button" onclick="reuseChar(\''+cid+'\')">复用 → 其他书</button>'+
@@ -6984,6 +6997,9 @@ function renderCharTimeline(charName){
   const tl=load("timeline",[]);
   const events=tl.filter(function(e){return e.chars&&e.chars.indexOf(charName)>-1;});
   if(!events.length)return"";
+  /* v134：原实现在每条事件的循环里都 load("chapters") 一次，事件上百条就是上百次整表遍历；
+     提到循环外，结果完全一致。 */
+  const chs=load("chapters",[]);
   const sorted=events.slice().sort(function(a,b){
     const ka=timeToSortKey(a.date),kb=timeToSortKey(b.date);
     if(ka!==kb)return ka-kb;
@@ -6991,7 +7007,6 @@ function renderCharTimeline(charName){
   });
   let html='<div class="char-tl"><div class="char-tl-title">📅 事件线（'+sorted.length+' 件）</div>';
   sorted.forEach(function(e){
-    const chs=load("chapters",[]);
     const ch=chs.find(function(c2){return c2.id===(e.ch||e.chId);});
     html+='<div class="char-tl-item"><span class="char-tl-date">'+esc(e.date||"")+'</span>'+
       '<span class="char-tl-text">'+esc(e.title||"")+'</span>'+
@@ -7612,7 +7627,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v133";
+const APP_VERSION="v134";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7622,6 +7637,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v134","补三项「做好了却根本用不上」的功能——这次不是加新东西，是把已经写好的东西接到界面上。所有改动均为纯新增，不改动任何既有函数的原有分支。①「AI 分析：人物·关系·情感线」此前完全不可达：它有完整实现、也有完整弹窗，但全项目没有任何调用点，而弹窗又只能在这个函数内部才被打开，形成「没人能开，开了也无处点开始」的死锁。现在补了打开入口（更多 → 诊断工具）、弹窗里的「开始分析」按钮，并加了一层重复点击保护——分析一次要读全本章节，连点两下就是两次真实计费。②「人物事件线」：渲染函数、样式、数据（消化后自动提取）早就全齐了，唯独人物卡没渲染，导致这些事件只能去时间线页一个个人肉筛。现在人物卡直接列出该角色参与的事件；顺带把原来写在循环里的「每读一条事件就扫一遍全部章节」提到循环外，结果完全一致，上百条事件时省下上百次遍历。③「生成守卫开关」：人称守卫、归属守卫的开关函数此前同样没有调用点，两个守卫只能永远停在默认开启，觉得人称提醒是误报也没法关。现在「⚙ 全局设置」里新增「🛡 生成守卫」分组，可单独开关，写的是原本就在写的同一个存储键，不改变「没记录时按默认值」的既有语义。另：另有 6 个零引用函数经核实是被同版本的另一实现取代或字段无人消费（见旧榜），非欠债，本次不动它们，避免为了「清零」而误删仍在被动态拼接调用的代码。"],
   ["v133","这一版只做四件事，全部属于「风险低于 10%」的确定性修复：不改数据结构、不动存储、不改 IDB 版本、不碰分卷与他人接口。① 【最近一章的前文被从开头截断，丢掉的正是承接处】续写时每章前文一律取开头 12,000 字，而近章另有预算上限：深度续写省算力模式上限 4,200 字、接着写 5,600 字。按你现有 74 章实测（中位 3,075 字、最长 6,759 字），前者有 24 章（32%）、后者有 7 章（9%）会被截断——被切掉的恰好是上一章的结尾：人在哪、情绪停在哪、哪个动作没做完。模型看不到承接点，只能把开头铺陈再写一遍，衔接自然发虚。现在最近的这一章改取结尾并对齐到句首、标注「本章前段略」，第 2、3 近章仍取开头以保留人物与场景的引入段；常量 NEAR_TAIL 置 false 即完全回到旧行为。② 【同一分卷可以存出两个同号章】此前只校验「标题或章号非空」。后果是消化档案按「分卷+章号」匹配会串档、续写时两章一起当上下文注入、「最近一章」按最大章号取可能取错。现在保存时检测同卷同号并提示，但只提示不硬拦——重复章号有时是你有意为之（上/下篇），点取消则停编辑器里改号，正文不丢。③ 【历史版本文案与实际不符】空态写着「最多 8 版」，代码实际只留 5 版，第 6 次保存就把早先版本滚掉了。现在文案与逻辑读同一个常量 HIST_MAX。④ 【超长章消化只看开头】消化一律取前 12,000 字，单章超过这个长度时后半章的人物状态与伏笔不进档案且无提示。你当前最长 6,759 字，从未触发，属预防性改动：超限时改为「头 65% + 尾 35%」并插入显式省略标记，未超限行为与旧版一字不差。以上四项均可单点回滚，回滚方式见各项末尾提到的开关或单一函数。"],
   ["v132","修好「接着写 / 整章精修在下拉为空时会丢掉整卷长程设定」。① 【症状】编辑器上方的分卷下拉，在「全书」视图下会被置成未分卷（或刚清过表单时是空的）。此时「接着写」与「整章精修」会按「未分卷」去取卷档案——而未分卷的卷档案几乎总是空的，于是本卷的长程设定（早期人物关系 / 长线伏笔 / 卷脉络）整段不注入，只剩前文正文撑着。前文还在，但模型读不到「谁和谁是什么关系、哪些伏笔还没收」，设定漂移与凭空捏造的风险随之上升。② 【为什么以前没发现】深度续写在 v110 就加了「回退到紧邻上一章所属分卷」的纠偏，接着写这条最常用的入口却没有——两条链路行为不一致，而冒烟测试只看「点不点得动」，不看「拿没拿到该拿的东西」。③ 【现在】抽出唯一解析入口，接着写 / 深度续写 / 整章精修三条链路共用同一份实现，下拉为空 / 未分卷 / 全书时一律回退到紧邻上一章所属的卷并写回下拉，保证「归属 / 前文 / 卷档案」三者同一卷，并提示归入哪一卷。抽成单一函数是为了杜绝以后再次分叉。④ 【顺带修掉同一处的第二个隐患】前文收集函数内部，过滤前文用的是「调用方传进来的卷」，而取卷档案用的却是「下拉框的原始值」——两者不是同一个来源，一旦调用方显式传了卷（比如接着写），就会出现「前文按 A 卷过滤、档案按 B 卷取」的错位。现在三处口径（前文过滤 / 卷档案 / 伏笔关键词）统一按同一次生效的卷取值，接着写也改为显式传卷，不再依赖「顺手把下拉改对」这种隐式副作用。不改动数据结构与存储，不动 IDB 版本。"],
   ["v131","本次只为一件事：把「文本质量」从一堆互相打架的约束里捞出来。改动全部集中在提示词与默认值，不动数据结构、不动存储、不改 IDB 版本。① 【人称串篇的根因修掉了】此前有 6 处地方写死了「第一人称」，而分卷设定里西里斯篇写的是第三人称——一次生成会同时收到 5 条第一人称 + 1 条第三人称，人称铁律自称「最优先级」却被 5:1 的数量淹没，模型只能靠出现频次裁决，人称串篇由此而来。现在人称只有一个真源：分卷设定。其余各处（系统提示词、续写质量要求、深度续写写作要求、精修、润色、视角约束、人物分析）一律改为随分卷自动变化，不再写死。② 【人称三级调度】显式填了 pov 就锁死（詹姆斯篇、西里斯篇）；没填但本卷已有足够正文的，自动从正文判定人称并注入同等强度的铁律，不用你手动补数据；新分卷还没有正文时不注入任何人称约束，想怎么写怎么写。③ 【不记得改没改过 ai.sys 也没关系】启动时自动体检：系统提示词或「文风准则」里若写死了人称且与分卷冲突，会提示并可一键改为中性（只追加覆盖声明、替换文风准则里的人称行，你的其他设定一字不动）。在「AI 生成设置」点保存时也会当场体检一次。未锁死人称的分卷会提示「已能从正文判定为 X，要锁死吗」，你点头才写数据。④ 【自动精修不再压平文笔】精修温度 0.70 → 0.95（仍低于生成的 1.35，修逻辑的稳定性还在）；「做减法删去拖沓」改为「删去真正的重复与空转，承载情绪层次与人物动机的段落压缩而非删除」；「不得出现风格跳脱」改为「允许本章情绪需要的强度超出前文」；文风参照从档案摘要改为上一章真实正文片段——摘要是压缩产物，句子短、没有语气起伏，拿它当范本等于主动把文笔往平均值拉。⑤ 【冲突类型不再机械轮换】原来按章号取模硬性指定本章写哪类冲突，剧情自然走向是内心挣扎时轮换却落到「人物与环境」，模型被迫生造外部阻力，转折因此生硬。现在默认只给软建议，剧情该往哪走就往哪走；你在下拉里手动选定仍然是强约束。⑥ 【字数与钩子松绑】深度续写的 2500–3500 字改为参考区间，高潮章与转折章不受限；三处「每章必须留强钩子」合并为一处并改为「落在有力的收束或未完成的动作上」，钩子用多了会贬值。⑦ 【文风范本的两条硬约束】上一章真实正文片段现在只取「已完稿」且「章号小于当前章」的那一章——原先按最大章号取，精修正在改的这一章本身往往就是最大章号，等于让 AI 拿本章自己的草稿当范本，越修越像自己、文风反而僵死；草稿与待修改章同样不得当范本。⑧ 【上下文分工与冲突裁决】精修提示词新增一段硬性声明：片段只管文风与当前状态、摘要只管长程事实、两者冲突以片段为准且严禁编造第三种说法调和、材料未覆盖的一律视为尚未发生。没有这段声明时，模型遇到「摘要说伏笔未回收、片段里已回收」这类矛盾，最常见的处理是自己编一个说法调和——那是最难察觉的一类幻觉。"],
@@ -12064,6 +12080,19 @@ function anaSaveSetting(){
   alert("已存为「设定」页的设定词条，可在「设定」Tab 回看。");
   renderWiki&&renderWiki();
 }
+/* v134：AI 分析的入口。
+   此前 aiAnalyze() 有完整实现、弹窗 DOM 也齐全，但全项目没有任何调用点——
+   弹窗只在这个函数内部才会被打开，形成「没人能开，开了也无处点开始」的死锁，
+   等于这项功能整体不可达。这里补上打开入口。 */
+let _anaBusy=false;
+function openAna(){
+  const m=document.getElementById("aiAnaMask"); if(!m) return;
+  try{
+    const st=document.getElementById("aiAnaStatus"), rs=document.getElementById("aiAnaResult");
+    if(st && !(rs&&rs.value.trim())) st.textContent="点「开始分析」后会读取你已存储的全部章节，章节较多时需要 1-2 分钟。";
+  }catch(e){}
+  m.classList.add("on");
+}
 async function aiAnalyze(){
   const ai=load("ai",{});
   if(!ai.base){toast("未配置 AI（可选）：在「AI 生成设置」填写 API 信息即可启用；当前仅本地写作。");return;}
@@ -12086,6 +12115,14 @@ async function aiAnalyze(){
     st.textContent="分析完成。可复制结果，或「存为设定词条」。";
   }catch(e){ st.textContent="分析失败："+String(e.message||"").split("\n")[0]; aiFail("AI 分析",e); }
 }
+/* v134：重复点击保护。分析一次要读全本章节，连点两下就是两次真实计费；
+   用包装而非改原函数体，好处是随时可整段删掉回到原样。 */
+var _aiAnaCore=aiAnalyze;
+aiAnalyze=async function(){
+  if(_anaBusy){ try{ toast("分析正在进行中，请稍候…"); }catch(e){} return; }
+  _anaBusy=true;
+  try{ await _aiAnaCore.apply(this,arguments); } finally{ _anaBusy=false; }
+};
 
 /* ============== AI 润色 / 扩写 / 缩写 选中段落 ============== */
 function openAiEdit(){
@@ -13886,6 +13923,30 @@ function pluginSet(id,on){
     m[id]=!!on; localStorage.setItem(PREFIX+"plugins_on", JSON.stringify(m));
   }catch(e){}
 }
+/* v134：插件开关的界面。此前 pluginSet() 没有任何调用点，
+   两个守卫只能永远停在 manifest 的默认开启状态——觉得人称提醒是误报也没法关。
+   这里补一组复选框；写的是 pluginSet 原本就在写的同一个 localStorage 键，
+   不改变「没记录时按 manifest 默认值」的既有语义。 */
+function renderPluginToggles(){
+  const box=document.getElementById("gsPluginList"); if(!box) return;
+  try{
+    const rows=(typeof PLUGIN_MANIFEST!=="undefined"&&PLUGIN_MANIFEST)?PLUGIN_MANIFEST:[];
+    box.innerHTML=rows.map(function(p){
+      const nm=String(p.name||p.id).replace(/[<>&"]/g,"");
+      const ds=String(p.desc||"").replace(/[<>&"]/g,"");
+      return '<label class="dp-chk" style="align-items:flex-start;gap:8px;">'+
+        '<input type="checkbox" '+(pluginOn(p.id)?"checked":"")+' onchange="togglePluginUi(\''+String(p.id).replace(/'/g,"")+'\',this)">'+
+        '<span><b>'+nm+'</b><br><span class="meta">'+ds+'</span></span></label>';
+    }).join("")||'<div class="meta">暂无可用守卫。</div>';
+  }catch(e){}
+}
+function togglePluginUi(id,el){
+  try{ pluginSet(id,!!(el&&el.checked)); }catch(e){}
+  try{
+    const p=(PLUGIN_MANIFEST||[]).filter(function(x){return x.id===id;})[0];
+    toast((p?(p.name||id):id)+"已"+(el&&el.checked?"开启":"关闭"));
+  }catch(e){}
+}
 /* 触发一个生命周期钩子。任一插件抛错都不影响主流程（与现有风格一致：静默降级）。 */
 function busHook(name, payload){
   try{
@@ -14807,7 +14868,7 @@ async function trajReplay(id){
     const cb=box.querySelector("button.primary"); if(cb) cb.dataset.v=String(out||"");
   }catch(e){ toastErr("重跑失败："+String((e&&e.message)||e).slice(0,200)); }
 }
-function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} try{ renderTrajMeta(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
+function openGlobalSettings(){ refreshGlobalSettings(); try{ renderAiUsage(); }catch(e){} try{ initAiCostCap(); }catch(e){} try{ renderTrajMeta(); }catch(e){} try{ renderPluginToggles(); }catch(e){} document.getElementById('globalMask').classList.add('on'); }
 function renderTrajMeta(){
   const el=document.getElementById("aiTrajMeta"); if(!el) return;
   const arr=trajGet(); const bad=arr.filter(function(t){ return !t.ok; }).length;
