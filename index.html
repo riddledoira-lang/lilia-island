@@ -2527,9 +2527,18 @@ async function idbInit(){
     const lb=localStorage.getItem(PREFIX+"books"), lc=localStorage.getItem(PREFIX+"curBook");
     if(lb!==null){ try{ books=JSON.parse(lb); }catch(e){ books=null; } }
     if(lc!==null){ try{ cur=JSON.parse(lc); }catch(e){ cur=null; } }
-    if(books!==null&&books!==undefined){ try{ await idbSet("books",books); }catch(e){} }
-    if(cur!==null&&cur!==undefined){ try{ await idbSet("curBook",cur); }catch(e){} }
-    try{ localStorage.removeItem(PREFIX+"books"); localStorage.removeItem(PREFIX+"curBook"); }catch(e){}
+    /* v143：只有在 IndexedDB 确实写成功之后，才清掉 localStorage 里的原始数据。
+       原写法是「空 catch + 无条件 removeItem」：idbSet 失败（隐私模式、磁盘配额、
+       浏览器策略禁用 IDB、事务被 abort）时 catch 什么都不做，紧接着就把 localStorage
+       删了 —— 于是两个地方都没有数据，整份书稿在这一次启动里一次性消失，
+       下次进来看到的是 seedBook 生成的默认内容，而没有任何提示。
+       现在写失败就保留 localStorage 副本，下次启动会再迁移一次（该过程是幂等的）。
+       宁可多留一份旧副本，也不能两头皆空。 */
+    let _okB=false,_okC=false;
+    if(books!==null&&books!==undefined){ try{ await idbSet("books",books); _okB=true; }catch(e){ _okB=false; } }
+    if(cur!==null&&cur!==undefined){ try{ await idbSet("curBook",cur); _okC=true; }catch(e){ _okC=false; } }
+    if(_okB){ try{ localStorage.removeItem(PREFIX+"books"); }catch(e){} }
+    if(_okC){ try{ localStorage.removeItem(PREFIX+"curBook"); }catch(e){} }
   }
   return {books:books, cur:cur};
 }
@@ -2697,12 +2706,22 @@ async function checkBooksConflict(){
 async function cfLoadLatest(){
   try{
     const books=await idbGet("books"), cur=await idbGet("curBook");
-    if(Array.isArray(books)&&books.length){
-      BOOKS=books;
-      if(cur) curId=cur;
-      if(!BOOKS.some(function(b){return b.id===curId;})) curId=BOOKS[0].id;
-      rawSave("curBook",curId);
+    /* v143：读不到有效数据时，绝不能解除挂起、更不能报成功。
+       idbGet 在 IndexedDB 未就绪或事务失败时是 resolve(undefined)，不是 reject ——
+       走不到下面的 catch。原代码里 if 不成立就直接落到后面，无条件清 _conflictHold +
+       弹「已载入另一个窗口的最新版本」，而 BOOKS 其实一个字都没变。
+       后果比不载入更糟：你以为已经同步到最新，于是继续写，
+       下一次保存会把本窗口的旧内容整包写回，静默覆盖另一个窗口的改动。
+       现在读不到就明确报错并保持挂起，让你自己决定。 */
+    if(!Array.isArray(books)||!books.length){
+      toastErr("没能读到另一个窗口的最新内容（本地数据库未就绪或读取失败）。"+
+        "为安全起见仍保持「暂停写入」，你的改动没有被覆盖，可稍后重试或选「以本窗口为准」。");
+      return;
     }
+    BOOKS=books;
+    if(cur) curId=cur;
+    if(!BOOKS.some(function(b){return b&&b.id===curId;})) curId=BOOKS[0].id;
+    rawSave("curBook",curId);
     const st=await idbGet("booksStamp");
     _myWriteAt=st?(st.at||0):Date.now();
     _conflictHold=false; hideConflictBar(); try{ _cfClearHoldState(); }catch(e){}
@@ -2841,11 +2860,22 @@ function seedBook(b){
 }
 
 function ensureBooks(){
+  /* v143：先剔掉数组里的空元素，再往下走。
+     导入/同步/截断修补都可能让 BOOKS 里混进 null 书对象、chapters 里混进 null 章节。
+     原写法 BOOKS[0].id / b.chapters.every(c=>c.demo) 都会在这两种数据上抛 TypeError；
+     而 ensureBooks 是在 bootApp 里被调用、外面没有 try——一个空元素就足以让首屏永远
+     渲染不出来（白屏），且没有任何提示。这里只做「跳过空元素」，不改任何既有逻辑。 */
+  if(Array.isArray(BOOKS)){
+    if(BOOKS.some(function(x){ return !x; })){ try{ BOOKS=BOOKS.filter(function(x){ return !!x; }); }catch(e){} }
+    try{
+      BOOKS.forEach(function(b){ if(b && Array.isArray(b.chapters) && b.chapters.some(function(c){ return !c; })) b.chapters=b.chapters.filter(function(c){ return !!c; }); });
+    }catch(e){}
+  }
   if(BOOKS && Array.isArray(BOOKS) && BOOKS.length){
-    if(!curId || !BOOKS.find(b=>b.id===curId)) curId = BOOKS[0].id;
+    if(!curId || !BOOKS.find(b=>b&&b.id===curId)) curId = BOOKS[0].id;
     rawSave("curBook", curId);
     const b=curBook();
-    if(b && Array.isArray(b.chapters) && b.chapters.length && b.chapters.every(c=>c.demo) && SEED_CH52.length){
+    if(b && Array.isArray(b.chapters) && b.chapters.length && b.chapters.every(c=>c&&c.demo) && SEED_CH52.length){
       b.chapters=SEED_CH52.map(x=>({...x}));
       rawSave("books",BOOKS);
     }
@@ -3018,7 +3048,18 @@ window.fixVolIdCollision=fixVolIdCollision;
 
 function curBook(){ return BOOKS && BOOKS.length ? (BOOKS.find(b=>b.id===curId) || BOOKS[0]) : null; }
 /* 关键：所有旧代码的 load/save 现在都指向「当前书」 */
-function load(k,d){ const b=curBook(); return (b && b[k]!==undefined)?b[k]:d; }
+/* v143：null 也视为「没有值」，回落到默认值。
+   原写法只排除了 undefined：一旦某个字段被存成 null（导入/同步进来结构不完整的备份、
+   云端 JSON 被截断后修补出的残缺记录、手工编辑过的导出文件），load 就把 null 原样交给调用方，
+   而绝大多数调用方拿到后直接 .filter / .map / .every —— 于是抛 TypeError。
+   实测受影响的点有 8 处：ensureBooks 的 chapters.every、digestChaptersByVol / digestChaptersOrdered
+   的 chapters.filter、cleanHistoryCache、chSig、fixVolIdCollision、renderBookList / updateAppbar
+   的 BOOKS.map。其中 ensureBooks 那条最重：它在 bootApp 里且外面没有 try，
+   一个 null 章节就能让整个首屏渲染不出来（白屏）。
+   改判后：字段真的为 null 时返回默认值，而那种情况下原代码必然抛错，所以只会修好、不会改坏。
+   调用方显式「存 null 表示清空」的用法（如 save("activeDeduction",null)）默认值本身就是 null，
+   返回值不变。 */
+function load(k,d){ const b=curBook(); return (b && b[k]!==undefined && b[k]!==null)?b[k]:d; }
 /* v141（R11）：找不到当前书本时，原来只往控制台打一行就 return —— 写入丢了而界面毫无动静。
    这条路径很罕见（切书竞态 / 书本刚被删），但一旦发生就是静默丢数据，且你没有任何迹象可循。
    这里补一次节流提示；正常路径（b 存在）一行未动。 */
@@ -3533,7 +3574,16 @@ function jumpTo(bookId,type,id){
 }
 
 /* ============== 通用渲染 ============== */
-function esc(s){return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+/* v143：补上引号转义。
+   原函数只处理 & < >，不处理 " 和 '。这在「文本节点」里没问题，
+   但在「属性上下文」里会直接把标签截断——本项目有大量
+   value="'+esc(x)+'" / onclick="fn(\''+id+'\')" / title="'+esc(x)+'" 这样的拼接，
+   人物名、章节标题、书名、设定文本里只要出现一个双引号就会提前闭合属性，
+   轻则该字段显示不全、按钮点不动，重则把后面的 HTML 当成可执行标记插入。
+   转义后的实体在浏览器里渲染回原字符，正文显示与改动前逐字一致；
+   只有在属性里才会体现出差别（而这正是要修的地方）。
+   另：onclick 里拼接的是 id（程序生成的 uid），不含用户可控文本，不受影响。 */
+function esc(s){return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 function hl(text,q){const e=esc(text||"");if(!q)return e;try{const re=new RegExp("("+q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","gi");return e.replace(re,"<mark>$1</mark>");}catch(e){return e;}}
 function snippet(text,q){text=text||"";const i=text.toLowerCase().indexOf(q);if(i<0)return text.slice(0,90);const s=Math.max(0,i-20);return (s>0?"…":"")+text.slice(s,s+90)+(s+90<text.length?"…":"");}
 function statusTag(s){
@@ -7767,7 +7817,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v142";
+const APP_VERSION="v143";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7777,6 +7827,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v143","这一版是一次全面代码审查之后挑出来的修复，全部遵循「改一处能盖一片、行为可回滚」的原则。审查共列出 113 项，这里先落地风险最低而收益最高的 9 项，其余按优先级留在清单里。① 【唯一会一次性丢掉全部书稿的路径】启动时要把旧数据从浏览器小仓库迁到大仓库（IndexedDB），原写法是「写入失败就当没发生，然后无条件删掉旧副本」——一旦大仓库写入失败（隐私模式、磁盘配额、浏览器策略禁用），旧副本已被删除而新仓库什么都没有，整份书稿在这一次启动里消失，下次进来看到的是默认示例内容，全程没有任何提示。现在改成：只有确认写成功才删旧副本，写失败就留着，下次启动再迁一次（这个过程是幂等的）。② 【一个空元素就能让首屏白屏】导入、跨设备同步、云端数据被截断后的修补，都可能让书数组或章节数组里混进空元素。启动时有一步会遍历章节判断是否为示例内容，遇到空元素就抛错，而它外面没有异常保护——于是整个页面渲染不出来。现在启动前先把空元素剔掉；同时统一了取值函数的空值判定（原来只认「完全没有」，不认「值为空」），这一处改动覆盖了八处同类崩溃点，包括消化队列、历史清理、书架列表。③ 【属性里的引号】界面大量用字符串拼接生成 HTML，转义函数原本只处理三个字符，不处理引号。在正文里显示没问题，但在输入框的值、提示文字这类「属性」里，只要人物名或章节标题里出现一个引号，标签就会被提前截断，轻则该字段显示不全、按钮点不动，重则把后面的内容当成标记插入。现在补上引号转义；转义后的内容在浏览器里仍显示原字符，正文显示与改动前逐字一致。④ 【自动续写的后半段在手机上必丢】生成过程中每隔几秒会把已写内容存一次，防止手机切后台被系统回收时丢稿。判断是否值得存一次用的是「累计长度增加了多少」。但触发自动续写时（一次没写完、接着写第二段），传给存储的只是本段内容，长度反而变短——差值成了负数，于是「增加不足」这条判断从此刻起永远成立，而它又不更新基准，后面写的一个字都不会再存。界面上的正文照常在涨，章节库却停在旧快照，此时切后台就只剩最前面一段。现在把「长度变短」识别为新一段的起点并重置基准，其余判断一字不改。⑤ 【你调的采样参数可能用不到】生成设置里有一个「参数预览」，它显示的是「续写模型」这一栏；而两条正文生成入口实际取的是「分析模型」优先——两者顺序正好相反。也就是说你在预览上精心调的随机性参数、以及那句「已自动改用某模型」的提示，指向的是一个实际不会被使用的模型，正文真正跑在另一个模型上（多数人给分析配的是更贵更慢的推理模型）。现在两处生成入口统一为续写模型优先；如果你没有单独配续写模型，仍回落到分析模型，行为与改动前完全一致。⑥ 【「载入另一个窗口的最新版本」可能什么都没载入却报成功】这一步读本地数据库，而数据库未就绪时它是「返回空」而不是「报错」，走不到异常分支。原代码读到空就直接跳过载入，然后照样解除写入挂起、照样弹「已载入最新版本」——你以为同步好了于是继续写，下一次保存会把本窗口的旧内容整包写回，静默覆盖另一个窗口的改动，比不动更糟。现在读不到就明确报错并保持挂起，不解除、不谎报。⑦ 【AI 忙碌计数卡住时你连恢复入口都看不到】有一个「上次任务被中断了，已保住多少字」的恢复条，但它的第一行是「如果还有任务在跑就不显示」。而请求若挂在读取正文的阶段（超时只覆盖到拿到响应头为止），这个计数永远不会归零——于是恢复条永远不出现、所有 AI 按钮持续禁用，你只能杀掉重进。现在加一条租约：在途记录超过十分钟没动静就不再因此拦下恢复条；十分钟远大于单章最坏耗时，正常任务不受影响。⑧ 【降级摘要会被永久当成已完成】某章消化时输出被截断，会被标记为「降级摘要」保留下来。问题是这个状态在判断「这章还需不需要重消化」时被当成有效态，于是所有「只补未消化章节」的路径——包括最常用的「恢复队列」——都会永久跳过它。而那段残缺文本已经进了分卷档案与卷级摘要，会作为「已发生」注入后续每一次生成。这次不改任何跳过逻辑（成本与行为保持原样），只在恢复队列的确认框里把降级章数点出来，并说明该去哪里单独重跑。⑨ 【回滚】①只改删除旧副本的条件；②只加空元素过滤与空值判定；③只加两个转义字符；④只改一处基准重置；⑤只改两处取值顺序且未配续写模型时行为不变；⑥只加一段有效性判断；⑦只放松一条判断且不改变正常路径；⑧只加提示文字、不动任何逻辑。"],
   ["v142","这一版只处理「灵感会不会被悄悄换掉」这件事，都是先实测确认再动手，改动面窄。① 【上一轮不再一去不回】点「🎲 一键灵感推演」时，新的 3 套会整体替换旧的 3 套，此前连副本都不留——重新推演后若新的不合意，那个更好的想法就再也找不回来，只能再烧一次 token 碰运气。现在覆盖前会自动留一份上一轮，并在下方给两个出口：「↩ 还原上一轮」直接换回去（当前这一轮会顶替成上一轮，于是能来回切，不会单向丢失）、「👀 先看上一轮内容」只显示不动数据。上一轮不存在时这两个按钮不出现，界面与改动前一样。② 【挂载标记不会再错落到别的方案上】判断「哪套被挂载」此前只比方案编号（1/2/3），而编号是每次解析时按顺序重排的序号，两轮之间毫无对应关系。实测过：重新推演后，界面会把新的方案一标成「已挂载」，而列表里方案一的内容早已换成新的，真正生效的却是列表里已经不存在的那套旧内容——你按显示去理解，就会以为正在用的是眼前这套。现在改用方案内容算指纹来认，跨轮稳定；旧的挂载记录没有指纹时自动退回按编号比对，行为与改动前一致。万一挂载的那套确实不在这一轮里（比如你刚重推过），上方会明确写出来并给一个「解除挂载」，不再闷着。③ 【自动灵感不再偏爱堆场景】这是唯一一处会实际影响产出质量的改动。开「🎲 自动灵感」且不弹窗自动择优时，原规则是「节拍数最多者优先」，而同一段生成要求里写的是「每套严格 4-6 个节拍、只推进 1-2 个核心新场景，不得堆砌」——择优规则与生成要求正好相反。实测：一套 8 节拍的堆砌方案会赢过 4 节拍的合规方案，而堆砌恰恰违反场景预算铁律，容易写成走马灯。现在改成先看是否落在 4-6 的合规区间，再看数量，最后取靠前的。手动弹窗自己挑的那条路径完全不受影响，挂载灵感推演方案时也不走这条。④ 【三套到底差多少，现在看得见】3 套要求「基调/冲突重心明显不同」，此前没有任何一处检查——模型偷懒给出 3 套相近的，你就是在一个假选择里挑。现在本地算两两之间的节拍重合率（汉字二元组，0 token、纯计算），重合过高或基调写重复时，上方会提示是哪两套、重合多少。只提示，不改方案、不自动重推。⑤ 【弹窗里标出节拍数】选方案时每套会显示几个节拍，超出 4-6 的标「偏堆砌」、不足的标「偏薄」，挑的时候多一个最直观的依据。⑥ 【回滚】上一轮留存只新增一个存档键，不动原有 deductions 的结构；指纹比对对旧数据自动退回原逻辑；差异化提示与节拍数标注都是纯显示；只有③会改变自动灵感的实际采用结果，若你觉得不如从前，这一处可单独退回。⑦ 【对文章质量的影响】③是朝「更贴合场景预算铁律」的方向改，其余都不触碰注入给模型的内容。"],
   ["v141","这一版不动任何生成逻辑与注入内容，只把上一轮风险评估里「已经识别但还没设防」的缺口补上，全部做成只看不改或默认不动。① 【冲突期间丢了多少次，现在看得见】检测到另一个窗口改过这本书时，本窗口会暂停写入以免覆盖对方——这个设计是对的。但暂停期间每一次保存都被直接丢弃且毫无动静：内存照常改、界面照常显示新内容，你完全看不出一个字节都没落盘，手机上切后台被回收就整个蒸发。现在提示条上会实时显示「期间已有 N 次改动没能落盘，切后台或刷新就会丢」。暂停写入这个行为本身一点没变，只是不再静默。② 【可选的自动解除，默认关闭】另给一个开关 CF_HOLD_AUTORELEASE_MS，默认 0 = 永不自动解除，与改动前完全一致；你自己设成比如 600000（10 分钟），超时后才按「以本窗口为准」自动恢复保存。之所以默认关：自动解除等于替你选了一边，与「绝不在你不知情时覆盖」的初衷相反，该由你决定。③ 【档案一致性体检】v106 把档案块化时立过三条不变量，原话是「三缺一即视为数据损坏」，但那三条当时只写进了注释，全库没有任何一处代码去核对。现在新增「🧭 档案一致性体检」（只读、不改任何数据）：列出三类违例——正文改过而摘要没刷新、标成已消化却没有档案块、未消化却留着档案块。第三类最要紧，它会作为既成事实进每一次生成，且不报错、不提示。它与「🧪 档案落地体检」的分工是：那条查块里的摘抄能不能在正文定位，这条查块与章节记录对不对得上。④ 【增强模块的加载自检】主程序之后会加载三个增强模块，设计上「加载失败就退回基础能力」，这对，但副作用是少加载一个也毫无提示：剧情参谋会悄悄失去章号硬约束、人物辨识铁律、已否决走向、最近章节回补四块，却照常作答，你分不出它跑在哪条路径上（这次修人物卡时实测过两条路径的差别）。现在打开版本日志会直接写明哪几个模块没加载、缺了之后具体少什么。只做显示，不动加载流程。⑤ 【删数据前的备份不再形同虚设】清理失效记录与档案落地剔除这两处，此前都是「发一个异步写入就往下删」，既不等它完成也不看它成没成；写入失败时界面照样说「已备份」，而删除已经执行，档案再也回不来。现在改成写完读回来确认，确认不了就中止、一条不删。成功路径与改动前完全一致，只有原本会静默丢数据的那条失败路径，从「继续删」改成「中止并告诉你」。两个函数仍保持同步返回 boolean 的原有契约。⑥ 【部署后不再让你误判「改了没生效」】离线策略是缓存优先，好处是秒开、断网也能用，代价是刚部署完的那一次打开拿到的还是旧包，而你没有任何迹象知道。现在后台拉到新版本时会比一下版本号，不一样就在底部给一条「检测到新版本，刷新一次即可用上」，带「立刻刷新 / 稍后」两个出口。绝不自动刷新——正在跑的 AI 不会被打断。缓存优先这条主线一点没动。⑦ 【参谋不再拿错卷】主程序的参谋上下文此前直接读分卷下拉框的原始值：刚切过书或还没选过卷时下拉是空的，于是本卷已消化档案、本卷设定、本卷人称铁律三样同时取空，而参谋照常作答。生成链路 v131 起、审稿链路 v139 起都已改用统一的解析入口，参谋这一条漏了，现在补上；你已经明确选过卷时，取值与改动前逐字一致。⑧ 【腾空间时删了什么，现在会说】存储接近上限时会自动腾空间保住正文，方向没错，但被腾掉的其实是 40 章以前的消化档案（人物关系与早期伏笔，要重跑 AI 才拿得回来），此前既不提示也不记录。现在提示里会写明腾掉了几个档案块。⑨ 【存储写入找不到当前书本时会提示】这条极罕见（切书竞态），但发生时是静默丢数据，现在补一次节流提示。⑩ 【落地校验的松紧改成可调】档案落地校验有两个阈值此前是写死的：参与校验的最短摘抄长度、以及命中率低于多少才判整块可疑。合适的松紧只有你自己的真实语料能说话，我把默认值定成什么样都是猜，所以给成两个可调量（GROUND_MIN_QUOTE_LEN、GROUND_SUSPECT_RATIO），默认值与改动前完全一致，你在控制台调完即可生效，不用重新部署；调之前先看每个块尾那句「已剔除 N 条、可核对 X/Y」。⑪ 【回滚】每处改动各带开关或各自独立：PLUS_LOAD_CHECK 置 false 即不显示模块自检；CF_HOLD_AUTORELEASE_MS 保持 0 即无自动解除；两个体检都是只读，点不点都不改变任何数据；备份校验只在备份失败时才会有不同表现；参谋卷解析只在下拉为空时才启用。⑫ 【顺带】给五个已经没有调用点的老函数各补一句说明（它们分别被内联重写或被新接口取代），保留不删，避免后人误当成现役功能去改——其中「自动抽取人物」那个空壳正是本次排查一开始误判方向的来源。⑬ 【对文章质量的影响】无。这一版不改动任何注入给模型的内容、不改动任何生成与消化逻辑。"],
   ["v140","修三个具体的错：档案里混进正文没有的内容、手动加的人物卡参谋看不见、参谋引用没发生过的情节推进。① 【档案为什么会记错】档案块此前是「模型输出什么就原样写什么」——从模型输出到落盘之间没有任何一步回原文比对。于是两种内容会混进来：一是模型没找到时写的「未找到 / 无」这类占位条目；二是张冠李戴——模型把别章的内容（或它自己的推测）当成本章结论，还附一段「原文依据」，于是第 55 章的档案里出现了正文第 55 章根本没有的「消化印记石头」。这类内容一旦进档案，就会被当成已消化的事实，进后面每一次生成。② 【现在写入前先校验】落盘前做两件事，且只做这两件：占位行整行剔除；带摘抄式「原文依据」的行逐条回正文比对，定位不到就整行剔除，并在块尾留一句可核查的说明（剔了几条、可核对的依据是几分之几）。校验不了的行（没有可直接比对的摘抄）一律原样保留——宁可放过，不可错杀，误杀会丢掉真实的长程事实。某块里多数依据都对不上正文时，该章状态自动降为「降级」，界面上会明确标出来，可单章重试；几乎整块都对不上时保留原文、只标降级，不会让这一章的档案凭空消失。③ 【已经写进去的怎么办】消化面板新增「🧪 档案落地体检」：逐块把档案里的摘抄依据回正文比对，列出定位不到的条目（哪一卷哪一章、剔了几条、可核对几分之几），确认后可一键剔除，默认先自动备份。只删这些条目，其余条目、正文、消化状态一律不动。④ 【人物卡为什么看不见】手动新建的人物卡如果只填了外貌（或别名+外貌），会被人物卡的过滤条件整条丢掉——那个条件只认核心特质、说话方式、行为禁区、表层欲望四项，外貌与心理不在其中；名额还固定只取前 8 位。现在与增强模块用同一套判定（外貌、心理、深层渴望、思维模式都算），名额提到 20，并把别名一并输出。⑤ 【问到的人必须出现在人物卡里】此前「作者问到了谁」只是排序时的加分项，本章出场人物一旦占满名额，问到的那个配角照样被切掉——明明问的是菲比，回答里却没有菲比。现在作者问到的人先占位，再按相关度补满。⑥ 【人物扫描补一条双源规则】正文里露过脸、消化档案也点过名，却因「不满两章」被挡在门外的配角（典型：不以「某某说」句式出场，说话动词正则抓不到的人），现在只要档案点名过且这个名字在正文里确实出现两次以上，就允许收录。只凭档案单方面点名一章仍然不放行，避免边缘角色混入。⑦ 【参谋为什么会引用没发生过的情节】它拿到的材料里，消化档案是「已发生过什么」的唯一来源，但此前没有任何一处告诉它这个来源的范围边界在哪。于是档案里某句当年被推测出来的推进（如「先解反噬，再归沙菲克」，正文里从未发生）被当成既成事实反复引用。现在每次对话都会附上「已消化章节清单」，并给一条可执行的铁律：只有清单里的章节才算发生过；档案里的「下一步 / 将要 / 计划 / 先…再…」只是当时的推测不是事实；提到的每个推进都必须能指出出自哪一章，指不出就直接回答「这段还没有写过」；作者说没写过就以作者为准。⑧ 【残留脏数据的出口】参谋弹窗新增「🧹 清空参谋记忆」：点过「采纳」的走向会被长期记住并写进本章指令，若那条走向后来被证明是错的，它会一直跟着后面的生成。这里可以一次清空已采纳与已否决两份清单，并可选择同时删掉指令里当时自动写入的那几行（你自己写的指令不动）。⑨ 【开关与回退】三处改动各有一个开关（DIGEST_GROUND_CHECK、COUNSEL_SCOPE_RULE，人物卡判定沿用增强模块既有开关），置 false 即回到改动前，不需要任何数据修复。⑩ 【对文章质量的影响】预期的正向效果是档案不再夹带正文里没有的内容、参谋不再拿推测当事实；人物卡多进来的人只会让参谋的判断多一份依据，不会改变它不动正文的边界。"],
@@ -10721,7 +10772,26 @@ async function resumeDigestQueue(btn){
   const q=getDigestQueue();
   if(!q.paused){ toast("队列未处于暂停状态"); return; }
   const ai=load("ai",{}); if(!ai.base){toast("需先配置 AI API。");return;}
-  if(!confirm("将恢复队列执行，继续消化剩余 "+(q.total-q.done)+" 章。队列将继续使用30秒冷却间隔。确定继续？")) return;
+  /* v143：恢复前先说清楚「降级摘要不会被这次恢复重跑」。
+     降级（输出被截断/结构化残缺）在 _digestUpToDate 里被当作有效态，
+     所以 onlyMissing 的每一条路径——包括本函数写死的 onlyMissing:true——都会永久跳过它们。
+     而那段残缺文本已经进了分卷档案与滚动摘要，会作为「已发生」注入后续每一次生成，
+     你却没有任何信号知道这里有坑、也不知道该去哪里修。
+     这里不改任何跳过逻辑（成本与行为保持原样），只把数量点出来并给一个直达入口。 */
+  let _dgN=0;
+  try{
+    const _d0=getDigest();
+    Object.keys((_d0&&_d0.volumes)||{}).forEach(function(vid){
+      const _vv=_d0.volumes[vid]; if(!_vv||!_vv.chapters) return;
+      Object.keys(_vv.chapters).forEach(function(cid){
+        if((_vv.chapters[cid]||{}).status===DS_DEGRADED) _dgN++;
+      });
+    });
+  }catch(e){}
+  const _dgTip=_dgN?("\n\n⚠️ 另有 "+_dgN+" 章是「🟡降级摘要」（内容可能残缺），"+
+    "本次恢复不会重跑它们。它们仍会作为已发生的事实注入后续生成——"+
+    "建议恢复完成后到本卷点「重试失败/降级」单独重跑这 "+_dgN+" 章。"):"";
+  if(!confirm("将恢复队列执行，继续消化剩余 "+(q.total-q.done)+" 章。队列将继续使用30秒冷却间隔。确定继续？"+_dgTip)) return;
   /* 重置熔断计数 */
   q.paused=false; q.pausedReason=""; q.consecutiveNetFail=0; q.running=true;
   saveDigestQueue(q);
@@ -11895,7 +11965,15 @@ async function aiGen(){
     const _base=body.trim();
     const ta=document.getElementById("chBody");
     _aiBeforeResult=ta.value||"";   /* 记录写入前原文，供「不加入文章」回滚 */
-    const _genModel=(ai.model||ai.genModel||"deepseek-flash");
+    /* v143：正文生成取「续写模型」优先，与采样参数预览、模型候选链、流式参数三处保持一致。
+     原写法是 ai.model||ai.genModel —— 分析模型优先。而「AI 生成设置」里的采样参数预览
+     （renderSamplingPreview）读的是「续写模型」输入框，模型候选链 genModelCandidates()
+     与 onToken 分支也都以续写模型打头。也就是说：你在预览上精心调的 temperature / top_p、
+     以及「已自动改用模型 X」的提示，全都指向一个实际不会被使用的模型；
+     正文真正跑在另一个模型上（多数人给分析配的是更贵更慢的推理模型）。
+     现在两处生成入口统一改成续写模型优先；没单独配续写模型时 ai.genModel 为空，
+     仍回落到 ai.model，行为与改动前完全一致。 */
+    const _genModel=(ai.genModel||ai.model||"deepseek-flash");
     /* v114：流式期间节流落盘，切后台被杀也能保住已生成的部分 */
     streamSaveBegin(num, title, _vgVol, _base);
     const out=await callAI({sys:bookMemSys(true), user:userMsg, ...creaParams("gen"), max_tokens:Number(ai.maxTokens)||8000, modelOverride:_genModel, onToken:function(t){ if(ta)ta.value=(_base?(_base+"\n\n"):"")+t; _streamTick(t); }});
@@ -12132,8 +12210,21 @@ function _streamTick(text){
   if(!s||!text) return;
   const now=Date.now();
   if(s.last){
-    if(now-s.last<3000) return;             /* 距上次落盘不足 3 秒 */
-    if(text.length-s.lastLen<150) return;   /* 新增不足 150 字 */
+    const _dt=text.length-s.lastLen;
+    if(_dt<0){
+      /* v143：长度回退说明这是新一轮的起点——要么触发了 finish_reason=length 的自动续写
+         （onToken 的 text 只代表本段，比上一段短），要么模型降级后换候选重跑（从 0 开始）。
+         原代码拿绝对累计长度做增量判断，回退时差值恒为负，
+         于是「新增不足 150 字」这条 return 从此刻起永远成立，而 return 前又不更新基准——
+         这次生成剩下的内容一个字都不会落盘。界面上的正文照常在涨，
+         章节库却停在最旧的快照，此时手机切后台被回收就只剩最前面那一段。
+         v114 做这个节流本来就是为手机场景防丢稿，恰恰在这两个最容易发生的路径上失效了。
+         这里只把「回退」识别为新起点并重置基准，其余判断一字不改。 */
+      s.lastLen=0;
+    }else{
+      if(now-s.last<3000) return;             /* 距上次落盘不足 3 秒 */
+      if(_dt<150) return;                     /* 新增不足 150 字 */
+    }
   }
   s.last=now; s.lastLen=text.length;
   try{
@@ -12178,10 +12269,19 @@ function _notifyUnfinishedGen(){
    只做提示与重跑，绝不自动改写任何正文。 */
 function _notifyUnfinishedTask(){
   try{
-    if(aiBusy()) return;                       /* 此刻真的在跑，不算中断 */
+    /* v143：忙碌计数卡住时也要给出恢复出口。
+       原写法是「_aiBusy>0 就直接返回」，等价于把「计数没归零」当成「任务健康在跑」。
+       但请求若挂在「流式正文读取」「resp.text() 等待 body」这两个没有超时覆盖的阶段
+       （超时定时器在拿到响应头时就被 clearTimeout 了），这个计数永远不会归零——
+       于是恢复条永远不出现、AI 相关按钮持续禁用，用户只能杀进程重进，
+       而重进后这一轮还可能重演。这里加一条租约：在途记录超过 10 分钟没动静，
+       就不再因为「忙碌」而拦下恢复条。10 分钟远大于单章最坏耗时，正常任务不受影响。 */
+    const _t0=load("aiTaskInFlight",null);
+    const _age0=(_t0&&_t0.at)?(Date.now()-_t0.at):0;
+    if(aiBusy() && _age0<600000) return;        /* 真的在跑，不算中断 */
     if(_streamSave) return;                    /* 生成中，交给流式保底提示 */
     if(_beatMask) return;                      /* 有节拍卡弹窗时不打扰 */
-    const t=load("aiTaskInFlight",null);
+    const t=_t0;
     if(!t||!t.at) return;
     const age=Date.now()-t.at;
     if(age<15000) return;                      /* 刚开跑/还在正常等待 */
@@ -12848,7 +12948,15 @@ async function aiDeepGen(){
     if(brief) writeInstr+=`\n\n【本章专属指令】\n${brief}`;
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
-    const _genModel=(ai.model||ai.genModel||"deepseek-flash");
+    /* v143：正文生成取「续写模型」优先，与采样参数预览、模型候选链、流式参数三处保持一致。
+     原写法是 ai.model||ai.genModel —— 分析模型优先。而「AI 生成设置」里的采样参数预览
+     （renderSamplingPreview）读的是「续写模型」输入框，模型候选链 genModelCandidates()
+     与 onToken 分支也都以续写模型打头。也就是说：你在预览上精心调的 temperature / top_p、
+     以及「已自动改用模型 X」的提示，全都指向一个实际不会被使用的模型；
+     正文真正跑在另一个模型上（多数人给分析配的是更贵更慢的推理模型）。
+     现在两处生成入口统一改成续写模型优先；没单独配续写模型时 ai.genModel 为空，
+     仍回落到 ai.model，行为与改动前完全一致。 */
+    const _genModel=(ai.genModel||ai.model||"deepseek-flash");
     /* v114：流式期间节流落盘——深度续写是最长最贵的一条链，
        在这里中断损失最大，已生成的部分必须保住 */
     streamSaveBegin(num, title, curVol||"none", _base);
