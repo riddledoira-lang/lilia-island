@@ -337,6 +337,17 @@
   .lkadd select{flex:1;}
   .tl-item{position:relative;padding:0 0 16px 22px;border-left:2px solid var(--line);margin-left:6px;}
   .tl-item:last-child{border-left-color:transparent;}
+  /* v146 折叠（纯展示层）：收起时只显示标题行，点开才显示完整内容 */
+  .tl-head{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:2px 0;}
+  .tl-caret{flex:none;width:14px;text-align:center;font-size:11px;color:var(--sub);transition:transform .15s;line-height:1;}
+  .tl-item.collapsed .tl-caret{transform:rotate(-90deg);}
+  .tl-item.collapsed .tl-body{display:none;}
+  .tl-headline{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tl-head-date{font-size:12px;color:var(--sub);flex:none;}
+  .ov.collapsed .ov-body{display:none;}
+  .ov-caret{flex:none;width:14px;text-align:center;font-size:11px;color:var(--sub);transition:transform .15s;line-height:1;}
+  .ov.collapsed .ov-caret{transform:rotate(-90deg);}
+  .ovh{cursor:pointer;user-select:none;}
   /* v130：原为纯白 #fff 描边，未被深色修正清单覆盖，夜间对比度高达 18:1 形成高光点。改为随主题底色。 */
   .tl-dot{position:absolute;left:-7px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--brand);border:2px solid var(--bg);box-shadow:0 0 0 1px var(--line);}
   .tl-date{font-size:12px;color:var(--sub);}
@@ -1849,6 +1860,7 @@
     <div class="card">
       <h2><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>大纲视图 <span class="pill" id="outTotal"></span></h2>
       <div class="meta">按分卷纵览全部章节，直接写一句话梗概。↑/↓ 或拖拽可调整本卷内顺序，点「编辑」回到正文区修改。</div>
+      <div class="row" style="gap:6px;margin-bottom:6px;"><button class="sm" onclick="olFoldAll(true)">全部收起</button><button class="sm" onclick="olFoldAll(false)">全部展开</button></div>
       <div id="outlineBox"></div>
     </div>
     <div class="card">
@@ -1927,6 +1939,7 @@
       <div class="row" style="gap:4px;margin-bottom:6px;flex-wrap:wrap;">
         <input id="tlSearch" type="text" placeholder="搜索人物或事件…" style="flex:1;min-width:120px;font-size:14px;min-height:36px;" oninput="renderTimeline()">
       </div>
+      <div class="row" style="gap:6px;margin-bottom:6px;"><button class="sm" onclick="tlFoldAll(false)">全部收起</button><button class="sm" onclick="tlFoldAll(true)">全部展开</button></div>
       <div id="tlCharChips" class="row" style="gap:4px;margin-bottom:6px;flex-wrap:wrap;"></div>
       <div id="tlVolChips" class="wk-chips" style="margin-top:8px;"></div>
       <div class="row" style="margin-top:6px;">
@@ -4530,22 +4543,47 @@ function renderOppMount(){
 }
 
 /* ============== 大纲视图 ============== */
+/* ===== v146 折叠（纯展示层） =====
+   只影响「看不看得见」：不改任何数据、不改注入给模型的内容。
+   两个开关各自独立，置 0 即逐字还原改动前的样子（永不折叠），可随时退回。 */
+var OL_FOLD=1;                 /* 大纲分卷折叠；0=还原旧行为 */
+var TL_FOLD=1;                 /* 时间线事件折叠；0=还原旧行为 */
+let _olFold={}, _olFoldInit=false;
+let _tlFold={};
+function _olInitFold(vols){
+  if(_olFoldInit)return;
+  const cur=String((curBook()||{}).curVol||"none");
+  (vols||[]).forEach(function(v){ _olFold[String(v.id)]=(String(v.id)!==cur); });
+  _olFoldInit=true;
+}
+function toggleOlFold(vid){ _olFold[String(vid)]=!_olFold[String(vid)]; renderOutline(); }
+function olFoldAll(fold){ const b=curBook(); const vols=(b&&b.volumes)||[{id:"none"}]; vols.forEach(function(v){_olFold[String(v.id)]=!!fold;}); renderOutline(); }
+function _tlFd(e){ return TL_FOLD?!!_tlFold[String(e.id)]:true; }
+function _tlHeadHtml(e){
+  if(!TL_FOLD) return '';
+  return '<div class="tl-head" onclick="toggleTlFold(\''+e.id+'\')"><span class="tl-caret">▼</span>'+
+    '<span class="tl-head-date">'+esc(e.date||"")+'</span>'+
+    '<span class="tl-headline">'+esc(e.title||"（无标题）")+'</span></div>';
+}
+function toggleTlFold(id){ _tlFold[String(id)]=!_tlFold[String(id)]; renderTimeline(); }
+function tlFoldAll(openAll){ (load("timeline",[])||[]).forEach(function(e){_tlFold[String(e.id)]=!!openAll;}); renderTimeline(); }
 function renderOutline(){
   const b=curBook(); const vols=(b.volumes||[{id:"none",name:"未分卷"}]);
   const ch=load("chapters",[]);
   const box=document.getElementById("outlineBox"); if(!box)return;
   document.getElementById("outTotal").textContent="共 "+ch.length+" 章";
   if(!ch.length){box.innerHTML='<div class="meta">还没有章节，先在「章节」里添加。</div>';return;}
+  if(OL_FOLD)_olInitFold(vols);
   box.innerHTML=vols.map(v=>{
     const list=ch.filter(c=>(c.vol||"none")===v.id).sort((a,b)=>(a.order||0)-(b.order||0));
-    return '<div class="ov"><div class="ovh" ondragover="olVolOver(event)" ondrop="olDropOnVol(\''+v.id+'\')">'+esc(v.name)+' <span class="pill">'+list.length+' 章</span></div>'+
-      (list.length? list.map(c=>'<div class="oli" draggable="true" ondragstart="olDragStart(\''+c.id+'\')" ondragover="olDragOver(event)" ondrop="olDrop(\''+c.id+'\')">'+
+    const _fd=OL_FOLD?!!_olFold[String(v.id)]:false; return '<div class="ov'+(_fd?" collapsed":"")+'"><div class="ovh" ondragover="olVolOver(event)" ondrop="olDropOnVol(\''+v.id+'\')" onclick="toggleOlFold(\''+v.id+'\')">'+(OL_FOLD?'<span class="ov-caret">▼</span>':'')+esc(v.name)+' <span class="pill">'+list.length+' 章</span></div>'+
+      '<div class="ov-body">'+(list.length? list.map(c=>'<div class="oli" draggable="true" ondragstart="olDragStart(\''+c.id+'\')" ondragover="olDragOver(event)" ondrop="olDrop(\''+c.id+'\')">'+
         '<div class="olnum">'+(c.num||"")+'</div>'+
         '<div class="olmain"><div class="olh">'+esc(c.title||("第"+(c.num||"?")+"章"))+' '+statusTag(c.status)+'</div>'+
         '<input class="olsyn" value="'+esc(c.synopsis||"")+'" placeholder="一句话梗概（消化自动生成，可手动修改）" onchange="setSynopsis(\''+c.id+'\',this.value)"></div>'+
         '<div class="olops"><button onclick="olMove(\''+c.id+'\',-1)">↑</button><button onclick="olMove(\''+c.id+'\',1)">↓</button><button onclick="editChapter(\''+c.id+'\')">编辑</button></div>'+
       '</div>').join("") : '<div class="meta">本卷暂无章节</div>')+
-      '</div>';
+      '</div></div>';
   }).join("");
   oppPopulateVols();
   renderOppMount();
@@ -5110,7 +5148,7 @@ function renderTimeline(){
     box.innerHTML='<div class="tl-char-header"><button class="sm" onclick="setTlChar(\'all\')" style="margin-bottom:8px;">← 返回全部事件</button><h3 style="margin:0 0 8px 0;">'+esc(tlCharFilter)+' 的事件线（'+list.length+' 件）</h3></div>'+
     list.map(function(e){
       const ch=chs.find(function(c){return c.id===(e.ch||e.chId);});
-      return '<div class="tl-item"><div class="tl-dot"></div><div class="tl-body tl-edit">'+
+      return '<div class="tl-item'+(_tlFd(e)?'':' collapsed')+'">'+_tlHeadHtml(e)+'<div class="tl-dot"></div><div class="tl-body tl-edit">'+
         '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;">'+
         '<input value="'+esc(e.date||"")+'" onchange="updTlField(\''+e.id+'\',\'date\',this.value)" placeholder="日期" style="width:104px;flex:none;">'+
         '<input value="'+esc(e.title||"")+'" onchange="updTlField(\''+e.id+'\',\'title\',this.value)" placeholder="事件标题" style="flex:1;min-width:0;">'+        (tlVolFilter==="all"?'<span class="tl-voltag">'+esc(volName(e.vol||"none"))+'</span>':'')+
@@ -5125,7 +5163,7 @@ function renderTimeline(){
     /* 全部模式：正常列表 */
     box.innerHTML=list.map(function(e){
       const ch=chs.find(function(c){return c.id===(e.ch||e.chId);});
-      return '<div class="tl-item"><div class="tl-dot"></div><div class="tl-body tl-edit">'+
+      return '<div class="tl-item'+(_tlFd(e)?'':' collapsed')+'">'+_tlHeadHtml(e)+'<div class="tl-dot"></div><div class="tl-body tl-edit">'+
         '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap;">'+
         '<input value="'+esc(e.date||"")+'" onchange="updTlField(\''+e.id+'\',\'date\',this.value)" placeholder="日期" style="width:104px;flex:none;">'+
         '<input value="'+esc(e.title||"")+'" onchange="updTlField(\''+e.id+'\',\'title\',this.value)" placeholder="事件标题" style="flex:1;min-width:0;">'+        (tlVolFilter==="all"?'<span class="tl-voltag">'+esc(volName(e.vol||"none"))+'</span>':'')+
@@ -7817,7 +7855,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v145";
+const APP_VERSION="v146";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7827,6 +7865,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v146","这一版只做一件事：给两个最占地方的地方装上折叠，纯展示层，一个字都不碰你写的内容和喂给 AI 的东西。① 【大纲视图不再要滑很久】以前每一章都要渲染一个可编辑的梗概输入框，加上序号、状态、上下移动和编辑按钮，一条就占八九十像素高；两卷二十章实测整页高 1755 像素，手机上要滑两屏多。现在按分卷折叠，默认「你当前所在的那一卷展开、其余卷收起」，收起时只显示卷名和章数，点一下标题就展开。上面多了「全部收起 / 全部展开」两个按钮。实测同样的数据整页降到 1094 像素。② 【时间线不再要滑二十几屏】这个是更严重的那个。以前每一条事件都把日期输入框、标题输入框、描述输入框、跳转链接、删除按钮全部铺开，一条就占一百五十像素左右；三十条事件实测整页高 7527 像素，等于要滑八屏多——而你真正想看的只是「哪天发生了什么」。现在每条默认收起，只显示一行「时间 · 标题」（标题过长自动省略号，不会撑破排版），点一下才展开看完整描述和相关章节。同样有「全部收起 / 全部展开」。实测降到 1284 像素，省下大约六点八屏。③ 【回滚】两个开关各自独立：OL_FOLD 管大纲、TL_FOLD 管时间线，任一设 0 就完全回到改动前的样子（永不折叠，且大纲照旧渲染全部二十行、时间线照旧全部常展开、不显示标题行）。这两条都已写了对照测试实测过。④ 【对文章质量的影响】零。这一版不改动任何数据、不改动任何注入给模型的内容，只是决定「屏幕上先显示哪几行」。收起的内容并没有被删掉，点开就能改。⑤ 【下一步】你提的故事结构面板（世界观、概述、前提与设计原则、因果线、角色转变与弱点、九要素、四条线）这次一行没动——它要动数据层和注入层，风险量级完全不同，我已经把评估做完了，等你确认再开工。"],
   ["v145","这一版同上，修 bug 与清晰度，不动任何注入内容。① 【AI 卡住时不再一直转圈到天亮】此前请求发出去之后，只有「等待响应头」这一段有超时保护；响应头一回来超时就撤了，而后面读正文（流式逐片 / 非流式整段）完全没有期限。服务端只要把响应头发回来再挂住，请求就永远不会结束——界面一直转圈、队列永远停在「进行中」，既不报错也不提示，只能杀掉页面重进，写了一半的东西就没了。现在给读正文补上期限。三条保证：一是流式按「相邻两片之间的静默时长」计时而不是总时长，只要模型还在出字，哪怕整体跑了很久也绝不会被掐断（已实测：每 0.2 秒一片、累计 2 秒，阈值 0.8 秒，十片全部到齐）；二是非流式给的是很宽的独立上限，且绝大多数非流式请求的服务端本来就要等正文齐了才回响应头，这个上限几乎不会成为真正的约束；三是任一个开关设成 0 就逐字还原改动前的行为（永不时限），随时可退。触发时已有内容会保住，并明确告诉你卡了多久、该怎么处理。② 【「重试失败/降级章」以前对降级章是空转】这是本期最要紧的一条：某章消化输出被截断会标成「🟡降级摘要」，而它在判断「要不要重消化」时被当成有效态——于是那个明明写着包含降级、弹窗也照着报了章数的「重试失败/降级章」按钮，对这些章一章都不会真跑，还把跳过计成成功，最后报「重试完成：成功 N 章」，实际一次接口都没调。它是你唯一被告知能修降级的按钮，却恰好修不了降级。现在只在你明确点了重试时把降级放行。队列恢复、全书消化、本卷消化、消化前文、新章自动并入这五条自动路径一律保持原样，不会突然开始重复烧钱。③ 【不会再把缺结构的残缺输出标成 ✅已消化】判定「结构是否完整」原先是「六个关键词里命中任意一个就算合格」，而其中就有「伏笔」——只要输出里出现这两个字，哪怕整段只有一句话、根本没有分段，也算合格。现在改成「编号段落或结构化标题的命中数达到门槛」，同时留一道失败开路：每条提示词都要求首行输出「⟦本章梗概⟧」，模型只要照做了就说明它在服从格式，编号排版即使有出入（有的模型用加粗标题、有的少写一段）也不算残缺——理由是降级分支会连带跳过后续的时间线/人物行为提取，误判的代价是实实在在少喂一段素材给后续生成，宁可放过也不要错杀。这条只改状态标签和计数；写进档案的正文内容与改动前逐字相同（降级与正常走的是同一套写入逻辑）。你可能会看到比从前更多的 🟡降级，那不是新出现的残缺，是原本就在、以前没被标出来——现在可以通过②那条已经修好的按钮真正重跑。④ 【回滚】①对应 AI_STREAM_STALL_MS / AI_BODY_MAX_MS / AI_DIGEST_BODY_MAX_MS，任一设 0 即回到无限等待；②只在「重试失败/降级章」一个入口生效；③对应 DG_STRUCT_MIN，设 0 即完全沿用旧的宽松判定。⑤ 【对文章质量的影响】①②③都不改变任何注入给模型的内容；②让你有能力把残缺档案真正重跑一遍，是朝提高质量的方向。"],
   ["v144","这一版只做三件事，都来自上一次清单里的 #44 / #45 / #46，并且全部遵循同一条底线：只把「无限等待」改成「有限等待」，只把「假成功」改成「真执行」，绝不缩短原本已经存在的任何期限，也绝不让程序自动替你多花一次钱。① 【AI 卡住时不再一直转圈到天亮】此前请求发出去之后，只有「等待响应头」这一段有超时保护；响应头一回来，超时就撤了，而后面读正文（流式逐片或非流式整段）是完全没有期限的。服务端只要把响应头发回来再挂住，这个请求就永远不会结束——界面一直转圈、队列永远停在「进行中」，既不报错也不提示，只能杀掉页面重进，写了一半的东西就没了。现在给读正文这一段补上期限。三条保证：一是流式用的是「相邻两片之间的静默时长」而不是总时长，只要模型还在出字，哪怕整体跑了很久也绝不会被掐断；二是非流式给的是一个很宽的独立上限（消失化给 150 秒、消化给 180 秒），因为它一次要读上万字；三是任何一个开关设成 0 就逐字还原改动前的行为，随时能退回去。触发时不再干等：已有的进度会保住，并明确告诉你卡了多久、该怎么处理。② 【「重试失败/降级章」以前对降级章是空转】这条是这次唯一一处会改变实际执行的改动，也是必须修的：某章消化输出被截断会被标成「🟡降级摘要」，而它在判断「要不要重消化」时被当成有效态。于是那个明确写着包含降级、弹窗也照着报了章数的「重试失败/降级章」按钮，对这些章一章都不会真跑——更糟的是跳过还会被计成成功，界面最后报「重试完成：成功 N 章」，实际一次接口都没调。也就是说它是你唯一被告知能修降级的按钮，却恰好不能修降级。现在只在「你明确点了重试」这一个入口把降级排除出可跳过集合；队列恢复、全书消化、本卷消化、消化前文、新章自动并入这几条自动路径全部保持原样，不会突然开始重复烧钱。③ 【不会出现听到 – 结构残缺却标成 ✅已消化】判定「AI 消化输出结构是否完整」原先是「六个关键词里命中任意一个就算合格」。问题是这些词里有「伏笔」——只要输出里提到伏笔这两个字，哪怕整段只有一句话、根本没有分段，也会被判成结构完整。而这段残缺文本照样写进档案、照样注入之后每一次生成，界面却显示「✅已消化」，你完全看不出这里有坑。现在改成「编号段落或结构化标题的命中数达到门槛才算合格」。这一条只影响状态标签和显示，写进档案的正文内容与改动前逐字相同，因为它走的是同一套写入逻辑。④ 【回滚】①对应 AI_STREAM_STALL_MS / AI_BODY_MAX_MS / AI_DIGEST_BODY_MAX_MS，任一设 0 即回到无限等待；②只在「重试失败/降级章」这一个入口生效，其余路径一行未动；③对应 DG_STRUCT_MIN，设 0 即完全沿用旧的宽松判定。⑤ 【对文章质量的影响】①不会更高质量而是让卡住的请求有明确的结局，且已生成的内容不会丢；②让你有能力真正把残缺档案重跑一遍，这是朝提高质量的方向；③不改变任何注入内容，只让标签更诚实——可能会看到比从前更多的 🟡降级，那不是新产生的残缺，是原本就存在、只是以前没被标出来。"],
   ["v143","这一版是一次全面代码审查之后挑出来的修复，全部遵循「改一处能盖一片、行为可回滚」的原则。审查共列出 113 项，这里先落地风险最低而收益最高的 9 项，其余按优先级留在清单里。① 【唯一会一次性丢掉全部书稿的路径】启动时要把旧数据从浏览器小仓库迁到大仓库（IndexedDB），原写法是「写入失败就当没发生，然后无条件删掉旧副本」——一旦大仓库写入失败（隐私模式、磁盘配额、浏览器策略禁用），旧副本已被删除而新仓库什么都没有，整份书稿在这一次启动里消失，下次进来看到的是默认示例内容，全程没有任何提示。现在改成：只有确认写成功才删旧副本，写失败就留着，下次启动再迁一次（这个过程是幂等的）。② 【一个空元素就能让首屏白屏】导入、跨设备同步、云端数据被截断后的修补，都可能让书数组或章节数组里混进空元素。启动时有一步会遍历章节判断是否为示例内容，遇到空元素就抛错，而它外面没有异常保护——于是整个页面渲染不出来。现在启动前先把空元素剔掉；同时统一了取值函数的空值判定（原来只认「完全没有」，不认「值为空」），这一处改动覆盖了八处同类崩溃点，包括消化队列、历史清理、书架列表。③ 【属性里的引号】界面大量用字符串拼接生成 HTML，转义函数原本只处理三个字符，不处理引号。在正文里显示没问题，但在输入框的值、提示文字这类「属性」里，只要人物名或章节标题里出现一个引号，标签就会被提前截断，轻则该字段显示不全、按钮点不动，重则把后面的内容当成标记插入。现在补上引号转义；转义后的内容在浏览器里仍显示原字符，正文显示与改动前逐字一致。④ 【自动续写的后半段在手机上必丢】生成过程中每隔几秒会把已写内容存一次，防止手机切后台被系统回收时丢稿。判断是否值得存一次用的是「累计长度增加了多少」。但触发自动续写时（一次没写完、接着写第二段），传给存储的只是本段内容，长度反而变短——差值成了负数，于是「增加不足」这条判断从此刻起永远成立，而它又不更新基准，后面写的一个字都不会再存。界面上的正文照常在涨，章节库却停在旧快照，此时切后台就只剩最前面一段。现在把「长度变短」识别为新一段的起点并重置基准，其余判断一字不改。⑤ 【你调的采样参数可能用不到】生成设置里有一个「参数预览」，它显示的是「续写模型」这一栏；而两条正文生成入口实际取的是「分析模型」优先——两者顺序正好相反。也就是说你在预览上精心调的随机性参数、以及那句「已自动改用某模型」的提示，指向的是一个实际不会被使用的模型，正文真正跑在另一个模型上（多数人给分析配的是更贵更慢的推理模型）。现在两处生成入口统一为续写模型优先；如果你没有单独配续写模型，仍回落到分析模型，行为与改动前完全一致。⑥ 【「载入另一个窗口的最新版本」可能什么都没载入却报成功】这一步读本地数据库，而数据库未就绪时它是「返回空」而不是「报错」，走不到异常分支。原代码读到空就直接跳过载入，然后照样解除写入挂起、照样弹「已载入最新版本」——你以为同步好了于是继续写，下一次保存会把本窗口的旧内容整包写回，静默覆盖另一个窗口的改动，比不动更糟。现在读不到就明确报错并保持挂起，不解除、不谎报。⑦ 【AI 忙碌计数卡住时你连恢复入口都看不到】有一个「上次任务被中断了，已保住多少字」的恢复条，但它的第一行是「如果还有任务在跑就不显示」。而请求若挂在读取正文的阶段（超时只覆盖到拿到响应头为止），这个计数永远不会归零——于是恢复条永远不出现、所有 AI 按钮持续禁用，你只能杀掉重进。现在加一条租约：在途记录超过十分钟没动静就不再因此拦下恢复条；十分钟远大于单章最坏耗时，正常任务不受影响。⑧ 【降级摘要会被永久当成已完成】某章消化时输出被截断，会被标记为「降级摘要」保留下来。问题是这个状态在判断「这章还需不需要重消化」时被当成有效态，于是所有「只补未消化章节」的路径——包括最常用的「恢复队列」——都会永久跳过它。而那段残缺文本已经进了分卷档案与卷级摘要，会作为「已发生」注入后续每一次生成。这次不改任何跳过逻辑（成本与行为保持原样），只在恢复队列的确认框里把降级章数点出来，并说明该去哪里单独重跑。⑨ 【回滚】①只改删除旧副本的条件；②只加空元素过滤与空值判定；③只加两个转义字符；④只改一处基准重置；⑤只改两处取值顺序且未配续写模型时行为不变；⑥只加一段有效性判断；⑦只放松一条判断且不改变正常路径；⑧只加提示文字、不动任何逻辑。"],
