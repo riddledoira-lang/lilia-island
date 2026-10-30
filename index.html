@@ -7817,7 +7817,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v143";
+const APP_VERSION="v144";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -7827,6 +7827,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v144","这一版只做三件事，都来自上一次清单里的 #44 / #45 / #46，并且全部遵循同一条底线：只把「无限等待」改成「有限等待」，只把「假成功」改成「真执行」，绝不缩短原本已经存在的任何期限，也绝不让程序自动替你多花一次钱。① 【AI 卡住时不再一直转圈到天亮】此前请求发出去之后，只有「等待响应头」这一段有超时保护；响应头一回来，超时就撤了，而后面读正文（流式逐片或非流式整段）是完全没有期限的。服务端只要把响应头发回来再挂住，这个请求就永远不会结束——界面一直转圈、队列永远停在「进行中」，既不报错也不提示，只能杀掉页面重进，写了一半的东西就没了。现在给读正文这一段补上期限。三条保证：一是流式用的是「相邻两片之间的静默时长」而不是总时长，只要模型还在出字，哪怕整体跑了很久也绝不会被掐断；二是非流式给的是一个很宽的独立上限（消失化给 150 秒、消化给 180 秒），因为它一次要读上万字；三是任何一个开关设成 0 就逐字还原改动前的行为，随时能退回去。触发时不再干等：已有的进度会保住，并明确告诉你卡了多久、该怎么处理。② 【「重试失败/降级章」以前对降级章是空转】这条是这次唯一一处会改变实际执行的改动，也是必须修的：某章消化输出被截断会被标成「🟡降级摘要」，而它在判断「要不要重消化」时被当成有效态。于是那个明确写着包含降级、弹窗也照着报了章数的「重试失败/降级章」按钮，对这些章一章都不会真跑——更糟的是跳过还会被计成成功，界面最后报「重试完成：成功 N 章」，实际一次接口都没调。也就是说它是你唯一被告知能修降级的按钮，却恰好不能修降级。现在只在「你明确点了重试」这一个入口把降级排除出可跳过集合；队列恢复、全书消化、本卷消化、消化前文、新章自动并入这几条自动路径全部保持原样，不会突然开始重复烧钱。③ 【不会出现听到 – 结构残缺却标成 ✅已消化】判定「AI 消化输出结构是否完整」原先是「六个关键词里命中任意一个就算合格」。问题是这些词里有「伏笔」——只要输出里提到伏笔这两个字，哪怕整段只有一句话、根本没有分段，也会被判成结构完整。而这段残缺文本照样写进档案、照样注入之后每一次生成，界面却显示「✅已消化」，你完全看不出这里有坑。现在改成「编号段落或结构化标题的命中数达到门槛才算合格」。这一条只影响状态标签和显示，写进档案的正文内容与改动前逐字相同，因为它走的是同一套写入逻辑。④ 【回滚】①对应 AI_STREAM_STALL_MS / AI_BODY_MAX_MS / AI_DIGEST_BODY_MAX_MS，任一设 0 即回到无限等待；②只在「重试失败/降级章」这一个入口生效，其余路径一行未动；③对应 DG_STRUCT_MIN，设 0 即完全沿用旧的宽松判定。⑤ 【对文章质量的影响】①不会更高质量而是让卡住的请求有明确的结局，且已生成的内容不会丢；②让你有能力真正把残缺档案重跑一遍，这是朝提高质量的方向；③不改变任何注入内容，只让标签更诚实——可能会看到比从前更多的 🟡降级，那不是新产生的残缺，是原本就存在、只是以前没被标出来。"],
   ["v143","这一版是一次全面代码审查之后挑出来的修复，全部遵循「改一处能盖一片、行为可回滚」的原则。审查共列出 113 项，这里先落地风险最低而收益最高的 9 项，其余按优先级留在清单里。① 【唯一会一次性丢掉全部书稿的路径】启动时要把旧数据从浏览器小仓库迁到大仓库（IndexedDB），原写法是「写入失败就当没发生，然后无条件删掉旧副本」——一旦大仓库写入失败（隐私模式、磁盘配额、浏览器策略禁用），旧副本已被删除而新仓库什么都没有，整份书稿在这一次启动里消失，下次进来看到的是默认示例内容，全程没有任何提示。现在改成：只有确认写成功才删旧副本，写失败就留着，下次启动再迁一次（这个过程是幂等的）。② 【一个空元素就能让首屏白屏】导入、跨设备同步、云端数据被截断后的修补，都可能让书数组或章节数组里混进空元素。启动时有一步会遍历章节判断是否为示例内容，遇到空元素就抛错，而它外面没有异常保护——于是整个页面渲染不出来。现在启动前先把空元素剔掉；同时统一了取值函数的空值判定（原来只认「完全没有」，不认「值为空」），这一处改动覆盖了八处同类崩溃点，包括消化队列、历史清理、书架列表。③ 【属性里的引号】界面大量用字符串拼接生成 HTML，转义函数原本只处理三个字符，不处理引号。在正文里显示没问题，但在输入框的值、提示文字这类「属性」里，只要人物名或章节标题里出现一个引号，标签就会被提前截断，轻则该字段显示不全、按钮点不动，重则把后面的内容当成标记插入。现在补上引号转义；转义后的内容在浏览器里仍显示原字符，正文显示与改动前逐字一致。④ 【自动续写的后半段在手机上必丢】生成过程中每隔几秒会把已写内容存一次，防止手机切后台被系统回收时丢稿。判断是否值得存一次用的是「累计长度增加了多少」。但触发自动续写时（一次没写完、接着写第二段），传给存储的只是本段内容，长度反而变短——差值成了负数，于是「增加不足」这条判断从此刻起永远成立，而它又不更新基准，后面写的一个字都不会再存。界面上的正文照常在涨，章节库却停在旧快照，此时切后台就只剩最前面一段。现在把「长度变短」识别为新一段的起点并重置基准，其余判断一字不改。⑤ 【你调的采样参数可能用不到】生成设置里有一个「参数预览」，它显示的是「续写模型」这一栏；而两条正文生成入口实际取的是「分析模型」优先——两者顺序正好相反。也就是说你在预览上精心调的随机性参数、以及那句「已自动改用某模型」的提示，指向的是一个实际不会被使用的模型，正文真正跑在另一个模型上（多数人给分析配的是更贵更慢的推理模型）。现在两处生成入口统一为续写模型优先；如果你没有单独配续写模型，仍回落到分析模型，行为与改动前完全一致。⑥ 【「载入另一个窗口的最新版本」可能什么都没载入却报成功】这一步读本地数据库，而数据库未就绪时它是「返回空」而不是「报错」，走不到异常分支。原代码读到空就直接跳过载入，然后照样解除写入挂起、照样弹「已载入最新版本」——你以为同步好了于是继续写，下一次保存会把本窗口的旧内容整包写回，静默覆盖另一个窗口的改动，比不动更糟。现在读不到就明确报错并保持挂起，不解除、不谎报。⑦ 【AI 忙碌计数卡住时你连恢复入口都看不到】有一个「上次任务被中断了，已保住多少字」的恢复条，但它的第一行是「如果还有任务在跑就不显示」。而请求若挂在读取正文的阶段（超时只覆盖到拿到响应头为止），这个计数永远不会归零——于是恢复条永远不出现、所有 AI 按钮持续禁用，你只能杀掉重进。现在加一条租约：在途记录超过十分钟没动静就不再因此拦下恢复条；十分钟远大于单章最坏耗时，正常任务不受影响。⑧ 【降级摘要会被永久当成已完成】某章消化时输出被截断，会被标记为「降级摘要」保留下来。问题是这个状态在判断「这章还需不需要重消化」时被当成有效态，于是所有「只补未消化章节」的路径——包括最常用的「恢复队列」——都会永久跳过它。而那段残缺文本已经进了分卷档案与卷级摘要，会作为「已发生」注入后续每一次生成。这次不改任何跳过逻辑（成本与行为保持原样），只在恢复队列的确认框里把降级章数点出来，并说明该去哪里单独重跑。⑨ 【回滚】①只改删除旧副本的条件；②只加空元素过滤与空值判定；③只加两个转义字符；④只改一处基准重置；⑤只改两处取值顺序且未配续写模型时行为不变；⑥只加一段有效性判断；⑦只放松一条判断且不改变正常路径；⑧只加提示文字、不动任何逻辑。"],
   ["v142","这一版只处理「灵感会不会被悄悄换掉」这件事，都是先实测确认再动手，改动面窄。① 【上一轮不再一去不回】点「🎲 一键灵感推演」时，新的 3 套会整体替换旧的 3 套，此前连副本都不留——重新推演后若新的不合意，那个更好的想法就再也找不回来，只能再烧一次 token 碰运气。现在覆盖前会自动留一份上一轮，并在下方给两个出口：「↩ 还原上一轮」直接换回去（当前这一轮会顶替成上一轮，于是能来回切，不会单向丢失）、「👀 先看上一轮内容」只显示不动数据。上一轮不存在时这两个按钮不出现，界面与改动前一样。② 【挂载标记不会再错落到别的方案上】判断「哪套被挂载」此前只比方案编号（1/2/3），而编号是每次解析时按顺序重排的序号，两轮之间毫无对应关系。实测过：重新推演后，界面会把新的方案一标成「已挂载」，而列表里方案一的内容早已换成新的，真正生效的却是列表里已经不存在的那套旧内容——你按显示去理解，就会以为正在用的是眼前这套。现在改用方案内容算指纹来认，跨轮稳定；旧的挂载记录没有指纹时自动退回按编号比对，行为与改动前一致。万一挂载的那套确实不在这一轮里（比如你刚重推过），上方会明确写出来并给一个「解除挂载」，不再闷着。③ 【自动灵感不再偏爱堆场景】这是唯一一处会实际影响产出质量的改动。开「🎲 自动灵感」且不弹窗自动择优时，原规则是「节拍数最多者优先」，而同一段生成要求里写的是「每套严格 4-6 个节拍、只推进 1-2 个核心新场景，不得堆砌」——择优规则与生成要求正好相反。实测：一套 8 节拍的堆砌方案会赢过 4 节拍的合规方案，而堆砌恰恰违反场景预算铁律，容易写成走马灯。现在改成先看是否落在 4-6 的合规区间，再看数量，最后取靠前的。手动弹窗自己挑的那条路径完全不受影响，挂载灵感推演方案时也不走这条。④ 【三套到底差多少，现在看得见】3 套要求「基调/冲突重心明显不同」，此前没有任何一处检查——模型偷懒给出 3 套相近的，你就是在一个假选择里挑。现在本地算两两之间的节拍重合率（汉字二元组，0 token、纯计算），重合过高或基调写重复时，上方会提示是哪两套、重合多少。只提示，不改方案、不自动重推。⑤ 【弹窗里标出节拍数】选方案时每套会显示几个节拍，超出 4-6 的标「偏堆砌」、不足的标「偏薄」，挑的时候多一个最直观的依据。⑥ 【回滚】上一轮留存只新增一个存档键，不动原有 deductions 的结构；指纹比对对旧数据自动退回原逻辑；差异化提示与节拍数标注都是纯显示；只有③会改变自动灵感的实际采用结果，若你觉得不如从前，这一处可单独退回。⑦ 【对文章质量的影响】③是朝「更贴合场景预算铁律」的方向改，其余都不触碰注入给模型的内容。"],
   ["v141","这一版不动任何生成逻辑与注入内容，只把上一轮风险评估里「已经识别但还没设防」的缺口补上，全部做成只看不改或默认不动。① 【冲突期间丢了多少次，现在看得见】检测到另一个窗口改过这本书时，本窗口会暂停写入以免覆盖对方——这个设计是对的。但暂停期间每一次保存都被直接丢弃且毫无动静：内存照常改、界面照常显示新内容，你完全看不出一个字节都没落盘，手机上切后台被回收就整个蒸发。现在提示条上会实时显示「期间已有 N 次改动没能落盘，切后台或刷新就会丢」。暂停写入这个行为本身一点没变，只是不再静默。② 【可选的自动解除，默认关闭】另给一个开关 CF_HOLD_AUTORELEASE_MS，默认 0 = 永不自动解除，与改动前完全一致；你自己设成比如 600000（10 分钟），超时后才按「以本窗口为准」自动恢复保存。之所以默认关：自动解除等于替你选了一边，与「绝不在你不知情时覆盖」的初衷相反，该由你决定。③ 【档案一致性体检】v106 把档案块化时立过三条不变量，原话是「三缺一即视为数据损坏」，但那三条当时只写进了注释，全库没有任何一处代码去核对。现在新增「🧭 档案一致性体检」（只读、不改任何数据）：列出三类违例——正文改过而摘要没刷新、标成已消化却没有档案块、未消化却留着档案块。第三类最要紧，它会作为既成事实进每一次生成，且不报错、不提示。它与「🧪 档案落地体检」的分工是：那条查块里的摘抄能不能在正文定位，这条查块与章节记录对不对得上。④ 【增强模块的加载自检】主程序之后会加载三个增强模块，设计上「加载失败就退回基础能力」，这对，但副作用是少加载一个也毫无提示：剧情参谋会悄悄失去章号硬约束、人物辨识铁律、已否决走向、最近章节回补四块，却照常作答，你分不出它跑在哪条路径上（这次修人物卡时实测过两条路径的差别）。现在打开版本日志会直接写明哪几个模块没加载、缺了之后具体少什么。只做显示，不动加载流程。⑤ 【删数据前的备份不再形同虚设】清理失效记录与档案落地剔除这两处，此前都是「发一个异步写入就往下删」，既不等它完成也不看它成没成；写入失败时界面照样说「已备份」，而删除已经执行，档案再也回不来。现在改成写完读回来确认，确认不了就中止、一条不删。成功路径与改动前完全一致，只有原本会静默丢数据的那条失败路径，从「继续删」改成「中止并告诉你」。两个函数仍保持同步返回 boolean 的原有契约。⑥ 【部署后不再让你误判「改了没生效」】离线策略是缓存优先，好处是秒开、断网也能用，代价是刚部署完的那一次打开拿到的还是旧包，而你没有任何迹象知道。现在后台拉到新版本时会比一下版本号，不一样就在底部给一条「检测到新版本，刷新一次即可用上」，带「立刻刷新 / 稍后」两个出口。绝不自动刷新——正在跑的 AI 不会被打断。缓存优先这条主线一点没动。⑦ 【参谋不再拿错卷】主程序的参谋上下文此前直接读分卷下拉框的原始值：刚切过书或还没选过卷时下拉是空的，于是本卷已消化档案、本卷设定、本卷人称铁律三样同时取空，而参谋照常作答。生成链路 v131 起、审稿链路 v139 起都已改用统一的解析入口，参谋这一条漏了，现在补上；你已经明确选过卷时，取值与改动前逐字一致。⑧ 【腾空间时删了什么，现在会说】存储接近上限时会自动腾空间保住正文，方向没错，但被腾掉的其实是 40 章以前的消化档案（人物关系与早期伏笔，要重跑 AI 才拿得回来），此前既不提示也不记录。现在提示里会写明腾掉了几个档案块。⑨ 【存储写入找不到当前书本时会提示】这条极罕见（切书竞态），但发生时是静默丢数据，现在补一次节流提示。⑩ 【落地校验的松紧改成可调】档案落地校验有两个阈值此前是写死的：参与校验的最短摘抄长度、以及命中率低于多少才判整块可疑。合适的松紧只有你自己的真实语料能说话，我把默认值定成什么样都是猜，所以给成两个可调量（GROUND_MIN_QUOTE_LEN、GROUND_SUSPECT_RATIO），默认值与改动前完全一致，你在控制台调完即可生效，不用重新部署；调之前先看每个块尾那句「已剔除 N 条、可核对 X/Y」。⑪ 【回滚】每处改动各带开关或各自独立：PLUS_LOAD_CHECK 置 false 即不显示模块自检；CF_HOLD_AUTORELEASE_MS 保持 0 即无自动解除；两个体检都是只读，点不点都不改变任何数据；备份校验只在备份失败时才会有不同表现；参谋卷解析只在下拉为空时才启用。⑫ 【顺带】给五个已经没有调用点的老函数各补一句说明（它们分别被内联重写或被新接口取代），保留不删，避免后人误当成现役功能去改——其中「自动抽取人物」那个空壳正是本次排查一开始误判方向的来源。⑬ 【对文章质量的影响】无。这一版不改动任何注入给模型的内容、不改动任何生成与消化逻辑。"],
@@ -8761,6 +8762,44 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
     }catch(x){}
   }
 }
+/* ================= v144 #46：正文阶段的停滞看门狗（可关，默认开） =================
+   背景：此前 AbortController 的定时器只在「等待响应头」期间有效，
+        clearTimeout(tid) 一执行，读取正文（流式逐片 / 非流式整段）就再无任何期限。
+        服务端只要把响应头发回来再挂住，Promise 就永不 settle ——
+        界面一直转圈、队列永远停在 running=true，既不报错也不结束，只能刷新页面重来。
+   本段补上这一段缺失的期限。三条硬保证：
+     ① 只把「无限等待」改成「有限等待」，绝不缩短原本已经存在的任何期限；
+     ② 流式用的是「两片之间的静默时长」而不是总时长 —— 只要还在出字，再慢也不会被掐断；
+     ③ 下面任意一个开关设为 0，就逐字还原改动前的行为（= 无限等待），可随时改回原样。
+   ============================================================================= */
+var AI_STREAM_STALL_MS = 120000;   /* 流式：相邻两片数据之间的最大静默时长；0=保持旧行为 */
+var AI_BODY_MAX_MS     = 150000;   /* 非流式：拿到响应头后读完整段正文的上限；0=保持旧行为 */
+var AI_DIGEST_BODY_MAX_MS = 180000;/* 消化（非流式，max_tokens=12000）同上，给得更宽；0=保持旧行为 */
+var _AI_STALL_LAST_HINT=0;
+function _aiStallHint(sec){
+  const _n=Date.now();
+  if(_n-_AI_STALL_LAST_HINT<60000) return;   /* 同一波卡死只提示一次，不刷屏 */
+  _AI_STALL_LAST_HINT=_n;
+  try{ toastErr("AI 已连接，但超过 "+sec+" 秒没有产出新内容（连接可能已卡住）。本次按已生成的部分收尾；内容若明显偏短，可稍后重试或到「AI 生成设置」改用更快的模型。"); }catch(e){}
+}
+/* 给一个「已经建立连接」的读正文 Promise 套一层期限。
+   期限内正常返回 → 完全透传，与原行为逐字一致；
+   超期 → 掐掉底层 ctrl，并以哨兵 {__stall:true} 结束（不抛异常，交由调用方给友好提示）。
+   ms 传 0 / 假值 → 直接返回原 Promise，等同旧行为（无限等待）。 */
+function _aiBodyDeadline(p, ms, ctrl, onFire){
+  if(!ms) return p;
+  return new Promise(function(res,rej){
+    let settled=false;
+    const t=setTimeout(function(){
+      if(settled) return; settled=true;
+      try{ if(onFire) onFire(); }catch(e){}
+      try{ if(ctrl) ctrl.abort(); }catch(e){}
+      res({__stall:true});
+    }, ms);
+    p.then(function(v){ if(settled) return; settled=true; clearTimeout(t); res(v); },
+           function(e){ if(settled) return; settled=true; clearTimeout(t); rej(e); });
+  });
+}
 async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
@@ -8812,7 +8851,9 @@ async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelO
   }
   clearTimeout(tid);
   if(!resp.ok){
-    const t=await resp.text();
+    /* v144 #46：读错误响应体同样要有期限（挂住的话连「HTTP xxx」都报不出来） */
+    const _eb=await _aiBodyDeadline(resp.text(), AI_BODY_MAX_MS, ctrl, null);
+    const t=(_eb && _eb.__stall) ? "" : String(_eb||"");
     /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
     if(resp.status===400 && !_noCache){
       console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
@@ -8835,20 +8876,37 @@ async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelO
     const ct=resp.headers.get('content-type')||"";
     if(ct.indexOf('text/event-stream')>=0 && resp.body){
       const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf=""; let out="";
+      /* v144 #46：流式看门狗按「相邻两片之间的静默」计时，每拿到一片就续期——
+         只要模型还在出字，哪怕整体耗时远超 ms，也绝不会被掐断。 */
+      let _stalled=false;
+      let _wd=null;
+      const _wdArm=function(){ try{ clearTimeout(_wd); }catch(e){}
+        if(!AI_STREAM_STALL_MS) return;
+        _wd=setTimeout(function(){ _stalled=true; try{ ctrl.abort(); }catch(e){} }, AI_STREAM_STALL_MS); };
+      const _wdStop=function(){ try{ clearTimeout(_wd); }catch(e){} _wd=null; };
       try{
-        while(true){ const r=await reader.read(); if(r.done)break; buf+=dec.decode(r.value,{stream:true});
+        _wdArm();
+        while(true){ const r=await reader.read(); if(r.done)break; _wdArm(); buf+=dec.decode(r.value,{stream:true});
           let idx; while((idx=buf.indexOf("\n"))>=0){ const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+1);
             if(line.indexOf("data:")===0){ const data=line.slice(5).trim(); if(data==="[DONE]")continue;
               try{ const j=JSON.parse(data); const d=j.choices&&j.choices[0]&&j.choices[0].delta&&j.choices[0].delta.content; if(d){ out+=d; onToken(out); } }catch(e){} } } }
       }catch(e){ /* 流中断：返回已拿到的部分正文 */ }
+      finally{ _wdStop(); }
+      if(_stalled){ console.warn("[callAI] 流式读取静默超时，已按已生成部分收尾"); _aiStallHint(Math.round(AI_STREAM_STALL_MS/1000)); }
       /* v107 用量账本：流式拿不到 usage，按字数估算（单独标注，不与真实值混算） */
       try{ var _ic=0; for(var _mi=0;_mi<messages.length;_mi++){ _ic+=String((messages[_mi]&&messages[_mi].content)||"").length; }
         aiUsageAdd({model:model, estIn:_ctxTok(_ic), estOut:_ctxTok(out.length)}); }catch(e){}
       /* v121：多带 model / 估算用量，供轨迹记录 */
-      return {content:out, finish_reason:"stop", model:model, uin:_ctxTok(_ic), uout:_ctxTok(out.length)};
+      return {content:out, finish_reason:"stop", model:model, uin:_ctxTok(_ic), uout:_ctxTok(out.length), stalled:_stalled};
     }
   }
-  const raw=await resp.text();
+  /* v144 #46：非流式读正文原先同样没有任何期限，这里补一个；设 0 即逐字还原旧行为 */
+  const _nb=await _aiBodyDeadline(resp.text(), AI_BODY_MAX_MS, ctrl, null);
+  if(_nb && _nb.__stall){
+    _aiStallHint(Math.round(AI_BODY_MAX_MS/1000));
+    throw new Error("AI 已连接，但 "+Math.round(AI_BODY_MAX_MS/1000)+" 秒内没能读完返回的正文（连接可能已卡住）。可稍后重试，或到「AI 生成设置」调小单次生成字数 / 改用更快的模型。");
+  }
+  const raw=String(_nb||"");
   /* 兜底：若接口返回的是流式(SSE)文本，则合并 delta 还原正文 */
   if(/data:\s*\{/.test(raw)||/^data:/.test(raw.trim())){
     const s=parseSSE(raw);
@@ -9036,7 +9094,9 @@ async function _callAIDigestInner({sys,user,temperature,max_tokens,timeout,model
   }
   clearTimeout(tid);
   if(!resp.ok){
-    const t=await resp.text().catch(()=>"");
+    /* v144 #46：读错误响应体补期限 */
+    const _dbn=await _aiBodyDeadline(resp.text().catch(()=>""), AI_DIGEST_BODY_MAX_MS, ctrl, null);
+    const t=(_dbn && _dbn.__stall) ? "" : String(_dbn||"");
     if(resp.status===429||resp.status===403){
       const err=new Error("接口访问暂时受限（HTTP "+resp.status+"），请间隔一段时间重试");
       err.digestType='ratelimit'; throw err;
@@ -9052,7 +9112,14 @@ async function _callAIDigestInner({sys,user,temperature,max_tokens,timeout,model
     const err=new Error("接口拒绝请求（HTTP "+resp.status+"）："+t.slice(0,200));
     err.digestType='http'; throw err;
   }
-  const raw=await resp.text();
+  /* v144 #46：消化是全非流式、max_tokens=12000 的最慢路径，同样补正文期限。
+     命中时按既有的 digestType='timeout' 归类 → 界面标「⏱超时未成」，可被「重试失败/降级章」重跑。 */
+  const _dbody=await _aiBodyDeadline(resp.text(), AI_DIGEST_BODY_MAX_MS, ctrl, null);
+  if(_dbody && _dbody.__stall){
+    const err=new Error("AI 消化超时：已连接但 "+Math.round(AI_DIGEST_BODY_MAX_MS/1000)+" 秒内未读完返回的正文，可能是模型较慢或网络卡住。可在分卷面板点「重试失败/降级章」重跑本章。");
+    err.digestType='timeout'; throw err;
+  }
+  const raw=String(_dbody||"");
   if(/data:\s*\{/.test(raw)||/^data:/.test(raw.trim())){
     const s=parseSSE(raw);
     if(s.trim()) return s;
@@ -10079,11 +10146,29 @@ function digestStatusFromErr(e){
 
 /* ============ 降级检测：判断 AI 输出是否结构化残缺 ============ */
 /* 返回 {degraded:bool, reason:string} */
+/* v144 #44：原先 hasStruct 是「六个关键词里命中任意一个即算合格」的 OR，
+   于是只要输出里出现了「伏笔」两个字 —— 哪怕整段只有一句话、根本没有分段 ——
+   都会被判成结构完整、标成 ✅已消化。而这段残缺文本同样会写进档案块和滚动摘要，
+   作为「已发生的事实」注入之后每一次生成，且界面完全不给任何信号。
+   现改为「编号段落 / 结构化标题的命中数 ≥ DG_STRUCT_MIN」。
+   注意本次改动只影响状态标签与计数，不改变写进档案的正文内容
+   （degraded 与 digested 走的是同一套 block 写入逻辑）。
+   DG_STRUCT_MIN 设为 0 = 完全沿用改动前的旧判定，出现异常可一键退回。 */
+var DG_STRUCT_MIN=2;
+function _digestStructHit(txt){
+  let n=0;
+  ['①','②','③','④','⑤'].forEach(function(m){ if(txt.indexOf(m)>=0) n++; });
+  let h=0;
+  ['人物档案','伏笔','时间线','世界观','已完成剧情','剧情线索'].forEach(function(m){ if(txt.indexOf(m)>=0) h++; });
+  return n>h?n:h;
+}
 function detectDegraded(output, chLabel){
   if(!output||!output.trim()) return {degraded:true, reason:"AI 返回内容为空"};
   const txt=output.trim();
   /* 检测是否包含规定的结构化标题/编号 */
-  const hasStruct = /[①②③④⑤]|人物档案|伏笔|时间线|世界观|已完成剧情|剧情线索/.test(txt);
+  const hasStruct = (DG_STRUCT_MIN>0)
+    ? (_digestStructHit(txt)>=DG_STRUCT_MIN)
+    : /[①②③④⑤]|人物档案|伏笔|时间线|世界观|已完成剧情|剧情线索/.test(txt);
   /* 检测是否被截断：内容过短且没有以正常标点结尾 */
   const tooShort = txt.length < 150;
   const noEndPunct = !/[。！？\n！？。]\s*$/.test(txt);
@@ -10210,6 +10295,15 @@ function setDigestCooldown(ms){
   try{ const c=load("digestCfg",null)||{}; c.cooldownMs=Number(ms)||0; save("digestCfg",c); }catch(e){}
 }
 
+/* v144 #45：队列内「是否可以跳过本章」的统一判定。
+   默认与 shouldSkipDigestion 完全一致；只在 mode==='retry'（「重试失败/降级章」）时把 🟡降级 排除。 */
+function _dqCanSkip(c, vid, opts){
+  if(!c||!c.id) return false;
+  try{
+    if(opts && opts.mode==='retry' && getChDigestStatus(c.id, vid).status===DS_DEGRADED) return false;
+  }catch(e){}
+  return shouldSkipDigestion(c, vid);
+}
 async function digestSerialQueue(chapters, vid, opts){
   opts=opts||{};
   const CHARS_LIMIT=12000;
@@ -10233,7 +10327,15 @@ async function digestSerialQueue(chapters, vid, opts){
     const chLabel="第"+(c.num||"?")+"章《"+(c.title||"")+"》";
 
     /* 算力保护：内容未修改且已消化 → 跳过API调用，直接复用已有档案 */
-    if(shouldSkipDigestion(c, vid)){
+    /* v144 #45：调用方「明确点名重试」时（仅 mode==='retry'，全项目只有「重试失败/降级章」这一个入口），
+       🟡降级 不再算「可跳过」。此前这里的判定是：
+         digestRetryFailed 的候选里明确写着包含降级，弹窗也照着报了章数；
+         但 shouldSkipDigestion 把 degraded 当有效态 → 这些章一章都不会真跑；
+         而且跳过还会 successCount++，最后界面报「重试完成：成功 N 章」——实际零 API 调用。
+       也就是说「重试失败/降级章」对降级章一直是空转，而它是唯一一个用户被告知可以修降级的按钮。
+       队列恢复 / 全书消化 / 本卷消化 / 消化前文 / 自动并入 等 onlyMissing 路径一律保持原样不变，
+       不会出现「改一次口子、到处开始重复烧钱」的情况。 */
+    if(_dqCanSkip(c, vid, opts)){
       done++;
       successCount++;
       const q3=getDigestQueue(); q3.done=done; saveDigestQueue(q3);
