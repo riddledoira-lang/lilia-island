@@ -204,7 +204,7 @@
    * ============================================================ */
   function buildFactBlock() {
     var idx = '';
-    try { idx = String(chapterIndexBlock() || ''); } catch (e) { idx = ''; }
+    try { idx = String(chapterIndexBlock(window.CI_COUNSEL_FULL ? { full: true } : null) || ''); } catch (e) { idx = ''; }
     if (!idx) return '';
     /* v119 的 chapterIndexBlock 已经自带【铁律·严禁编造】四条（禁造章号、禁造内容、
        查不到即视为未发生、回指要带分卷名），这里不再重复，否则 prompt 白白膨胀。
@@ -298,7 +298,8 @@
    *   ④ 整段 try/catch，任何异常都返回空串，绝不让召回把参谋搞挂。
    * 回滚：CP_RAG 置 0 即逐字还原 v146 行为。
    * ============================================================ */
-  window.CP_RAG = 1;              /* 0=不召回，逐字还原 v146 行为；可在控制台改，立即生效 */
+  window.CI_COUNSEL_FULL = 1;   /* v148：1=参谋拿全量章节清单；0=与 v147 逐字一致 */
+  window.CP_RAG = 1;           /* 0=不召回，逐字还原 v146 行为；可在控制台改，立即生效 */
   function winAround(t, qTok, per) {
     /* 章节切片最长 8000 字，直接取开头 320 字拿到的常常是无关内容。
        以第一个命中词为中心开窗，前后带省略号表示是节选。 */
@@ -347,6 +348,34 @@
   }
 
   /* ============================================================
+   * 模块 D3（v148）：作者对本书的定调（故事结构面板）
+   * 只输出「你填了的那几项」，一项没填就整个块不出现——
+   * 未使用本面板的用户，上下文与改动前逐字相同。
+   * ============================================================ */
+  function buildStructBlock() {
+    if (!window.STRUCT_TO_COUNSEL) return '';
+    var s = null;
+    try { s = (typeof loadStoryStruct === 'function') ? loadStoryStruct() : null; } catch (e) { s = null; }
+    if (!s) return '';
+    var lines = [];
+    try {
+      var f = (typeof SS_FIELDS !== 'undefined') ? SS_FIELDS : [];
+      var nn = (typeof SS_NINE !== 'undefined') ? SS_NINE : [];
+      var ll = (typeof SS_LINES !== 'undefined') ? SS_LINES : [];
+      [['base', f], ['nine', nn], ['lines', ll]].forEach(function (p) {
+        var g = s[p[0]] || {};
+        (p[1] || []).forEach(function (it) {
+          var v = String(g[it[0]] || '').trim();
+          if (v) lines.push('· ' + it[1] + '：' + v.slice(0, 300));
+        });
+      });
+    } catch (e2) { return ''; }
+    if (!lines.length) return '';
+    return '【作者对本书的定调（故事结构面板）】\n' + lines.join('\n') + '\n' +
+      '用法：这是作者自己写下的本书骨架，优先级高于你的推断；与它冲突的走向先提出来问作者，不要自行改写。\n';
+  }
+
+  /* ============================================================
    * 模块 E：counselCtx 重写（原函数保留，仅不再被调用）
    * 复用主程序既有的 chapterIndexBlock / volName / getVolPov / getVolSetting / getDigest，
    * 只是把「人物卡 / 章号铁律 / 否决走向」三块换成增强版。
@@ -383,6 +412,7 @@
       try { var pov = getVolPov(vol); if (pov) s += '【本卷人称铁律】' + pov + '\n'; } catch (e3) {}
       try { var vs = getVolSetting(vol); if (vs) s += '【本卷设定】' + String(vs).slice(0, 900) + '\n'; } catch (e4) {}
 
+      s += buildStructBlock();
       s += buildCharBlock(ctx);
 
       try {

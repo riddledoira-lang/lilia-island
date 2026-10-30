@@ -271,6 +271,17 @@
       p.push('plot:' + H(psig));
     } catch (e4) { p.push('plot:err'); }
     try {
+      /* v148：新开关与结构面板数据同样必须进指纹。
+         否则改了开关、或编辑了结构面板，上下文还是旧的那一份——
+         这正是 v147 修掉的「改了人物卡却不刷新」的同一类问题。 */
+      try {
+        var sw = [window.CI_COUNSEL_FULL, window.CI_LIST_MAX, window.CI_LIST_FULL_MAX,
+          window.CI_LIST_CHARS, window.STRUCT_PANEL, window.STRUCT_TO_COUNSEL].join(',');
+        p.push('sw:' + sw);
+        var st = '';
+        try { st = JSON.stringify((typeof loadStoryStruct === 'function') ? loadStoryStruct() : {}); } catch (es) { st = ''; }
+        p.push('struct:' + H(st));
+      } catch (esw) {}
       var vv = String(((document.getElementById('chVol') || {}).value) || 'none');
       p.push('vset:' + H(String((typeof getVolSetting === 'function') ? (getVolSetting(vv) || '') : '')));
       p.push('vpov:' + H(String((typeof getVolPov === 'function') ? (getVolPov(vv) || '') : '')));
