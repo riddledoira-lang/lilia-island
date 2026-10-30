@@ -22,13 +22,20 @@
   if (window.__LILIA_COUNSEL_PLUS__) { return; }        /* 防重复加载 */
   window.__LILIA_COUNSEL_PLUS__ = { ver: 'v126', ok: false };
 
-  var CFG = {
+  /* 暴露到模块标记上，便于在控制台按需调预算（改动即时生效，不需重新部署） */
+  window.__LILIA_COUNSEL_PLUS__.CFG = {
     charMax: 20,      /* 注入人物卡上限（原为 8，直接把配角卡掉了） */
     plotCap: 6000,    /* 存为剧情线索的正文容量（原 600） */
     briefCap: 6000,   /* 写进本章指令的容量（原 1200） */
     vetoMax: 30,      /* 否决走向最多保留条数 */
-    adoptMax: 30
+    adoptMax: 30,
+    /* v147：参谋按需召回（治「74 章里只有最后 3–5 章的梗概能进上下文」） */
+    ragTop: 6,        /* 召回条数上限 */
+    ragPer: 320,      /* 每条片段字数上限 */
+    ragCap: 1800,     /* 召回块总字数上限 */
+    ragStop: 12000    /* 上下文已经这么长就不再追加召回，防超预算 */
   };
+  var CFG = window.__LILIA_COUNSEL_PLUS__.CFG;
 
   /* ---------------- 基础工具 ---------------- */
   function E(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -275,6 +282,71 @@
   }
 
   /* ============================================================
+   * 模块 D2（v147）：参谋按需召回
+   *
+   * 症状：74 章的小说里，参谋只能看到「最后 5 章梗概（各 400 字）+ 最后 3 章梗概（各 120 字）
+   *       + 一句卷滚动摘要 + 全书总档案」。问「菲比在第 6 章那个动作合理吗」时，
+   *       第 6 章的正文根本不在上下文里——实测「把那封信收进袖口」整句不可达。
+   *       这不是容量不够（整段上下文才 3.4k 字，远小于窗口），是根本没有召回这一步。
+   *       主程序已有的检索索引（人物 / 线索 / 章节正文 / 消化档案）完全可用，
+   *       实测同一句提问能命中第 3/4/5 章的档案块与章节正文——属于「有能力但没接」。
+   *
+   * 做法：用「本次提问 + 编辑器正文尾部」查一次索引，把命中的原文片段追加进上下文。
+   *   ① 只在末尾追加，不动已有任何一块的顺序与内容；
+   *   ② 零命中就一个字都不加（与关闭开关时字节一致）；
+   *   ③ 跳过「人物」类命中——人物卡已由 buildCharBlock 完整注入，不必重复占预算；
+   *   ④ 整段 try/catch，任何异常都返回空串，绝不让召回把参谋搞挂。
+   * 回滚：CP_RAG 置 0 即逐字还原 v146 行为。
+   * ============================================================ */
+  window.CP_RAG = 1;              /* 0=不召回，逐字还原 v146 行为；可在控制台改，立即生效 */
+  function winAround(t, qTok, per) {
+    /* 章节切片最长 8000 字，直接取开头 320 字拿到的常常是无关内容。
+       以第一个命中词为中心开窗，前后带省略号表示是节选。 */
+    try {
+      if (!qTok) return t.slice(0, per);
+      var best = -1;
+      for (var k in qTok) {
+        if (String(k).length < 2) continue;
+        var p = t.indexOf(k);
+        if (p >= 0 && (best < 0 || p < best)) best = p;
+      }
+      if (best < 0) return t.slice(0, per);
+      var st = Math.max(0, best - Math.floor(per / 3));
+      return (st > 0 ? '…' : '') + t.slice(st, st + per) + (((st + per) < t.length) ? '…' : '');
+    } catch (e) { return t.slice(0, per); }
+  }
+  function buildRecallBlock(ctx) {
+    if (!window.CP_RAG) return '';
+    try {
+      if (typeof ragRetrieve !== 'function' || typeof buildRagIndex !== 'function') return '';
+      var q = (String(ctx.question || '') + ' ' + String(ctx.body || '').slice(-400)).trim();
+      if (q.replace(/\s+/g, '').length < 2) return '';
+      var hits = ragRetrieve(q, CFG.ragTop, buildRagIndex(null)) || [];
+      if (!hits.length) return '';
+      var qTok = null;
+      try { qTok = (typeof _ragTok === 'function') ? _ragTok(q) : null; } catch (et) { qTok = null; }
+      var lines = [], used = 0;
+      for (var i = 0; i < hits.length && used < CFG.ragCap; i++) {
+        var h = hits[i]; if (!h) continue;
+        if (h.type === '人物') continue;
+        var t = String(h.text || '').replace(/\s+/g, ' ').trim();
+        if (!t) continue;
+        t = winAround(t, qTok, CFG.ragPer);
+        if (!t) continue;
+        var room = CFG.ragCap - used;
+        if (t.length > room) t = t.slice(0, room);
+        if (!t) continue;
+        used += t.length;
+        lines.push('· [' + (h.type || '材料') + '] ' + (h.title || '') + '：' + t);
+      }
+      if (!lines.length) return '';
+      return '【按你的提问召回的相关剧情（可跨越早期章节，原文节选）】\n' + lines.join('\n') + '\n' +
+        '用法：以上是检索命中的原文片段，可能只是节选、也可能只与提问部分相关。' +
+        '引用时以这里的原文为准；片段没覆盖到的部分，直接说「档案里没有」，不要凭印象补全。\n';
+    } catch (e) { return ''; }
+  }
+
+  /* ============================================================
    * 模块 E：counselCtx 重写（原函数保留，仅不再被调用）
    * 复用主程序既有的 chapterIndexBlock / volName / getVolPov / getVolSetting / getDigest，
    * 只是把「人物卡 / 章号铁律 / 否决走向」三块换成增强版。
@@ -335,6 +407,7 @@
 
       var vb = vetoBlock();
       if (vb) s += vb;
+      if (s.length < CFG.ragStop) s += buildRecallBlock(ctx);
     } catch (err) {
       /* 任何异常都退回主程序原实现，绝不让增强版本把参谋搞挂 */
       if (_origCounselCtx) { try { return _origCounselCtx(); } catch (e7) {} }

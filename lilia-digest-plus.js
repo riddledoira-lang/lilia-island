@@ -236,6 +236,48 @@
    * 发给模型的 token 另有 addCacheControl 前缀缓存兜底，两者互不干扰。
    * 否决清单变化会让指纹改变（它会被注入 ctx），所以不会出现「加了否决却用的旧上下文」。
    * ============================================================ */
+  /* v147：指纹补漏开关。1=纳入「人物卡内容 / 当前分卷 / 编辑器正文 / 线索 / 本卷设定与人称」；
+     0=完全沿用 v146 及以前的指纹（用于对照与回退，不需要任何数据修复）。 */
+  window.DP_CTX_FP_STRICT = 1;
+  /* 原本只数了「人物卡有几张」却没看卡片里写的是什么，也没看当前选的是哪一卷、
+     编辑器里正在写什么。于是改了人物卡、切了分卷、或者在编辑器里写了新正文之后，
+     指纹一模一样，缓存把改动前那一份上下文原样返回——
+     表现就是「怎么改、怎么问，参谋都像没看见这个人」。实测三次全部命中旧值。 */
+  function dpStrictFp() {
+    var p = [];
+    try {
+      var sel = document.getElementById('chVol');
+      p.push('vol:' + String((sel && sel.value) || 'none'));
+    } catch (e) { p.push('vol:err'); }
+    try {
+      var bd = String(((document.getElementById('chBody') || {}).value) || '');
+      p.push('body:' + bd.length + ':' + H(bd.slice(0, 160)) + ':' + H(bd.slice(-240)));
+    } catch (e2) { p.push('body:err'); }
+    try {
+      var cs = load('chars', []) || [], csig = '';
+      for (var i = 0; i < cs.length; i++) {
+        var c = cs[i] || {};
+        csig += [c.name, c.aliases, c.core, c.desire, c.deepDesire, c.appearance,
+          c.langSys, c.thinkMode, c.taboos, c.psyche, c.protagonist].join('\u0001') + '\u0002';
+      }
+      p.push('chars:' + H(csig));
+    } catch (e3) { p.push('chars:err'); }
+    try {
+      var ps = load('plot', []) || [], psig = '';
+      for (var j = 0; j < ps.length; j++) {
+        var q = ps[j] || {};
+        psig += [q.line, q.point, q.owner, q.status, q.due].join('\u0001') + '\u0002';
+      }
+      p.push('plot:' + H(psig));
+    } catch (e4) { p.push('plot:err'); }
+    try {
+      var vv = String(((document.getElementById('chVol') || {}).value) || 'none');
+      p.push('vset:' + H(String((typeof getVolSetting === 'function') ? (getVolSetting(vv) || '') : '')));
+      p.push('vpov:' + H(String((typeof getVolPov === 'function') ? (getVolPov(vv) || '') : '')));
+    } catch (e5) { p.push('vset:err'); }
+    return p.join('|');
+  }
+
   var _ctxCache = { key: '', val: null };
   function dpCtxFp() {
     try {
@@ -251,9 +293,11 @@
         for (var i = lg.length - 1; i >= 0; i--) { if (lg[i].role === 'me') { last = lg[i].text || ''; break; } }
       } catch (e) {}
       var d = getDigest();
-      return [n, len, mx, (d && d.digest_update_at) || 0, H(last),
+      var fp = [n, len, mx, (d && d.digest_update_at) || 0, H(last),
         (load('chars', []) || []).length, H(vs),
-        H(ls('lilia_cp_counselVeto')), H(ls('lilia_cp_counselAdopt'))].join('#');
+        H(ls('lilia_cp_counselVeto')), H(ls('lilia_cp_counselAdopt'))];
+      if (window.DP_CTX_FP_STRICT) fp.push(dpStrictFp());
+      return fp.join('#');
     } catch (e) { return 'fp' + Date.now(); }
   }
   var _origCtx = (typeof counselCtx === 'function') ? counselCtx : null;
