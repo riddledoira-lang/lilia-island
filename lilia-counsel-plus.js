@@ -447,6 +447,108 @@
   };
 
   /* ============================================================
+   * 模块 L（v152）：讨论要点的本地提炼器
+   *
+   * 原实现只取「最后一条 AI 回复」原文前 6000 字写进生成指令，带来三个问题：
+   *   ① 跨轮结论全部丢失（讨论到第 8 轮时，第 1 轮定的走向已经不在指令里了）；
+   *   ② 寒暄、复述提问、被推翻的备选方案照样进指令，白白烧 token；
+   *   ③ 每点一次就追加一次，指令框无限膨胀。
+   * 本模块从整轮讨论里摘结构化要点：走向 / 结论 / 情感落点 / 关键细节 / 待决问题。
+   *
+   * 关键取舍：**零 token**。不再额外调一次 AI 去总结（那等于为了省 token 先烧 token），
+   * 全部用本地规则完成；任何异常或提炼收益不足都由调用方回退到旧行为。
+   * 回滚：window.CP_DIGEST = 0 即逐字还原 v151 行为。
+   * ============================================================ */
+  window.CP_DIGEST = 1;        /* 1=提炼要点写进指令；0=旧行为（最后一条原文前 6000 字） */
+  window.CP_DIGEST_MAX = 1800; /* 要点块总字数上限 */
+  window.CP_DIGEST_TURN = 12;  /* 参与提炼的最近轮数 */
+  window.CP_DIGEST_LINE = 120; /* 单条要点字数上限 */
+
+  var DL = {
+    minLine: 6,     /* 提炼出的条数少于此值，判定为提炼失败，回退原文 */
+    minRate: 0.06,  /* 提炼后占原文比例低于此值，同样回退原文 */
+    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3 },
+    /* 判定顺序：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
+       走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。 */
+    order: ["情感", "细节", "走向", "结论", "待决"],
+    lex: {
+      /* 走向只收「未来动作与决策」：去掉了 之后 / 结尾 / 顺序 这类会被误命中的泛词 */
+      走向: /(接下来|下一步|下一章|后续|走向|路线|分岔|建议走|建议(你|让|把|先)|不如|不妨|可以(考虑|试试|先)|最终|收束|摊牌|挑明|主动道歉|先开口|先低头|结局)/,
+      结论: /(结论|小结|因此|所以|关键是|核心是|记住|注意|建议|应该|应当|务必|必须|不宜|不要|别让|避免|优先|前提|底线|换句话说|定下来|拍板|关键在于|要点是|取决于)/,
+      情感: /(情感|感情|情绪|心动|暧昧|吃醋|醋意|冷战|哄|告白|表白|吻|拥抱|委屈|吃味|裂痕|信任|依赖|安抚|脸红|眼眶|鼻酸|心疼|失落|撒娇|不安|动心|柔软|酸涩|绷紧|松开|别扭|较劲)/,
+      /* 细节不收「必须」：那是结论语气，收到结论区更准 */
+      细节: /(伏笔|细节|呼应|回扣|道具|时间线|年表|顺序|先后|设定|规则|限制|保留|不要忘|不能忘|记得|埋|铺垫|flag|FLAG|手势|口头禅|习惯|伤疤|信物|铁律|禁区)/,
+      待决: /(要不要|需不需要|你觉得呢|还是说|待定|还没想好|你自己定|二选一|取决于你)/
+    },
+    /* 列表项：①②③ / 1. / - 。参谋列举「可选走向」时用的就是这些，
+       它们本身即候选走向，不能再被词典判到别处去 */
+    list: /^([①②③④⑤⑥⑦⑧⑨⑩]|\d{1,2}[.、)]|[-•·>])\s*/,
+    /* 噪声句：寒暄 / 能力声明 / 免责声明 / 复述 —— 一律不进指令 */
+    noise: /(你好|很高兴|希望.{0,4}(有帮助|帮到你)|如果你还有|以上(是|为)?(我的)?(分析|建议|看法)|仅供参考|祝(你)?写作顺利|还有什么可以帮|我明白了|明白你的意思|有问题随时|随时(告诉|找我)|这只是.{0,8}可能|当然，?这只是|^好的[，,。]?$|谢谢你的(提问|补充))/,
+    head: /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/,
+    md: /[*_`#>{}\[\]]/g
+  };
+
+  /* 一条待判定的句子 */
+  function dlClean(s) {
+    s = String(s || "").replace(/\r/g, " ").trim();
+    s = s.replace(DL.head, "").replace(DL.head, "");
+    s = s.replace(DL.md, "");
+    s = s.replace(/\s{2,}/g, " ").trim();
+    if (s.length > CFG.dLineMax()) s = s.slice(0, CFG.dLineMax()) + "…";
+    return s;
+  }
+  CFG.dLineMax = function () { return Number(window.CP_DIGEST_LINE) || 120; };
+
+  function dlKey(s) { return String(s || "").replace(/[\s，。、；：！？!?,;:（）()「」《》"'…—\-·*#]/g, "").slice(0, 60); }
+
+  function dlCharNames() {
+    var ns = [];
+    try {
+      (load("chars", []) || []).forEach(function (c) {
+        var n = String((c && c.name) || "").trim();
+        if (n.length >= 2) ns.push(n);
+      });
+    } catch (e) {}
+    return ns;
+  }
+
+  /* 把一轮讨论文本切成候选句（按行 + 句号/问号/分号二次切） */
+  function dlSplit(text) {
+    var out = [];
+    String(text || "").split(/\r?\n/).forEach(function (raw) {
+      var ln = String(raw || "").trim();
+      if (!ln) return;
+      if (DL.noise.test(ln)) return;
+      /* 标题行（【xx】）单独成条，是有价值的分区信息 */
+      String(ln).split(/(?<=[。！？；])/).forEach(function (seg) {
+        var s = String(seg || "").trim();
+        if (s.length >= 6) out.push(s);
+      });
+    });
+    return out;
+  }
+
+  function dlClassify(s) {
+    for (var i = 0; i < DL.order.length; i++) {
+      var k = DL.order[i];
+      if (DL.lex[k].test(s)) return k;
+    }
+    return "";
+  }
+
+  /* 打分：AI 回复优先 > 用户发言；越新越高；点到人物名字加分；长度适中加分 */
+  function dlScore(s, meta, names) {
+    var sc = meta.role === "ai" ? 10 : 6;
+    sc += Math.min(meta.rec, 6);                              /* 最近程度 0..6 */
+    for (var i = 0; i < names.length; i++) { if (s.indexOf(names[i]) >= 0) { sc += 4; break; } }
+    var L = s.length;
+    if (L >= 12 && L <= 90) sc += 3; else if (L > 90) sc += 1;
+    if (/^[①②③④⑤⑥]/.test(s)) sc += 2;                  /* 明确的可选走向列表项 */
+    return sc;
+  }
+
+  /* ============================================================
    * 模块 F：线索 / 指令扩容（缺陷 4）
    * ============================================================ */
   counselToPlot = function () {
@@ -469,6 +571,120 @@
     } catch (e) { toast('存线索失败：' + (e && e.message)); }
   };
 
+  /* 从整轮讨论里提炼要点块。失败（讨论太短 / 没有结论句）返回 null，由调用方回退原文。 */
+  function buildCounselDigest() {
+    try {
+      var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+      var turnMax = Number(window.CP_DIGEST_TURN) || 12;
+      var src = log.slice(-turnMax);
+      if (!src.length) return null;
+      var names = dlCharNames();
+      var vetoed = vetoGet(), adopted = adoptGet();
+      var bucket = { 走向: [], 结论: [], 情感: [], 细节: [], 待决: [] };
+      var seen = {}, rawLen = 0;
+      for (var i = 0; i < src.length; i++) {
+        var it = src[i]; if (!it) continue;
+        var txt = String(it.text || '');
+        rawLen += txt.length;
+        var meta = { role: it.role || 'ai', rec: Math.min(6, Math.round((i + 1) / src.length * 6)) };
+        dlSplit(txt).forEach(function (seg) {
+          if (DL.noise.test(seg)) return;
+          var clean = dlClean(seg);
+          if (clean.length < 6) return;
+          var k = dlKey(clean);
+          if (seen[k]) return;
+          /* 被否决的走向，即使原文里又提了一次也不再进指令 */
+          for (var v = 0; v < vetoed.length; v++) {
+            if (String(vetoed[v]).length >= 8 && clean.indexOf(String(vetoed[v]).slice(0, 12)) >= 0) return;
+          }
+          /* 列表项（参谋列举「可选走向」时用的 ①②③/1./-）本身就是候选走向，
+             不再交给词典判定——否则跨轮定的那条走向会因为措辞朴素而被丢掉 */
+          var isList = DL.list.test(seg);
+          var kind = isList ? '走向' : ((it.role === 'me' && /[？?]/.test(clean)) ? '待决' : dlClassify(clean));
+          if (!kind) return;
+          seen[k] = 1;
+          /* 「建议走②」这类拍板句置顶，避免三个互斥候选并列时模型拿不准 */
+          var bonus = (isList ? 10 : 0) + (/建议走|就按|按②|按①|按③|采用/.test(clean) ? 12 : 0);
+          bucket[kind].push({ text: clean, sc: dlScore(clean, meta, names) + bonus });
+        });
+      }
+      /* 已采纳的走向是作者拍过板的决定，无条件排在最前 */
+      bucket['走向'] = adopted.map(function (t) { return { text: '（已确定）' + String(t), sc: 999 }; }).concat(bucket['走向']);
+
+      var max = Number(window.CP_DIGEST_MAX) || 1800;
+      var pickedBy = {}, total = 0, kept = 0;
+      DL.order.forEach(function (kind) {
+        var list = bucket[kind].slice().sort(function (a, b) { return b.sc - a.sc; });
+        var cap = DL.keep[kind] || 4, arr = [];
+        for (var j = 0; j < list.length && arr.length < cap; j++) {
+          var t = list[j].text;
+          var dup = false;
+          for (var m2 = 0; m2 < arr.length; m2++) {
+            var ka = dlKey(arr[m2]), kb = dlKey(t);
+            if (ka.indexOf(kb) >= 0 || kb.indexOf(ka) >= 0) { dup = true; break; }
+          }
+          if (dup) continue;
+          if (total + t.length > max) continue;
+          arr.push(t); total += t.length; kept++;
+        }
+        if (arr.length) pickedBy[kind] = arr;
+      });
+      if (kept < DL.minLine) return null;
+      var body = DL.order.filter(function (k) { return pickedBy[k] && pickedBy[k].length; })
+        .map(function (k) { return '【' + k + '】\n' + pickedBy[k].map(function (t) { return '· ' + t; }).join('\n'); })
+        .join('\n');
+      if (!body) return null;
+      var rate = rawLen ? (body.length / rawLen) : 0;
+      if (rate < DL.minRate) return null;
+      var block = '【剧情参谋要点 · 下一轮据此写】\n' + body
+        + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
+        + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
+      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length };
+    } catch (e) { return null; }
+  }
+
+  /* 标记块：写入可幂等替换，不再一味追加 */
+  var CP_BEGIN = '【剧情参谋要点 · 下一轮据此写】';
+  var CP_END = '【要点完】';
+  var _cpBriefBak = null;
+  function cpWriteBrief(block) {
+    var ta = document.getElementById('chBrief');
+    if (!ta) return false;
+    _cpBriefBak = ta.value;
+    var v = String(ta.value || ''), b = v.indexOf(CP_BEGIN);
+    if (b >= 0) {
+      var e = v.indexOf(CP_END, b);
+      if (e >= 0) { v = v.slice(0, b) + block + v.slice(e + CP_END.length); }
+      else {
+        var nx = v.indexOf('\n【', b + 1);
+        v = (nx > 0) ? (v.slice(0, b) + block + v.slice(nx + 1)) : (v.slice(0, b) + block);
+      }
+      v = v.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+    } else {
+      v = (v ? v + '\n' : '') + block;
+    }
+    ta.value = v;
+    return true;
+  }
+  window.cpUndoBrief = function () {
+    try {
+      var ta = document.getElementById('chBrief');
+      if (!ta || _cpBriefBak === null) { toast('没有可撤销的上一步'); return; }
+      ta.value = _cpBriefBak; _cpBriefBak = null; toast('已撤销上一次写入');
+    } catch (e) {}
+  };
+  /* 清理由旧版本累积的原文块（v152 之前的「剧情参谋结论」整段）——需作者显式调用，
+     绝不自动删你没确认过的内容 */
+  window.cpBriefClearOld = function () {
+    try {
+      var ta = document.getElementById('chBrief'); if (!ta) return;
+      var before = String(ta.value || '').length;
+      ta.value = String(ta.value || '').replace(/【剧情参谋结论[^\n]*\n[\s\S]{0,6000}?(?=\n【|$)/g, '')
+        .replace(/\n{3,}/g, '\n\n').trim();
+      toast('已清理旧版原文块：指令 ' + before + ' 字 → ' + String(ta.value || '').length + ' 字');
+    } catch (e) { toast('清理失败：' + (e && e.message)); }
+  };
+
   counselToBrief = function () {
     try {
       var last = null;
@@ -478,11 +694,39 @@
       if (!ta) return;
       var full = String(last.text || '');
       var kept = full.slice(0, CFG.briefCap);
-      ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
-      var cut = full.length - kept.length;
-      toast(cut > 0
-        ? ('已写进「生成指令」（' + kept.length + ' 字，超出的 ' + cut + ' 字被截断）')
-        : ('已写进「生成指令」（' + kept.length + ' 字，完整写入）'));
+
+      /* 开关关闭 = 逐字还原 v151 行为：最后一条原文前 6000 字，追加进指令 */
+      if (!window.CP_DIGEST) {
+        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
+        var cut = full.length - kept.length;
+        toast(cut > 0
+          ? ('已写进「生成指令」（' + kept.length + ' 字，超出的 ' + cut + ' 字被截断）')
+          : ('已写进「生成指令」（' + kept.length + ' 字，完整写入）'));
+        return;
+      }
+
+      /* 讨论本身就短时，提炼没有收益（分区标题反而让它变长）——直接原样写入 */
+      var rawTotal = 0;
+      try {
+        _counselLog.slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
+      } catch (e2) {}
+      if (rawTotal <= 700) {
+        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
+        toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
+        return;
+      }
+
+      var d = buildCounselDigest();
+      if (!d) {
+        /* 提炼不出结论（讨论太短 / 全是过程没有落点）时回退原文：宁可多烧，也不丢信息 */
+        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
+        toast('这次没提炼出明确结论（讨论里还缺落点），已按原样写入 ' + kept.length + ' 字');
+        return;
+      }
+      if (cpWriteBrief(d.text)) {
+        toast('已提炼 ' + d.kept + ' 条要点写进「生成指令」：原文 ' + d.raw + ' 字 → 要点 ' + d.chars
+          + ' 字（省 ' + Math.round((1 - d.rate) * 100) + '%）；写错了可撤销');
+      }
     } catch (e) { toast('写入指令失败：' + (e && e.message)); }
   };
 
