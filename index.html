@@ -4116,6 +4116,7 @@ function editChapter(id){
   /* 切章前先落盘当前章节，清掉旧定时器，防未保存内容丢失与串章 */
   try{ if(_hasFlushable()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
   const c=load("chapters",[]).find(x=>x.id===id);if(!c)return;
+  _chBodyTouched=false;   /* v154：刚载入的正文不是作者改的，别当成「作者删空」 */
   popVolSelect();
   document.getElementById("chId").value=c.id;
   document.getElementById("chNum").value=c.num||"";
@@ -4246,6 +4247,7 @@ function resetChapterForm(){
   }
   document.getElementById("chVol").value=_dv||"none";
   document.getElementById("chCount").textContent="";
+  _chBodyTouched=false;   /* v154：表单已清空，正文框为空是初始态而非删除动作 */
 }
 /* 行内快速修改章节状态（草稿/待修改/已完稿） */
 function setChapterStatus(id, status){
@@ -4341,7 +4343,10 @@ async function autoGenBriefTemplate(textarea){
    window.CP_BRIEF_AUTOSAVE=0 → 逐字回到「只存 title+body」的旧行为。
    ★ 必须声明在下面的监听注册之前，否则注册时读到 undefined，置 0 就关不掉监听。 */
 window.CP_BRIEF_AUTOSAVE=1;
-document.getElementById("chBody").addEventListener("input",function(){document.getElementById("chCount").textContent="字数："+this.value.length; updateFocusBar(); updateWordRing(); autoSaveChapter();});
+/* v154 · 回归修复（P0）：正文框是否被作者真正编辑过。
+   为假时正文框为空只说明「这一章还没被加载进编辑器」，不等于「作者删空了」。 */
+var _chBodyTouched=false;
+document.getElementById("chBody").addEventListener("input",function(){_chBodyTouched=true; document.getElementById("chCount").textContent="字数："+this.value.length; updateFocusBar(); updateWordRing(); autoSaveChapter();});
 ["input","keyup","click","focus"].forEach(function(ev){ document.getElementById("chBody").addEventListener(ev, typewriterScroll); });
 document.addEventListener("selectionchange", function(){ if(document.activeElement===document.getElementById("chBody")) typewriterScroll(); });
 document.getElementById("chTitle").addEventListener("input",autoSaveChapter);
@@ -4408,7 +4413,16 @@ function _flushAutoSave(){
   if(id){
     const i=ch.findIndex(x=>x.id===id);
     if(i>=0){
-      ch[i]={...ch[i],title:title||ch[i].title,body};
+      var _oldB=String(ch[i].body||""), _newB=String(body||"");
+      /* v154 · 回归修复（P0）：正文框为空、库里却有字时不能用空白覆盖。出现这种组合
+         只有三种来源，没有一种是作者主动删空：
+           ① 生成在途 —— 流式缓冲已落盘，编辑器还没同步；
+           ② 这一章由程序写入（AI 生成 / 参谋 / 自动模板），从未被加载进编辑器；
+           ③ 恢复了未完成的生成，但还没点开这一章。
+         一律抹掉就是丢稿，正是 v114 防丢稿保证要拦的那一类。
+         作者真的删空时，chBody 的 input 监听已把 _chBodyTouched 置 1，此处照常落盘。 */
+      var _keepB=(_newB===""&&_oldB!==""&&!_chBodyTouched);
+      ch[i]={...ch[i],title:title||ch[i].title,body:_keepB?_oldB:_newB};
       if(_bs){ ch[i].status=_st; ch[i].due=_due; ch[i].hook=_hook; ch[i].brief=_brief; }
       ch[i].demo=false; save("chapters",ch); recordWords(ch[i]); pushHistory(ch[i]); return ch[i];
     }
@@ -8142,7 +8156,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v153";
+const APP_VERSION="v154";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8152,6 +8166,8 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v154","修复\n· 【丢稿回归修复，务必更到这一版】v153 给「本章专属指令」加了自动保存，同时把「关闭/刷新\n页面前自动落盘」的触发条件从「正文有字」放宽成了「正文或标题有字」。结果在「AI 生成到一半、\n编辑器还没同步」这一刻刷新或切走，落盘动作会拿空白的正文框盖掉已经存好的稿子，\n把刚生成的内容抹成 0 字。现已改为：编辑器从未被真正编辑过时，正文框为空只代表\n「这一章还没被加载进编辑器」，不再当成「你删空了」——库里已有的正文一律保留；\n你真的动手删空时，落盘行为与改动前完全一致。\n· 该问题由「生成中途被杀是否保住正文」这条回归用例发现：v152 保住 8 字 ✅，\nv153 保住 0 字 ❌，v154 恢复为 8 字 ✅。\n· 除上述落盘保护外，其它功能、提示词与注入内容一字未改。"],
+
   ["v153","新增\n· 参谋新增「定稿指令」出口：一键把整轮讨论收束成五段结构化指令（整体故事与剧情走向 / 讨论达成的最终结论 / 关键情感落点 / 必须保留的细节与设定 / 已排除），每条带「已定 / 待定 / 未定 / 排除」状态标注，可刷新、可撤销\n· 「写进本章指令」产出的要点块现在会自动落盘，切章 / 切书 / 刷新不再丢\n优化\n· 参谋不再每轮强制开叉：铁律⑤ 改为「确有实质分岔才给走向选项」，并新增收敛条款——已无分岔或你已拍板时，直接输出「本轮结论」并停止追问\n· 你已拍板 / 采纳过的走向不再被重复抛出：参谋上下文此前只注入「已被否决的走向」，没有「已确定的走向」，导致已定事项被反复重问\n· 参谋回复加了篇幅上限（默认 600 字，可调），内容多就走要点、不写长段落\n· 参谋看到的长期记忆从「卷档案最老的 1500 字」改为与生成侧一致的头+尾口径，早期设定与最新进展两头都在\n· 「接着写」链路补上此前只有「深度续写」才有的场景聚焦、比喻密度与篇幅下发\n修复\n· v152 的提炼器在讨论超过 2-3 轮后 100% 静默失效、回退成「最后一条回复原文前 6000 字」——判据用了「压缩率」，而压缩率天然随讨论变长而下降，等于给功能装了个「只在不需要它时才启动」的开关。现改为绝对量判据\n· 连点多次「写进本章指令」会让指令无限堆积（实测正好 3 倍），且撤销会回滚到过期快照。现统一为幂等写入\n· 要点预算此前先分给「情感 / 细节」，越是关键决策越排在队尾、越容易被挤掉。现改为决策类优先\n· 章指令框手动改完不保存；切换书本还会把上一本书的讨论带进新书，并覆盖掉新书原有讨论\n说明\n· 定稿指令全程本地规则 + 一次 AI 收束，段名与状态标记固定，便于直接对照改稿\n· 全部改动各带独立开关，控制台置 0 即回到改动前行为；自动保存的 input 监听需刷新才卸载"],
   ["v152","新增\n· 「写进生成指令」改为先提炼再写入：从整轮讨论里摘出「走向 / 结论 / 情感落点 / 关键细节 / 待决问题」五类要点，不再只录最后一轮\n· 要点块可反复刷新：再点一次会替换上一次的要点，不再越堆越长\n优化\n· 寒暄、复述提问、「仅供参考」这类空话不再进指令；被你否决的走向即使又被提到也不会混进来\n· 指令长度明显下降：实测 2157 字的讨论 → 526 字要点（省约 76%），每轮生成少烧几千 token\n· 讨论本来就短时不做无收益的提炼，直接原样写入\n修复\n· 剧情参谋的跨轮结论、情感落点与伏笔细节此前随讨论一起丢失（只保留最后一轮）\n说明\n· 提炼全程本地完成，不额外调用 AI（不为了省 token 先烧 token）\n· 若想回到旧行为：控制台执行 CP_DIGEST=0 立即生效；写错了可点「撤销」"],
   ["v151","新增\n· 詹姆斯篇补到第 76 章：第 75 章《都怪我》、第 76 章《这次是三个像素点了。》全文录入（按你发的《詹姆斯篇1-76.docx》一字未改），全书 90 章\n· 人物卡新增 4 张：菲比、伊桑、塔卡洛特、特拉弗斯（按原文出场记录整理），剧情参谋现在能读到菲比了\n· 消化档案补录第 75、76 章，已消化 88→90\n优化\n· 已在用旧版本的书打开后自动补齐这两章和 4 张卡：不用重装，正文只填空占位章，你改过的内容一个字不动\n修复\n· 剧情参谋读不到菲比的资料（消化档案漏记她→人物名单漏建→人物卡缺失，现已整条链补齐）\n· 消化预置偶发被弹窗卡死、失败被误记为成功"],
