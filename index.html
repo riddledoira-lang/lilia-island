@@ -1453,9 +1453,9 @@
 
       <div class="smp-row">
         <div class="smp-head"><span class="smp-name">Temperature</span><span class="smp-desc">随机性</span>
-          <input type="number" class="smp-num" id="smpTempNum" min="0" max="2" step="0.01" value="1.35" onchange="smpNumToRange('temp')" oninput="smpNumToRange('temp')">
+          <input type="number" class="smp-num" id="smpTempNum" min="0" max="2" step="0.01" value="1.05" onchange="smpNumToRange('temp')" oninput="smpNumToRange('temp')">
         </div>
-        <input type="range" class="smp-range" id="smpTemp" min="0" max="2" step="0.01" value="1.35" oninput="smpRangeToNum('temp')">
+        <input type="range" class="smp-range" id="smpTemp" min="0" max="2" step="0.01" value="1.05" oninput="smpRangeToNum('temp')">
         <div class="smp-scale"><span>0 死板</span><span>1.0</span><span>1.5 创意</span><span>2 放飞</span></div>
       </div>
 
@@ -3245,11 +3245,27 @@ function updateAppbar(){
 }
 function openDrawer(){document.getElementById("drawer").classList.add("on");document.getElementById("drawerMask").classList.add("on");}
 function closeDrawer(){document.getElementById("drawer").classList.remove("on");document.getElementById("drawerMask").classList.remove("on");}
+/* v153：切书时清空内存里的参谋讨论（CP_COUNSEL_RESET_SWITCHBOOK=0 → 回到 v152 的跨书串档行为）。
+   不清的后果：_counselLog 仍留着 A 书讨论，切到 B 书打开参谋时，
+   counselOpen() 的 if(!_counselLog.length) 为假 → 不回读 B 书 → 看到的是 A 书内容；
+   此时任何一次保存都会把 A 书讨论写进 B 书的 counselLog，B 书原有讨论被静默覆盖、无提示。
+   必须放在 _flushAutoSave() 之后：先存后清，A 书刚写的讨论不会丢。
+   这里绝不能调 counselSave()：curId 已切到 B 书，那会把 B 书讨论写成空。 */
+window.CP_COUNSEL_RESET_SWITCHBOOK=1;
 function switchBook(id){
   if(id===curId){closeDrawer();return;}
   /* 切书前先落盘当前编辑章节，避免跨书串稿/丢稿；同时清掉旧自动保存定时器 */
-  try{ if(document.getElementById("chBody")&&document.getElementById("chBody").value.trim()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
-  curId=id; rawSave("curBook",curId); closeDrawer(); resetChapterForm(); allRender();
+  try{ if(_hasFlushable()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
+  curId=id; rawSave("curBook",curId);
+  if(window.CP_COUNSEL_RESET_SWITCHBOOK!==0) _counselLog=[];
+  /* plus 侧同样有两个内存态要跟着切书清：_cpBriefBak（撤销快照）与 _cpRoutes（走向列表）。
+     不清的话：切书后点「撤销」会把 A 书指令写进 B 书指令框（现已会落盘，等于持久化污染）；
+     点「✓ 采纳」会采纳到 A 书解析出来的走向。
+     入口由 lilia-counsel-plus.js 提供，这里只负责调用：
+     · typeof 守卫 —— plus 未加载时不能因为少了它就把切书打断；
+     · try/catch —— 该入口内部任何异常都不影响切书主流程。 */
+  try{ if(window.CP_COUNSEL_RESET_SWITCHBOOK!==0 && typeof window.cpOnBookSwitch==="function") window.cpOnBookSwitch(); }catch(e){}
+  closeDrawer(); resetChapterForm(); allRender();
 }
 function addBook(){
   const b=defaultBook({title:"未命名书本 "+(BOOKS.length+1), color:COLORS[BOOKS.length%COLORS.length]});
@@ -4098,7 +4114,7 @@ function saveChapter(){
 }
 function editChapter(id){
   /* 切章前先落盘当前章节，清掉旧定时器，防未保存内容丢失与串章 */
-  try{ if(document.getElementById("chBody")&&document.getElementById("chBody").value.trim()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
+  try{ if(_hasFlushable()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
   const c=load("chapters",[]).find(x=>x.id===id);if(!c)return;
   popVolSelect();
   document.getElementById("chId").value=c.id;
@@ -4319,10 +4335,25 @@ async function autoGenBriefTemplate(textarea){
     textarea.value="（生成失败："+String(e.message||"").slice(0,60)+"，请手动输入或选择其他章节模板）";
   }
 }
+/* v153 · P0-2：#chBrief / #chHook / #chDue / 状态此前一个都不自动落盘，唯一路径是手动点「保存」。
+   而「写进本章指令」「本地审稿」「体检台」「参谋采纳」「自动模板」这 5 个入口都是程序写进
+   textarea 后不触发保存的——作者一切章 / 切书 / 刷新，刚写好的指令就蒸发了。
+   window.CP_BRIEF_AUTOSAVE=0 → 逐字回到「只存 title+body」的旧行为。
+   ★ 必须声明在下面的监听注册之前，否则注册时读到 undefined，置 0 就关不掉监听。 */
+window.CP_BRIEF_AUTOSAVE=1;
 document.getElementById("chBody").addEventListener("input",function(){document.getElementById("chCount").textContent="字数："+this.value.length; updateFocusBar(); updateWordRing(); autoSaveChapter();});
 ["input","keyup","click","focus"].forEach(function(ev){ document.getElementById("chBody").addEventListener(ev, typewriterScroll); });
 document.addEventListener("selectionchange", function(){ if(document.activeElement===document.getElementById("chBody")) typewriterScroll(); });
 document.getElementById("chTitle").addEventListener("input",autoSaveChapter);
+/* v153 · P0-2：#chBrief / #chHook / #chDue 此前没绑 input，手改后不落盘（chBody/chTitle 绑了）。
+   走与 chBody 同一条 autoSaveChapter 节流通道（700ms 去抖）。CP_BRIEF_AUTOSAVE=0 时不绑。
+   pushHistory 自带 120 秒节流，不会因逐字输入把历史版本刷爆。 */
+if(window.CP_BRIEF_AUTOSAVE!==0){
+  ["chBrief","chHook","chDue"].forEach(function(i){
+    var el=document.getElementById(i);
+    if(el) el.addEventListener("input",autoSaveChapter);
+  });
+}
 
 /* ============== 统计 / 自动保存 / 版本历史 ============== */
 function dateStr(d){const y=d.getFullYear(),m=("0"+(d.getMonth()+1)).slice(-2),da=("0"+d.getDate()).slice(-2);return y+"-"+m+"-"+da;}
@@ -4354,18 +4385,40 @@ function _safeVol(v){
 }
 let _checkTimer=null;
 /* 立即把当前编辑器内容持久化（用于切书/切章前与关闭前），不弹 toast、不重渲染，避免串稿与刷屏 */
+/* 判断这次是否值得落盘。旧判断只看 chBody 有没有字，于是正文为空时连 title / brief 都不存，
+   而程序写入指令恰恰常发生在正文还没动笔的阶段。 */
+function _hasFlushable(){
+  var g=function(i){ var e=document.getElementById(i); return e?String(e.value||""):""; };
+  if(g("chBody").trim()) return true;
+  if(g("chTitle").trim()) return true;
+  if(window.CP_BRIEF_AUTOSAVE!==0 && g("chBrief").trim()) return true;
+  return false;
+}
 function _flushAutoSave(){
   const id=document.getElementById("chId")?document.getElementById("chId").value:"";
   const title=(document.getElementById("chTitle")?document.getElementById("chTitle").value:"").trim();
   const body=document.getElementById("chBody")?document.getElementById("chBody").value:"";
+  /* v153 · P0-2：补上与 saveChapter() 相同的字段集，但不校验、不提示、不跳章、不改分卷、
+     不触发 onChapterVolChange（那需要显式保存才做，避免顺带搬动消化档案）。 */
+  const _bs=(window.CP_BRIEF_AUTOSAVE!==0);
+  const _gv=function(i){ var e=document.getElementById(i); return e?String(e.value||""):""; };
+  const _brief=_bs?_gv("chBrief"):"", _hook=_bs?_gv("chHook"):"", _due=_bs?_gv("chDue"):"";
+  const _st=_bs?(_gv("chStatus")||"draft"):"";
   let ch=load("chapters",[]);
   if(id){
     const i=ch.findIndex(x=>x.id===id);
-    if(i>=0){ ch[i]={...ch[i],title:title||ch[i].title,body}; ch[i].demo=false; save("chapters",ch); recordWords(ch[i]); pushHistory(ch[i]); return ch[i]; }
+    if(i>=0){
+      ch[i]={...ch[i],title:title||ch[i].title,body};
+      if(_bs){ ch[i].status=_st; ch[i].due=_due; ch[i].hook=_hook; ch[i].brief=_brief; }
+      ch[i].demo=false; save("chapters",ch); recordWords(ch[i]); pushHistory(ch[i]); return ch[i];
+    }
   }
-  if(body.trim()==="" && title==="") return null;
+  /* 正文与标题都为空时，只为「已存在的章节」单留一条指令；否则会在没有任何可识别内容的
+     情况下凭空建出一章空章。新建章仍固定 status:"draft"，不跟随下拉，避免误触发自动消化。 */
+  if(body.trim()==="" && title==="" && !(_bs && id && _brief.trim())) return null;
   const num=parseInt(document.getElementById("chNum").value)||0;
   const nc={id:uid(),num,title:title||"未命名草稿",body,status:"draft",vol:_safeVol(document.getElementById("chVol").value),demo:false};
+  if(_bs){ nc.due=_due; nc.hook=_hook; nc.brief=_brief; }
   ch.push(nc); save("chapters",ch); document.getElementById("chId").value=nc.id;
   recordWords(nc); pushHistory(nc); return nc;
 }
@@ -8089,7 +8142,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v152";
+const APP_VERSION="v153";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8099,6 +8152,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v153","新增\n· 参谋新增「定稿指令」出口：一键把整轮讨论收束成五段结构化指令（整体故事与剧情走向 / 讨论达成的最终结论 / 关键情感落点 / 必须保留的细节与设定 / 已排除），每条带「已定 / 待定 / 未定 / 排除」状态标注，可刷新、可撤销\n· 「写进本章指令」产出的要点块现在会自动落盘，切章 / 切书 / 刷新不再丢\n优化\n· 参谋不再每轮强制开叉：铁律⑤ 改为「确有实质分岔才给走向选项」，并新增收敛条款——已无分岔或你已拍板时，直接输出「本轮结论」并停止追问\n· 你已拍板 / 采纳过的走向不再被重复抛出：参谋上下文此前只注入「已被否决的走向」，没有「已确定的走向」，导致已定事项被反复重问\n· 参谋回复加了篇幅上限（默认 600 字，可调），内容多就走要点、不写长段落\n· 参谋看到的长期记忆从「卷档案最老的 1500 字」改为与生成侧一致的头+尾口径，早期设定与最新进展两头都在\n· 「接着写」链路补上此前只有「深度续写」才有的场景聚焦、比喻密度与篇幅下发\n修复\n· v152 的提炼器在讨论超过 2-3 轮后 100% 静默失效、回退成「最后一条回复原文前 6000 字」——判据用了「压缩率」，而压缩率天然随讨论变长而下降，等于给功能装了个「只在不需要它时才启动」的开关。现改为绝对量判据\n· 连点多次「写进本章指令」会让指令无限堆积（实测正好 3 倍），且撤销会回滚到过期快照。现统一为幂等写入\n· 要点预算此前先分给「情感 / 细节」，越是关键决策越排在队尾、越容易被挤掉。现改为决策类优先\n· 章指令框手动改完不保存；切换书本还会把上一本书的讨论带进新书，并覆盖掉新书原有讨论\n说明\n· 定稿指令全程本地规则 + 一次 AI 收束，段名与状态标记固定，便于直接对照改稿\n· 全部改动各带独立开关，控制台置 0 即回到改动前行为；自动保存的 input 监听需刷新才卸载"],
   ["v152","新增\n· 「写进生成指令」改为先提炼再写入：从整轮讨论里摘出「走向 / 结论 / 情感落点 / 关键细节 / 待决问题」五类要点，不再只录最后一轮\n· 要点块可反复刷新：再点一次会替换上一次的要点，不再越堆越长\n优化\n· 寒暄、复述提问、「仅供参考」这类空话不再进指令；被你否决的走向即使又被提到也不会混进来\n· 指令长度明显下降：实测 2157 字的讨论 → 526 字要点（省约 76%），每轮生成少烧几千 token\n· 讨论本来就短时不做无收益的提炼，直接原样写入\n修复\n· 剧情参谋的跨轮结论、情感落点与伏笔细节此前随讨论一起丢失（只保留最后一轮）\n说明\n· 提炼全程本地完成，不额外调用 AI（不为了省 token 先烧 token）\n· 若想回到旧行为：控制台执行 CP_DIGEST=0 立即生效；写错了可点「撤销」"],
   ["v151","新增\n· 詹姆斯篇补到第 76 章：第 75 章《都怪我》、第 76 章《这次是三个像素点了。》全文录入（按你发的《詹姆斯篇1-76.docx》一字未改），全书 90 章\n· 人物卡新增 4 张：菲比、伊桑、塔卡洛特、特拉弗斯（按原文出场记录整理），剧情参谋现在能读到菲比了\n· 消化档案补录第 75、76 章，已消化 88→90\n优化\n· 已在用旧版本的书打开后自动补齐这两章和 4 张卡：不用重装，正文只填空占位章，你改过的内容一个字不动\n修复\n· 剧情参谋读不到菲比的资料（消化档案漏记她→人物名单漏建→人物卡缺失，现已整条链补齐）\n· 消化预置偶发被弹窗卡死、失败被误记为成功"],
   ["v150","新增\n· 新装的书直接带完整内容：89 章（詹姆斯篇 1–75 + 西里斯篇 1–14），正文约 31.9 万字，分卷归属正确\n· 人物卡从 7 个恢复到 40 个（按两卷消化档案的出场记录还原），人物卡与角色卡重新可用\n· 消化档案随书预置：88 章开箱即「已消化」，不用再逐章跑 AI\n优化\n· 「52 章 / 7 人 / 全在未分卷」这种退化状态，现在能自动补齐成 89 章 40 人，不用重装\n修复\n· 詹姆斯篇全部被标成「未分卷」\n· 西里斯篇整卷内容不见\n· 已消化状态被清空\n· 章节只加载 52 章\n说明\n· 詹姆斯篇第 75 章《都怪我》本机源文件只到 74 章，该章已按正确章号占位，正文请粘贴或导入补齐（不代为编写）"],
@@ -8907,7 +8961,13 @@ function addCacheControl(ms){
    原值比生成温度(1.35)低 0.65，等于每章首稿都要过一遍「压平」——首稿里最鲜活、
    最出格的句子恰恰最容易被判成「风格跳脱」删掉。提到 0.95 后仍明显低于生成温度，
    修逻辑与一致性的稳定性还在，但不再系统性稀释情感强度。UI 滑杆可继续调。 */
-const SMP_DEF={tempGen:1.35,topPGen:0.96,tempPlan:1.50,tempPolish:0.95,thinkMode:"disabled"};
+/* v153：默认生成温度 1.35 → 1.05。
+   1.35 对「要连贯、要有条理、要克制抒情」的长篇连载明显偏高，而「严禁成人化抒情句式」只是
+   一句弱否定，扛不住这个发散度。
+   ★ 只改默认值，绝不覆盖用户已保存的设置：creaParams("gen") 先读 ai.tempGen（已存值），
+     仅在它缺失/非数字时才回落到 SMP_DEF；保存侧写的是 UI 滑杆值，滑杆渲染时又优先读已存值。
+     所以已经存过 1.35 的老用户不会被顶掉（需自行下调，见交付说明）。 */
+const SMP_DEF={tempGen:1.05,topPGen:0.96,tempPlan:1.50,tempPolish:0.95,thinkMode:"disabled"};
 function _smpNum(v,d,lo,hi){
   const n=parseFloat(v);
   if(!isFinite(n)) return d;
@@ -12355,6 +12415,18 @@ function afterAiWrite(ta){
   ta.scrollTop=ta.scrollHeight;
 }
 
+/* ===== v153 · 正文生成的公共文风约束（「接着写」与「深度续写」共用同一份口径） =====
+   根因：此前只有深度续写的 _styleReq 里有「感官细节用在刀刃上 / 比喻母题一章最多 2 次 /
+   2500-3500 字 + 聚焦 1-2 个场景」，而「接着写」（aiGen）一条都没有——同一章走两条链路，
+   拿到的写作约束强度差一倍以上，「接着写」因此更容易发散、堆砌、写长。
+   三个开关都在使用处现读 window 值（不缓存），控制台改了即时生效；置 0 即回到 v152 行为。 */
+window.CP_STYLE_AIGEN=1;      /* 1=「接着写」(aiGen) 追加 ③⑨⑩（篇幅下发 / 比喻密度 / 场景聚焦）；0=不追加 */
+window.CP_STYLE_MONOLOGUE=1;  /* 1=两条生成链路都追加「禁止大段内心独白」；0=都不追加（与上一条互不影响） */
+window.CP_POLISH_ALIGN=1;     /* 1=精修阶段感官细节口径与 _styleReq ③ 对齐；0=沿用旧文案 */
+const STYLE_REQ_MONOLOGUE="禁止大段内心独白与内心哀悼：情绪必须由动作、对话、可感的具体小物承载，不得成段直述人物在想什么、后悔什么、悲伤什么。";
+const STYLE_REQ_CORE="感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。"
+  +"同一意象/比喻母题一章最多出现 2 次，重复即视为失控。"
+  +"本章正文参考 2500\u20133500 字，聚焦深写 1\u20132 个场景，宁深勿广；高潮章与转折章不受此限，以写透为准，字数让位于质量。";
 async function aiGen(){
   const ai=load("ai",{});
   if(!ai.base){toast("未配置 AI（可选）：在「AI 生成设置」填写 API 信息即可启用；当前仅本地写作。");return;}
@@ -12399,6 +12471,12 @@ async function aiGen(){
   /* v100：冲突类型 + 视角/信息差（默认自动轮换，保证相邻章节不落同类冲突） */
   const _conf=conflictPrompt(); if(_conf) userMsg+="\n\n"+_conf;
   userMsg+=`\n\n【硬性质量要求】① 人物年龄/年级/亲属称谓严格符合本分卷专属设定与HP原著考据（例如纳西莎是西里斯的堂姐而非姐姐），禁止低幼儿龄角色说出成人化台词；② 严禁成人化抒情句式、现代网络用语/流行梗；③ ${povPhrase(_vgVol)}；④ 悬念与伏笔沿用"日常中的异常"式细微信号铺垫，不要毫无铺垫地把危机直接砸到读者脸上。`;
+  /* v153：「接着写」此前完全没有场景预算 / 比喻密度 / 篇幅下发，这里补上与深度续写同源的约束。
+     window.CP_STYLE_AIGEN=0 即不追加这部分，逐字回到 v152 行为。 */
+  if(window.CP_STYLE_AIGEN!==0) userMsg+="\n\n【文风与篇幅要求·请做到】"+STYLE_REQ_CORE;
+  /* v153：「禁大段内心独白」此前全项目缺失。由 window.CP_STYLE_MONOLOGUE 单独控制，
+     与上面的篇幅 / 比喻约束互不影响——可以只撤这一条。 */
+  if(window.CP_STYLE_MONOLOGUE!==0) userMsg+="\n\n【情绪表达要求】"+STYLE_REQ_MONOLOGUE;
   const btn=document.getElementById("aiBtn");btn.disabled=true;const old=btn.textContent;btn.textContent="生成中…";
   try{
     const _base=body.trim();
@@ -13357,7 +13435,7 @@ async function aiDeepGen(){
        v79 重构：约束/上下文在前，写指令放最后一条（消除 lost-in-the-middle）；
        原 ~20 条「禁止/严禁」负向约束合并为 1 条正向【写作要求】，
        模型注意力聚焦「写好」而非「避雷」，文笔立刻松绑。 */
-    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾落在有力的收束或一个未完成的动作上。② 句式长短、比喻系统、幽默感、用词密度延续前文既定文风，${povPhrase(curVol)}；允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。③ 感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利但分寸得当——宁可少一句俏皮话，也不要为凑金句戳破刚建立的情绪。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。⑧ 禁止 info-dump：世界观/年代/典故只通过物件、他人反应与人物行动侧面透露，严禁借角色之口大段解释背景（如长篇交代某年事件、机构沿革）。⑨ 同一意象/比喻母题一章最多出现 2 次，重复即视为失控。⑩ 本章正文参考 2500–3500 字，聚焦深写 1–2 个场景，宁深勿广；高潮章与转折章不受此限，以写透为准，字数让位于质量。⑪ 惊喜感优先：要「意外但必然」的转折——读者回头看会觉得早有伏笔，而不是按套路直线推进；避免第一眼就能猜到的走向，以及「该发生就发生了」的惰性剧情。`;
+    const _styleReq=`【写作要求·请做到】① 人物行为/情感须符合已有性格与前文依据，可推进但不可凭空跳变；结尾落在有力的收束或一个未完成的动作上。② 句式长短、比喻系统、幽默感、用词密度延续前文既定文风，${povPhrase(curVol)}；允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。③ 感官细节用在刀刃上：只在情绪转折与关键场景给一处精准细节；禁止逐段堆砌感官描写与明喻（禁止连续两段都出现明喻），留白比填满更有力。④ 每章至少一个情绪或情节小转折维持张力；用具体动作与对话推进，避免叙述式总结。⑤ 人物年龄/年级/亲属称谓严格符合分卷设定与HP原著考据；保持英式礼貌幽默、用词犀利但分寸得当——宁可少一句俏皮话，也不要为凑金句戳破刚建立的情绪。⑥ 悬念与伏笔用「日常中的异常」式细微信号铺垫，不毫无铺垫地把危机直接砸到读者脸上。⑦ 禁用任何现代科技/网络词汇（乱码/bug/下载/链接/APP/算法/缓存/代码/屏幕/键盘/弹窗/显卡/云/上传等）；叙述者是无麻瓜科技概念的孩童，任何科技类比都属出戏。⑧ 禁止 info-dump：世界观/年代/典故只通过物件、他人反应与人物行动侧面透露，严禁借角色之口大段解释背景（如长篇交代某年事件、机构沿革）。⑨ 同一意象/比喻母题一章最多出现 2 次，重复即视为失控。⑩ 本章正文参考 2500–3500 字，聚焦深写 1–2 个场景，宁深勿广；高潮章与转折章不受此限，以写透为准，字数让位于质量。⑪ 惊喜感优先：要「意外但必然」的转折——读者回头看会觉得早有伏笔，而不是按套路直线推进；避免第一眼就能猜到的走向，以及「该发生就发生了」的惰性剧情。`+(window.CP_STYLE_MONOLOGUE!==0?("⑫ "+STYLE_REQ_MONOLOGUE):"");
     let ctx="";
     if(volSec) ctx+=`【本分卷「${volName(curVol)}」专属设定 · 最高优先级，任何人设/文风冲突以此为准】\n${volSec}\n\n`;
     if(beatCard) ctx+=`【节拍卡（强制前置约束，严格按以下节拍推进剧情，每个节拍须在正文中体现）】\n${beatCard.beats.join("\n")}\n\n`;
@@ -13465,7 +13543,12 @@ async function aiDeepGen(){
         "⑥ "+povPhrase(curVol)+"\n"+
         "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n\n";
       _rUser+="【文风一致性】延续前文既定语气与比喻系统；"+povPhrase(curVol)+"。允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。\n";
-      _rUser+="【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n";
+      /* v153：旧文案「每段至少含一个具体感官细节」与 _styleReq ③「只在情绪转折与关键场景给一处」
+         正面冲突，而精修是最后一道工序（结果直接落盘），等于把生成本该克制的细节又堆了回去。
+         window.CP_POLISH_ALIGN=0 保留旧文案。 */
+      _rUser+=(window.CP_POLISH_ALIGN===0
+        ? "【精彩度提升】① 每段至少含一个具体感官细节，避免空泛概括；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n"
+        : "【精彩度提升】① 感官细节用在刀刃上：只在情绪转折处与关键场景给一处精准细节，其余段落留白，不要逐段堆砌；② 强化一个情绪或情节小转折，提升张力；③ 杜绝陈词滥调与廉价比喻；④ 用具体动作与对话替代叙述总结。\n");
       if(volSec) _rUser+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
       if(_nearText) _rUser+="【上一章真实正文片段（文风参照以此为准）】\n"+_nearText+"\n\n";
       if(_volText) _rUser+="【当前分卷档案（滚动摘要+最近章节档案，仅作人物/伏笔/事件的事实依据，不作文字范本）】\n"+_volText+"\n\n";
@@ -15601,8 +15684,20 @@ let _counselConfirmed=false;
 let _counselBusy=false;
 /* v112：最近一次失败的结构化记录，供「诊断」按钮展开查看（toast 只活 2.4 秒，看不清根因） */
 let _counselLastErr=null;
+/* v153：参谋弹窗「定稿指令」按钮的总开关。
+   CP_FINAL_BRIEF=0 → 按钮不显示（回到 v152 的按钮组）。每次打开弹窗现读 window 值，不缓存。
+   按钮本体只负责触发 counselFinalizeBrief()；该函数由 lilia-counsel-plus.js 提供，
+   这里不实现——plus 未加载时点击会得到「函数未定义」，属预期（不在本文件兜底）。 */
+window.CP_FINAL_BRIEF=1;
+function cpSyncFinalBtn(){
+  try{
+    var b=document.getElementById("counselFinalBtn");
+    if(b) b.style.display=(window.CP_FINAL_BRIEF===0)?"none":"";
+  }catch(e){}
+}
 function counselOpen(){
   try{
+    cpSyncFinalBtn();
     if(!_counselLog.length){
       try{ _counselLog=counselLoad()||[]; }catch(e){ _counselLog=[]; }
     }
@@ -15735,10 +15830,27 @@ function counselExplain(e){
     detail:msg,
     tips:["点「诊断」看完整配置","到「AI 生成设置」点一次「测试连接」","换 deepseek-flash 再试"]};
 }
-/* 保存参谋讨论记录：先存书的字段，失败再退回本机全局，避免换卷就丢讨论 */
+/* 保存参谋讨论记录：先存书的字段；失败再退回本机兜底，且兜底按书隔离（v153） */
+/* v153：参谋讨论的兜底备份按书隔离。
+   原实现把兜底写在全局 key "lilia_counsel_bak" 上（不带书 ID），而 counselLoad()
+   的回落条件是「本书 counselLog 为空」而不是「save 抛错」。于是只要 save() 曾抛过一次
+  （配额满 / IndexedDB 瞬时失败），此后任何一本自身讨论为空的书都会读到别的书的讨论；
+   作者接着聊再保存成功，别的书内容就被写进这本书——静默跨书覆盖，且是粘性的
+  （全局 key 永不过期，也不按书清理）。
+   更要紧的是它正好走在本批 switchBook() 修复的路径上：清空 _counselLog 本意是让
+   counselOpen() 回读**新书**，全局兜底会让这次回读读出**别的书**的内容，修复被绕过。
+   CP_COUNSEL_BAK_PERBOOK=0 → 回到全局 key 的旧行为（回滚用）。
+   存量的旧全局 key 会在 counselSave() 里顺手清掉：那本来就是污染数据，
+   留着只会让「回读自己这本书」读成别人的。 */
+window.CP_COUNSEL_BAK_PERBOOK=1;
+/* 每次调用现读 window 值，不缓存——开关要在运行时可切 */
+function counselBakKey(){
+  return (window.CP_COUNSEL_BAK_PERBOOK!==0)?("lilia_counsel_bak_"+curId):"lilia_counsel_bak";
+}
 function counselSave(){
+  try{ if(window.CP_COUNSEL_BAK_PERBOOK!==0) localStorage.removeItem("lilia_counsel_bak"); }catch(e0){}
   try{ save("counselLog",_counselLog); return; }catch(e){}
-  try{ localStorage.setItem("lilia_counsel_bak",JSON.stringify(_counselLog.slice(-60))); }catch(e){}
+  try{ localStorage.setItem(counselBakKey(),JSON.stringify(_counselLog.slice(-60))); }catch(e){}
 }
 function counselLoad(){
   try{
@@ -15746,7 +15858,7 @@ function counselLoad(){
     if(v&&v.length) return v;
   }catch(e){}
   try{
-    const raw=localStorage.getItem("lilia_counsel_bak");
+    const raw=localStorage.getItem(counselBakKey());
     if(raw){ const a=JSON.parse(raw); if(a&&a.length) return a; }
   }catch(e){}
   return [];
@@ -15838,6 +15950,10 @@ function counselRender(){
     box.scrollTop=box.scrollHeight;
   }
 }
+window.CP_COUNSEL_CONVERGE=1; /* 1=收敛型（⑤ 改条款 + ⑧⑨⑩ 生效）；0=逐字还原 v152 的 sys 数组（9 项：2 句开场 + ①-⑦） */
+/* v153：参谋单条回复的字数上限（字）。控制台执行 window.CP_REPLY_MAXCHARS=800 即时生效——
+   每次发送都在组装 sys 时现读 window 值，不缓存，也不在别处写回覆盖。 */
+window.CP_REPLY_MAXCHARS=600;
 async function counselSend(){
   /* v112：重入锁——同一时刻只允许一次在途请求，防连点重复计费 */
   if(_counselBusy){ toast("参谋正在思考，等这一轮回来再发"); return; }
@@ -15876,17 +15992,30 @@ async function counselSend(){
     inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
     const hist=_counselLog.slice(-8).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
-    const sys=[
+    /* v153：收敛改造总开关。CP_COUNSEL_CONVERGE=0 时只保留 v152 原版的 7 条（⑤ 用回原文，
+       ⑧⑨⑩ 一条都不追加），sys 字符串与 v152 逐字相同——可灰度、可单条回滚。 */
+    const _conv=(window.CP_COUNSEL_CONVERGE!==0);
+    const _sysArr=[
       "你是一位长篇小说的「剧情参谋」，不是写手。",
       "职责：与作者讨论剧情，提供灵感、提出不同的走向、指出合理性与连贯性风险。",
       "铁律：① 绝不写正文、绝不代写段落——只给判断、选项与理由；",
       "② 一切结论必须以作者给出的分卷设定、人称设定、人物卡与已有剧情为准，不得凭空新增设定；",
       "③ 被问到「某个角色的行为是否合理」时，必须先对照【人物卡】里的性格/说话方式/行为禁区逐条比对，指出冲突在哪；",
       "④ 被问到合理性时，明确指出「哪里会崩、为什么会崩、最小改动怎么补」；",
-      "⑤ 每次回复结尾给 1-3 个「可选走向」，每条一句话说清代价；",
+      _conv
+        ? "⑤ 走向选项只在确有实质分岔时才给：仅当两条以上走向会让后续剧情显著不同，才在结尾给出 1-3 个「可选走向」，每条一句话说清代价；没有实质分岔就不给选项，"
+        : "⑤ 每次回复结尾给 1-3 个「可选走向」，每条一句话说清代价；",
       "⑥ 不确定就直说不确定，不要编造前文没发生过的事。",
       "⑦ 不要输出 Markdown 标题符号（#）与加粗星号，用短句和项目符号即可——作者在手机上看。"
-    ].join("\n");
+    ];
+    if(_conv){
+      _sysArr.push(
+        "⑧ 收敛优先：若本轮已无实质分岔，或作者已就某点拍板 / 已采纳，立即停止追问、不再抛出新选项，直接输出一段「本轮结论」（已定事项 + 依据 + 下一步该做什么），本轮讨论到此结束；",
+        "⑨ 作者已拍板或已采纳的走向是既定事实：严禁再次当作待议项抛出，严禁换个说法重新建议，严禁对已定事项再次征求确认；",
+        "⑩ 单条回复控制在 "+(Number(window.CP_REPLY_MAXCHARS)||600)+" 字以内；内容多就拆成要点条目，不要写成连贯的长段落。"
+      );
+    }
+    const sys=_sysArr.join("\n");
     /* v139 第 2 级：参谋同样同时拿到「正文」与「档案」两份不同时间的材料。
        它虽不写正文，但你问「这个人这么做合理吗」「这处伏笔接得上吗」时，
        它一旦遇到两边说法不一致，同样会自己编第三种说法作答，而你会据此改稿。
@@ -16030,7 +16159,7 @@ bootApp().then(function(){
 /* 新手引导已移除（v46+）：首次进入不再自动弹教程 */
 /* 修复 B7：关闭/刷新页面前静默落盘当前章节，防丢稿（localStorage 同步写入，可靠） */
 window.addEventListener('beforeunload', function(){
-  try{ if(document.getElementById("chBody") && document.getElementById("chBody").value.trim()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
+  try{ if(_hasFlushable()){ clearTimeout(_asTimer); _flushAutoSave(); } }catch(e){}
 });
 if(window.matchMedia){
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){
@@ -16636,6 +16765,7 @@ window.addEventListener('load',function(){
     <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
       <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
       <button type="button" onclick="counselToBrief()">写进本章指令</button>
+      <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
       <button type="button" onclick="counselPurgeMemory()" title="清掉参谋长期记住的「已采纳 / 已否决走向」。采纳过的走向当时被写进了本章指令，若那条走向后来被证明是错的，就该在这里清掉，否则它会一直跟着后面的生成。">🧹 清空参谋记忆</button>

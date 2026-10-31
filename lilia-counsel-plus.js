@@ -42,10 +42,24 @@
   function S(k) { try { return String((load(k, '') || '')); } catch (e) { return ''; } }
   function now() { return Date.now(); }
   function arr(k) { try { var v = load(k, []); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
-  function put(k, v) { try { save(k, v); } catch (e) { try { localStorage.setItem('lilia_cp_' + k, JSON.stringify(v)); } catch (e2) {} } }
+  /* ★ 兜底 key 必须带书 ID。
+     原来是 'lilia_cp_' + k —— 不带书 ID，是全局的。
+     只在 save() 抛错（配额满 / IndexedDB 瞬时失败）时才走这条兜底，属降级路径；
+     但一旦触发，采纳/否决列表就会跨书串：A 书留下备份 → 任何一本自己没存过
+     的 B 书读到它 → 作者继续操作、save() 这次成功 → A 书内容被写进 B 书，
+     而且全局 key 永不过期，污染是粘性的。
+     同类更严重的一处在 index.html 的 counselSave()/counselLoad()
+     （lilia_counsel_bak，回落条件是「本书为空」而非「load 失败」，触发更宽松），
+     由 agent-app-engineer 处理。两边口径保持一致。 */
+  function cpBakKey(k) {
+    var bid = '';
+    try { bid = String((typeof curId !== 'undefined' && curId) ? curId : ''); } catch (e) {}
+    return 'lilia_cp_' + bid + '_' + k;
+  }
+  function put(k, v) { try { save(k, v); } catch (e) { try { localStorage.setItem(cpBakKey(k), JSON.stringify(v)); } catch (e2) {} } }
   function get1(k) {
     try { var v = load(k, null); if (v) return v; } catch (e) {}
-    try { var raw = localStorage.getItem('lilia_cp_' + k); if (raw) return JSON.parse(raw); } catch (e2) {}
+    try { var raw = localStorage.getItem(cpBakKey(k)); if (raw) return JSON.parse(raw); } catch (e2) {}
     return null;
   }
 
@@ -259,6 +273,25 @@
     return '\n\n【已被作者否决的剧情走向 · 禁止采用，也禁止换种说法走回去】\n' + lines + '\n';
   }
 
+  /* ============================================================
+   * 修复 3（A4）：补齐缺失的正向约束——「作者已确定的走向」
+   *
+   * 对称缺失：原实现只注入了 vetoBlock（哪些不能提），没有对应的 adoptBlock（哪条已经定了）。
+   * 于是参谋只知道「别往哪走」，不知道「哪条已经定了」，会把作者点过「✓ 采纳」的走向
+   * 继续当作待议项重新抛出来问 —— 这正是「不断询问走向、收敛不了」的一类直接来源。
+   *
+   * 与 vetoBlock 保持同样的写法、同样的开关方式（挂在 window 上，控制台改完立即生效）。
+   * 回滚：window.CP_ADOPT_CTX = 0 即逐字还原改动前行为。
+   * ============================================================ */
+  window.CP_ADOPT_CTX = 1;   /* 1=把「作者已确定的走向」注入参谋上下文；0=不注入 */
+  function adoptBlock() {
+    if (!window.CP_ADOPT_CTX) return '';
+    var a = adoptGet();
+    if (!a.length) return '';
+    var lines = a.map(function (t, i) { return (i + 1) + '. ' + t; }).join('\n');
+    return '\n\n【作者已确定的剧情走向 · 不要再当作待议项重复提问，直接作为既定前提使用】\n' + lines + '\n';
+  }
+
   /* 从参谋回复里解析出「可选走向」。格式不固定（"可选走向："、"①②③"、"1. 2. 3."、"- "），
      所以只收跨度合理的列表项，且不依赖任何一种单一写法。 */
   function parseRoutes(text) {
@@ -380,6 +413,68 @@
    * 复用主程序既有的 chapterIndexBlock / volName / getVolPov / getVolSetting / getDigest，
    * 只是把「人物卡 / 章号铁律 / 否决走向」三块换成增强版。
    * ============================================================ */
+  /* ============================================================
+   * 修复 4（B3）：参谋上下文的档案口径与生成侧对齐
+   *
+   * 原实现直接对 v.rolling 做 slice(0,1500)。rolling 是按章序滚动压缩的产物：
+   * 头部 = 最老剧情，尾部 = 最新进展。只取头部等于把「最近几章发生了什么」整段切掉，
+   * 参谋看到的剧情进度因此落后于正文。
+   * 而生成侧走的是 volDigestForPrompt() = rolling + volRecentBlocks(vid,4)，
+   * 再经 capDigestForPrompt() 做「头 + 尾」保留。两侧对同一段历史的口径不一样，
+   * 于是「讨论时说好的」和「生成时写出来的」对不上。
+   *
+   * 现在改成与生成侧同一条口径。volDigestForPrompt / capDigestForPrompt 都是
+   * index.html 里的全局函数声明，本模块可直接调用。
+   * 三层兜底：① 生成侧函数可用 → 与生成侧逐字同源；
+   *          ② 不可用 → 自建 head+tail；
+   *          ③ 再失败 → 退回改动前的裸 slice。
+   * 任何一层抛异常都不会让参谋挂掉（外层还有 counselCtx 的整体 try/catch）。
+   * 回滚：window.CP_DIGEST_ALIGN = 0 即逐字还原改动前行为。
+   * ============================================================ */
+  window.CP_DIGEST_ALIGN = 1;           /* 1=档案节选口径对齐生成侧（头+尾）；0=保持原来的裸 slice */
+  window.CP_DIGEST_ALIGN_BUDGET = 2600; /* 本卷档案节选的字数预算 */
+  window.CP_DIGEST_GLOBAL_BUDGET = 1800;/* 全书总档案的字数预算（与改动前同额度） */
+  function cpAlignBudget() { return Number(window.CP_DIGEST_ALIGN_BUDGET) || 2600; }
+  function cpGlobalBudget() { return Number(window.CP_DIGEST_GLOBAL_BUDGET) || 1800; }
+  /* 兜底用的头尾收敛：只有主程序 capDigestForPrompt 不可达时才走到这里 */
+  function cpCapFallback(t, budget) {
+    t = String(t || '');
+    budget = budget || 2600;
+    if (t.length <= budget) return t;
+    var head = Math.min(1200, Math.floor(budget * 0.45));
+    var tail = Math.max(400, budget - head);
+    return t.slice(0, head) + '\n…（中间部分略，本段共 ' + t.length + ' 字）…\n' + t.slice(-tail);
+  }
+  function cpCap(t, budget) {
+    t = String(t || '');
+    budget = budget || 2600;
+    if (t.length <= budget) return t;
+    try {
+      if (typeof capDigestForPrompt === 'function') return capDigestForPrompt(t, budget);
+    } catch (e) {}
+    return cpCapFallback(t, budget);
+  }
+  /* 本卷档案：与生成侧同源 = rolling + 最近 4 个卷块，再按头尾收敛。
+     fallback 是改动前的裸 slice 结果，开关关闭时逐字返回它。 */
+  function cpVolDigest(vol, fallback) {
+    if (!window.CP_DIGEST_ALIGN) return fallback;
+    try {
+      if (typeof volDigestForPrompt !== 'function') return cpCap(fallback, cpAlignBudget());
+      /* 先按大预算取整段，避免 volDigestForPrompt 内部先按默认 4000 截一次、
+         外面再截一次，把尾部的最新进展二次削掉 */
+      var t = volDigestForPrompt(vol, Math.max(cpAlignBudget(), 8000));
+      if (t && String(t).trim()) return cpCap(String(t), cpAlignBudget());
+    } catch (e) {}
+    return cpCap(fallback, cpAlignBudget());
+  }
+  /* 全书总档案同样按头尾收敛（与改动前同额度）。
+     它也是按时间线铺的，只取头部会重犯本卷档案那个「早期线索在、近期进展没了」的毛病。 */
+  function cpGlobalDigest(g) {
+    g = String(g || '');
+    if (!window.CP_DIGEST_ALIGN) return g.slice(0, cpGlobalBudget());
+    return cpCap(g, cpGlobalBudget());
+  }
+
   var _origCounselCtx = (typeof counselCtx === 'function') ? counselCtx : null;
   counselCtx = function () {
     var vol = 'none';
@@ -417,10 +512,11 @@
 
       try {
         var d = getDigest(); var v = (d.volumes || {})[vol] || {};
-        var roll = ((v.rolling || '').trim() || (v.text || '')).slice(0, 1500);
+        /* 修复 4：口径对齐生成侧（头+尾），fallback 是改动前的裸 slice(0,1500) */
+        var roll = cpVolDigest(vol, ((v.rolling || '').trim() || (v.text || '')).slice(0, 1500));
         if (roll) s += '【本卷已消化档案（节选）】\n' + roll + '\n';
         var g = String(d.global || '').trim();
-        if (g) s += '【全书总档案（跨卷脉络，判断连贯性以此为准）】\n' + g.slice(0, 1800) + '\n';
+        if (g) s += '【全书总档案（跨卷脉络，判断连贯性以此为准）】\n' + cpGlobalDigest(g) + '\n';
       } catch (e5) {}
 
       try {
@@ -435,6 +531,10 @@
 
       if (body.trim()) s += '【当前编辑器正文尾部】\n' + body.slice(-1200) + '\n';
 
+      /* 修复 3：先给「已经定了什么」，再给「不能提什么」。
+         两块的相对顺序固定为 adopt → veto，与各自的开关状态无关。 */
+      var ab = adoptBlock();
+      if (ab) s += ab;
       var vb = vetoBlock();
       if (vb) s += vb;
       if (s.length < CFG.ragStop) s += buildRecallBlock(ctx);
@@ -463,14 +563,46 @@
   window.CP_DIGEST_MAX = 1800; /* 要点块总字数上限 */
   window.CP_DIGEST_TURN = 12;  /* 参与提炼的最近轮数 */
   window.CP_DIGEST_LINE = 120; /* 单条要点字数上限 */
+  /* 修复 1：提炼成功的判据改为「绝对量」，不再用压缩比例。
+     minRate 用「要点字数 / 讨论原文字数」当判据是错的：要点条数被 DL.keep 与跨轮去重
+     钉死后会迅速饱和（实测 ~560 字），而讨论原文字数随轮数线性增长，
+     于是这个比值必然单调下降 —— 讨论越长越必定判定失败，回退到 v151 的旧行为。
+     实测：单条回复 3000 字时，第 3 轮 rate=0.0609 勉强通过，第 4 轮起永久失败。 */
+  window.CP_DIGEST_MINLEN = 200;  /* 要点块最短字数：低于此值判定提炼失败，回退原文 */
+  window.CP_DIGEST_MINLINE = 6;   /* 最少条目数：少于此值同样判定失败，回退原文 */
+  /* ★★ 这两个是「观测位」，不是现役开关 —— 默认值 0，本次发布不接入行为判定。★★
+     来历：与 agent-app-engineer 讨论「提炼判据是否该按类别覆盖再卡一道」时留下的。
+     结论是**不接**，两条理由：
+       ① 实测样本下开关与否无差异（3/4/6/10 轮结果一致），既无收益也无伤害；
+          没有收益的开关不该带着行为风险进发布版。
+       ② 更关键：它判「不过」时的动作是 return null → 回退到「最后一条 AI 回复原文前
+          6000 字」，而那正是用户投诉的对象。等于「判断出指令质量不够 → 换一条更差的」。
+          这与本次事故的根因（v152 的 minRate 就是这么写的）是同一个错误，不能犯第二次。
+     保留原因：等拿到真实 _counselLog 跑完对照后，若数据显示「确实存在一类讨论提炼不出
+     决策信息」，再单独开一版改成「照样写要点块 + toast 明说缺什么」（需要
+     buildCounselDigest 返回 {ok, reason} 而非 null，本版不做该重构）。
+     0=不卡；2=要点至少覆盖 2 个分区 / 决策类（走向+结论）至少 2 条。 */
+  window.CP_DIGEST_MINKIND = 0;
+  window.CP_DIGEST_MINDECISIVE = 0;
 
   var DL = {
-    minLine: 6,     /* 提炼出的条数少于此值，判定为提炼失败，回退原文 */
-    minRate: 0.06,  /* 提炼后占原文比例低于此值，同样回退原文 */
+    minLine: 6,     /* 已移交给 window.CP_DIGEST_MINLINE，此字段保留兼容，函数内不再读取 */
+    minRate: 0.06,  /* 已不再作为成功判据；rate 现仅用于向作者展示压缩比例 */
     keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3 },
-    /* 判定顺序：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
-       走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。 */
+    /* 判定顺序（供 dlClassify 用）：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
+       走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。
+       这个顺序是对的，不能动。 */
     order: ["情感", "细节", "走向", "结论", "待决"],
+    /* 修复 2：order 原先一个字段同时承担「判定顺序」与「预算分配顺序」，而这两者的
+       要求是相反的——判定要具体类先判，预算要决策类先拿。现在拆成两个常量：
+         clsOrder    → 判定顺序，与上面的 order 完全一致（dlClassify 用）
+         budgetOrder → 预算分配与输出顺序（buildCounselDigest 用）
+       order 保留原名，兼容任何外部引用。 */
+    clsOrder: ["情感", "细节", "走向", "结论", "待决"],
+    /* 预算分配顺序：决策类先拿预算。
+       原先沿用判定顺序，情感(5)+细节(6) 先吃掉 1800 字里的约 1320 字，
+       而真正决定下一轮写什么的「走向 / 结论」只剩约 480 字 ≈ 4 条。 */
+    budgetOrder: ["走向", "结论", "待决", "细节", "情感"],
     lex: {
       /* 走向只收「未来动作与决策」：去掉了 之后 / 结尾 / 顺序 这类会被误命中的泛词 */
       走向: /(接下来|下一步|下一章|后续|走向|路线|分岔|建议走|建议(你|让|把|先)|不如|不妨|可以(考虑|试试|先)|最终|收束|摊牌|挑明|主动道歉|先开口|先低头|结局)/,
@@ -530,8 +662,9 @@
   }
 
   function dlClassify(s) {
-    for (var i = 0; i < DL.order.length; i++) {
-      var k = DL.order[i];
+    /* 判定顺序：具体类先判（clsOrder），与预算分配顺序无关 */
+    for (var i = 0; i < DL.clsOrder.length; i++) {
+      var k = DL.clsOrder[i];
       if (DL.lex[k].test(s)) return k;
     }
     return "";
@@ -613,7 +746,8 @@
 
       var max = Number(window.CP_DIGEST_MAX) || 1800;
       var pickedBy = {}, total = 0, kept = 0;
-      DL.order.forEach(function (kind) {
+      /* 修复 2：按 budgetOrder 分配预算，让「走向 / 结论 / 待决」这些决策类先拿 */
+      DL.budgetOrder.forEach(function (kind) {
         var list = bucket[kind].slice().sort(function (a, b) { return b.sc - a.sc; });
         var cap = DL.keep[kind] || 4, arr = [];
         for (var j = 0; j < list.length && arr.length < cap; j++) {
@@ -629,13 +763,41 @@
         }
         if (arr.length) pickedBy[kind] = arr;
       });
-      if (kept < DL.minLine) return null;
-      var body = DL.order.filter(function (k) { return pickedBy[k] && pickedBy[k].length; })
+      var _minLine = Number(window.CP_DIGEST_MINLINE) || 6;
+      if (kept < _minLine) return null;
+      /* 修复 2：输出顺序与预算分配顺序一致（决策类在前），
+         否则刚把走向/结论抢到预算，又把情感/细节排到块首，作者看到的重点还是错的 */
+      var body = DL.budgetOrder.filter(function (k) { return pickedBy[k] && pickedBy[k].length; })
         .map(function (k) { return '【' + k + '】\n' + pickedBy[k].map(function (t) { return '· ' + t; }).join('\n'); })
         .join('\n');
       if (!body) return null;
+      /* 修复 1：rate 只用于向作者展示压缩比例，不再作为成功判据 */
       var rate = rawLen ? (body.length / rawLen) : 0;
-      if (rate < DL.minRate) return null;
+      /* 真正的空结果下限保护：要点块太短说明这次讨论确实没提炼出东西。
+         80 字是硬下限，不受 CP_DIGEST_MINLEN 影响——它代表「确实没有可提炼内容」；
+         CP_DIGEST_MINLEN（默认 200）是可调的「够不够用」标准。 */
+      if (body.length < 80) return null;
+      var _minLen = Number(window.CP_DIGEST_MINLEN) || 200;
+      if (body.length < _minLen) return null;
+      /* 可选：类别覆盖判据（与 agent-app-engineer 讨论后加的可选闸门）。
+         作者要的是「走向 / 结论」这类能定下一轮写什么的决策信息；一份只有
+         情感/细节、没有任何决策条的要点块，即使字数够，作为「生成指令」也不成立。
+         两个开关默认 0（关闭）—— 关闭时行为与 team-lead 的规格逐字一致；
+         置为 2 即启用「至少覆盖 2 类 / 决策类至少 2 条」。
+         ★ 注意：触发时当前实现是回退到旧行为（原文前 6000 字）。而原文正是作者投诉的
+           对象，所以在闸门打开前请先跑 verify_replay.js 量一遍——我的建议是把它改成
+           「提示」而不是「回退」，见给 team-lead 的说明。 */
+      var _minKind = Number(window.CP_DIGEST_MINKIND) || 0;
+      var _minDec = Number(window.CP_DIGEST_MINDECISIVE) || 0;
+      if (_minKind > 0) {
+        var _kinds = 0;
+        for (var _k in pickedBy) { if (pickedBy[_k] && pickedBy[_k].length) _kinds++; }
+        if (_kinds < _minKind) return null;
+      }
+      if (_minDec > 0) {
+        var _dec = ((pickedBy['走向'] || []).length) + ((pickedBy['结论'] || []).length);
+        if (_dec < _minDec) return null;
+      }
       var block = '【剧情参谋要点 · 下一轮据此写】\n' + body
         + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
         + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
@@ -664,13 +826,53 @@
       v = (v ? v + '\n' : '') + block;
     }
     ta.value = v;
+    cpPersistBrief();     /* 程序赋值不触发 input，必须显式落盘，否则切章就蒸发 */
+    return true;
+  }
+  /* ============================================================
+   * 修复 5（P2-1）：三条回退路径的幂等写入
+   *
+   * 原先三处（开关关闭 / 讨论过短 / 提炼失败）都是无脑
+   *   ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
+   * 点几次就往指令框里堆几段，而且没有备份 —— 于是 window.cpUndoBrief() 在这条路径上
+   * 会回滚到一个过期的、更早的值，等于把中间几次写入一起吃掉。
+   *
+   * 现在统一走 cpWriteLegacy()：按旧块头定位，有则整块替换、无则追加，并在写入前备份。
+   * ============================================================ */
+  var CP_LEGACY_BEGIN = '【剧情参谋结论 · 下一轮据此写】';
+  function cpWriteLegacy(kept) {
+    var ta = document.getElementById('chBrief');
+    if (!ta) return false;
+    /* 必须备份：否则回退路径上的「撤销」会回滚到更早的过期值 */
+    _cpBriefBak = ta.value;
+    var v = String(ta.value || '');
+    var b = v.indexOf(CP_LEGACY_BEGIN);
+    if (b < 0) {
+      ta.value = (v ? v + '\n' : '') + CP_LEGACY_BEGIN + '\n' + kept;
+      cpPersistBrief();   /* 程序赋值不触发 input，必须显式落盘 */
+      return true;
+    }
+    /* 已有旧块：从块头一直替换到块尾。块尾取「下一个【要点完】」或「下一个【…】段头」，
+       都没有就到文末——保证再点一次是替换而不是叠加。 */
+    var stop = -1;
+    var e = v.indexOf(CP_END, b);
+    if (e >= 0) stop = e + CP_END.length;
+    else {
+      var nx = v.indexOf('\n【', b + 1);
+      stop = (nx > 0) ? (nx + 1) : v.length;
+    }
+    ta.value = (v.slice(0, b) + CP_LEGACY_BEGIN + '\n' + kept + v.slice(stop))
+      .replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+    cpPersistBrief();     /* 同上 */
     return true;
   }
   window.cpUndoBrief = function () {
     try {
       var ta = document.getElementById('chBrief');
       if (!ta || _cpBriefBak === null) { toast('没有可撤销的上一步'); return; }
-      ta.value = _cpBriefBak; _cpBriefBak = null; toast('已撤销上一次写入');
+      ta.value = _cpBriefBak; _cpBriefBak = null;
+      cpPersistBrief();     /* 撤销也是一次写入：不落盘的话切章后库里还是写入后的值，撤销被静默回滚 */
+      toast('已撤销上一次写入');
     } catch (e) {}
   };
   /* 清理由旧版本累积的原文块（v152 之前的「剧情参谋结论」整段）——需作者显式调用，
@@ -681,6 +883,7 @@
       var before = String(ta.value || '').length;
       ta.value = String(ta.value || '').replace(/【剧情参谋结论[^\n]*\n[\s\S]{0,6000}?(?=\n【|$)/g, '')
         .replace(/\n{3,}/g, '\n\n').trim();
+      cpPersistBrief();     /* 清理是一次删除型写入，同样要落盘，否则切章后旧块又回来 */
       toast('已清理旧版原文块：指令 ' + before + ' 字 → ' + String(ta.value || '').length + ' 字');
     } catch (e) { toast('清理失败：' + (e && e.message)); }
   };
@@ -695,13 +898,15 @@
       var full = String(last.text || '');
       var kept = full.slice(0, CFG.briefCap);
 
-      /* 开关关闭 = 逐字还原 v151 行为：最后一条原文前 6000 字，追加进指令 */
+      /* 开关关闭 = 逐字还原 v151 行为：最后一条原文前 6000 字，写进指令。
+         修复 5：走 cpWriteLegacy 保证幂等（原来是每点一次追加一段） */
       if (!window.CP_DIGEST) {
-        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
-        var cut = full.length - kept.length;
-        toast(cut > 0
-          ? ('已写进「生成指令」（' + kept.length + ' 字，超出的 ' + cut + ' 字被截断）')
-          : ('已写进「生成指令」（' + kept.length + ' 字，完整写入）'));
+        if (cpWriteLegacy(kept)) {
+          var cut = full.length - kept.length;
+          toast(cut > 0
+            ? ('已写进「生成指令」（' + kept.length + ' 字，超出的 ' + cut + ' 字被截断）')
+            : ('已写进「生成指令」（' + kept.length + ' 字，完整写入）'));
+        }
         return;
       }
 
@@ -711,16 +916,16 @@
         _counselLog.slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
       } catch (e2) {}
       if (rawTotal <= 700) {
-        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
-        toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
+        if (cpWriteLegacy(kept)) toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
         return;
       }
 
       var d = buildCounselDigest();
       if (!d) {
-        /* 提炼不出结论（讨论太短 / 全是过程没有落点）时回退原文：宁可多烧，也不丢信息 */
-        ta.value = (ta.value ? ta.value + '\n' : '') + '【剧情参谋结论 · 下一轮据此写】\n' + kept;
-        toast('这次没提炼出明确结论（讨论里还缺落点），已按原样写入 ' + kept.length + ' 字');
+        /* 提炼不出足够要点时回退原文：宁可多烧，也不丢信息。
+           修复 1 之后这条路径已很少触发（原先 ≥4 轮讨论 100% 走这里）。
+           文案不再暗示「你讨论得不够」——那会把参数阈值问题误导成作者的问题。 */
+        if (cpWriteLegacy(kept)) toast('这次没提炼出足够要点，已按原样写入 ' + kept.length + ' 字（可运行 cpBriefClearOld() 清理历史累积）');
         return;
       }
       if (cpWriteBrief(d.text)) {
@@ -728,6 +933,278 @@
           + ' 字（省 ' + Math.round((1 - d.rate) * 100) + '%）；写错了可撤销');
       }
     } catch (e) { toast('写入指令失败：' + (e && e.message)); }
+  };
+
+  /* ============================================================
+   * 模块 H：定稿指令出口 counselFinalizeBrief()
+   *
+   * 作者（产品经理）反馈里最核心的一条：「他一直问，但是得不出一个准确的总结性
+   * AI 指令，走向、情节梳理、线索、伏笔及结论」。
+   * 产品里原先没有这个出口，只有两类东西：
+   *   ① v152 的本地提炼器 —— 产出 5 类「无状态」要点，且长讨论里根本不执行（P0-1）；
+   *   ② 「写进本章指令」   —— 要么塞最后一条回复的原文，要么塞一堆没有定/未定之分
+   *      的要点，两者都当不了「定稿」。
+   * 作者要的是一份**带状态**的定稿：每条标明 已定 / 待定 / 未定 / 排除，
+   * 并单独列出「已砍掉、不列入正文」的部分——这样下一轮生成才知道什么必须遵守、
+   * 什么还在议、什么已经不要了。
+   *
+   * 与 counselToBrief 的三点本质区别：
+   *   ① 输入是**整轮讨论**（CP_FINAL_TURNS=40，按字符预算从后往前尽量多带），
+   *      不是「最近 8 条」——作者抱怨的长期记忆遗忘，在定稿出口必须补回来；
+   *   ② 采纳 / 否决清单显式喂给模型，让它有「已定」与「排除」的判定依据；
+   *   ③ 输出带状态标记，且第五条固定为「已排除」。
+   *
+   * 五条降级路径全部兜回 counselToBrief()，绝不写入空指令或半截指令。
+   * 回滚：window.CP_FINAL_BRIEF = 0 即逐字还原（转调原逻辑）。
+   * ============================================================ */
+  window.CP_FINAL_BRIEF = 1;      /* 1=启用定稿出口；0=转调 counselToBrief */
+  window.CP_FINAL_MAXCHARS = 2600; /* 定稿块字符上限 */
+  window.CP_FINAL_MAXLINES = 40;   /* 条目上限 */
+  window.CP_FINAL_LINEMAX = 120;   /* 单条上限，超出截断加… */
+  window.CP_FINAL_TURNS = 40;      /* 参与定稿的最近条数（尽量覆盖全轮） */
+  /* 以下为调用参数与输入预算，同样挂 window，使用处现读 */
+  window.CP_FINAL_INCHARS = 24000;  /* 喂给模型的讨论原文预算 */
+  window.CP_FINAL_CTXCHARS = 4000;  /* 喂给模型的上下文预算 */
+  window.CP_FINAL_TEMP = 0.55;      /* 定稿要稳，明显低于参谋讨论的 0.85 */
+  window.CP_FINAL_MAXTOK = 3000;
+  window.CP_FINAL_MODEL = '';       /* 空 = 用参谋同款模型（ai.counselModel || deepseek-flash） */
+
+  var CP_FINAL_BEGIN = '【剧情定稿指令';
+  /* ★ 结束标记用独立的【定稿完】，不复用要点块的【要点完】——已与 team-lead 确认，不要合并。
+     原因：定稿块与要点块可以在指令框里并存。若两者共用结束标记，
+     cpWriteBrief 用 indexOf(CP_END, b) 定位要点块结尾时，可能截到定稿块的尾巴上
+     （嵌套误判，定位到错误偏移）。各自独立后互不干扰，已断言两种块共存时各只有一个。
+     注意 CP_FINAL_BEGIN 只取到「【剧情定稿指令」不含章号——章号会变，只用它做定位。 */
+  var CP_FINAL_END = '【定稿完】';
+
+  /* 把模型返回收敛成行数组：去块头、去 Markdown 符号、按单条上限截断 */
+  function cpFinalLines(raw) {
+    var lines = String(raw || '').split(/\r?\n/);
+    var out = [];
+    var lineMax = Number(window.CP_FINAL_LINEMAX) || 120;
+    for (var i = 0; i < lines.length; i++) {
+      var ln = String(lines[i] || '').replace(/\r/g, '').trim();
+      if (!ln) continue;
+      if (ln.indexOf(CP_FINAL_BEGIN) === 0) continue;      /* 块头由我们生成，不要模型那份 */
+      if (ln === CP_FINAL_END || ln === CP_END) continue;  /* 结束标记同样由我们生成 */
+      ln = ln.replace(/^#{1,6}\s*/, '').replace(/\*\*/g, '').replace(/^>\s*/, '').trim();
+      if (!ln) continue;
+      if (ln.length > lineMax) ln = ln.slice(0, lineMax) + '…';
+      out.push(ln);
+    }
+    return out;
+  }
+
+  /* 定稿块的幂等写入：与 cpWriteBrief 同一套机制（按块头定位 + 整块替换 + 写前备份），
+     共用 _cpBriefBak，所以 window.cpUndoBrief() 对两种块都能撤回。
+     结束标记用独立的【定稿完】，避免与要点块的【要点完】互相干扰定位。 */
+  function cpWriteFinal(block) {
+    var ta = document.getElementById('chBrief');
+    if (!ta) return false;
+    _cpBriefBak = ta.value;
+    var v = String(ta.value || '');
+    var b = v.indexOf(CP_FINAL_BEGIN);
+    if (b < 0) {
+      ta.value = (v ? v + '\n' : '') + block;
+      cpPersistBrief();   /* 首次写入走这条分支，同样必须落盘 */
+      return true;
+    }
+    var stop = -1;
+    var e = v.indexOf(CP_FINAL_END, b);
+    if (e >= 0) stop = e + CP_FINAL_END.length;
+    else {
+      var nx = v.indexOf('\n【', b + 1);
+      stop = (nx > 0) ? (nx + 1) : v.length;
+    }
+    ta.value = (v.slice(0, b) + block + v.slice(stop))
+      .replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+    cpPersistBrief();     /* 程序赋值不触发 input，必须显式落盘 */
+    return true;
+  }
+
+  /* 指令框写入后触发一次落盘。三条写入路径（cpWriteBrief / cpWriteLegacy / cpWriteFinal）
+     都必须调用它。
+     ★ 为什么必须显式调：主程序给 #chBrief 绑的 input 监听只对「用户敲键盘」生效，
+       而这三个函数都是**程序给 ta.value 赋值**，不会触发 input 事件——
+       光靠监听，写入的指令在切章 / 切书 / 刷新时会蒸发（P0-2）。
+     ★ 落盘本体由 index.html 侧提供（autoSaveChapter，开关 window.CP_BRIEF_AUTOSAVE）。
+       这里只负责调用；函数不存在或抛错都吞掉，并明确告诉作者要手动保存一次。 */
+  function cpPersistBrief() {
+    try {
+      if (typeof autoSaveChapter !== 'function') throw new Error('autoSaveChapter 不存在');
+      autoSaveChapter();
+      return true;
+    } catch (e) {
+      try { toast('指令已写入，但自动保存未触发——请手动点一次「保存」'); } catch (e2) {}
+      return false;
+    }
+  }
+
+  window.counselFinalizeBrief = async function () {
+    /* 降级 1：开关关闭 → 逐字转调原有逻辑 */
+    if (!window.CP_FINAL_BRIEF) {
+      try { counselToBrief(); } catch (e) { toast('写入指令失败：' + (e && e.message)); }
+      return;
+    }
+    /* 降级 2：讨论为空 → 与 counselToBrief 完全一致的提示 */
+    var last = null;
+    try {
+      for (var i = _counselLog.length - 1; i >= 0; i--) {
+        if (_counselLog[i] && _counselLog[i].role === 'ai') { last = _counselLog[i]; break; }
+      }
+    } catch (e0) {}
+    if (!last) { toast('还没有参谋的回复可以落地'); return; }
+
+    var ta = document.getElementById('chBrief');
+    if (!ta) return;
+
+    /* 未配置 AI 时同样兜回原逻辑——原逻辑是纯本地的，不需要 AI。
+       ★ 与降级 1（CP_FINAL_BRIEF=0）的区别，两者不要一起"补 toast"：
+         降级 1 是刻意打开的回滚态，不是故障，静默才对，打扰作者反而是噪音；
+         这里是「功能点了但环境不具备」，属于事实缺失，必须明说。
+         静默降级的害处：这个按钮的全部价值是「带状态标注的五段定稿」，
+         作者点下去却拿到一份没有【已定】/【待定】的普通要点，界面上只飘一句
+         counselToBrief() 自己的 toast——他会以为按钮坏了，而不是自己没配 AI。
+         这类「看起来像 bug 的降级」最难排查。
+       ★ 也不禁用按钮：AI 配置在设置页改，作者可能在打开参谋弹窗之后才配，
+         按钮凭空消失更像 bug。 */
+    var ai = {};
+    try { ai = load('ai', {}) || {}; } catch (e1) {}
+    if (!ai.base || !String(ai.base).trim()) {
+      try { toast('还没配置 AI：定稿需要模型参与，已按原样写入讨论原文（不带状态标注）。到「AI 生成设置」配好模型后可再用定稿'); } catch (e2a) {}
+      try { counselToBrief(); } catch (e2) {}
+      return;
+    }
+
+    try {
+      /* ---- 组装输入 ---- */
+      var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+      var turnMax = Number(window.CP_FINAL_TURNS) || 40;
+      var inMax = Number(window.CP_FINAL_INCHARS) || 24000;
+      var src = log.slice(-turnMax);
+      /* 从后往前取，尽量多带：先保证最新的完整留下，超预算再丢最旧的 */
+      var used = 0, picked = [];
+      for (var k = src.length - 1; k >= 0; k--) {
+        var t = String((src[k] && src[k].text) || '');
+        if (picked.length && used + t.length > inMax) break;
+        picked.unshift(src[k]); used += t.length;
+      }
+      var hist = picked.map(function (m) {
+        return (m.role === 'me' ? '我' : '参谋') + '：' + String(m.text || '');
+      }).join('\n');
+
+      var adopted = adoptGet(), vetoed = vetoGet();
+      var ctxText = '';
+      try {
+        var c = counselCtx();
+        ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 4000);
+      } catch (e3) {}
+
+      var chNum = '', chTitle = '';
+      try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e4) {}
+      try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e5) {}
+      var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
+
+      var sys = [
+        '你是一位长篇小说的「剧情定稿编辑」，不是写手，也不是聊天对象。',
+        '职责：把作者与「剧情参谋」之间的一整轮讨论，收敛成一份可直接用于下一轮正文生成的定稿指令。',
+        '铁律：',
+        '① 只输出下面规定格式的条列，不要寒暄、不要开场白、不要任何解释性文字；',
+        '② 不要输出 Markdown 标题符号（#）与加粗星号（**），作者在手机上看；',
+        '③ 每一条必须是一句话，行首「· 」，行尾带且只带一个状态标记：【已定】/【待定】/【未定】/【排除】；',
+        '④ 状态判定标准：已被作者明确采纳、或已经写进正文的=【已定】；方向定了但具体做法还没定=【待定】；讨论过但没有结论的=【未定】；已被作者否决、或明确不采用的=【排除】；',
+        '⑤ 第五段的每一条固定标【排除】，它记录的是「已经砍掉、不列入正文」的东西，只备查不执行；',
+        '⑥ 绝不写正文、绝不代写段落；',
+        '⑦ 一切结论必须以分卷设定、人物卡与已有剧情为准，不得凭空新增设定；不确定就标【未定】，不要编造。',
+        '输出格式（五段的段名逐字照抄，每段下面若干条）：',
+        '一、整体故事与剧情走向',
+        '二、讨论达成的最终结论',
+        '三、关键情感落点',
+        '四、必须保留的细节与设定',
+        '五、已排除（不列入正文，仅备查）'
+      ].join('\n');
+
+      var user = '下面是作者与剧情参谋这一轮讨论的完整记录（按时间顺序）：\n\n' + (hist || '（无）') + '\n\n';
+      user += '下面是作者已经拍板采纳的走向——这些一律判【已定】：\n'
+        + (adopted.length ? adopted.map(function (t) { return '· ' + t; }).join('\n') : '（无）') + '\n\n';
+      user += '下面是作者已经否决的走向——这些一律进第五段并标【排除】：\n'
+        + (vetoed.length ? vetoed.map(function (t) { return '· ' + t; }).join('\n') : '（无）') + '\n\n';
+      if (ctxText) user += '下面是当前作品的相关信息：\n' + ctxText + '\n\n';
+      user += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（五段，每条带状态标记）。';
+
+      var _m = String(window.CP_FINAL_MODEL || '').trim() || ai.counselModel || 'deepseek-flash';
+      var _t = Number(window.CP_FINAL_TEMP);
+      if (!isFinite(_t)) _t = 0.55;
+      var _mt = Number(window.CP_FINAL_MAXTOK) || 3000;
+      try { trajTag('剧情定稿'); } catch (e6) {}
+
+      var out = '';
+      try {
+        out = await callAI({ sys: sys, user: user, temperature: _t, max_tokens: _mt, modelOverride: _m });
+      } catch (e7) {
+        /* 降级 3：AI 调用异常 → 明确报错 + 兜回原逻辑 */
+        toast('定稿失败：' + ((e7 && e7.message) || e7 || '未知错误') + '；已改用普通要点写入');
+        try { counselToBrief(); } catch (e8) {}
+        return;
+      }
+      out = String(out || '').trim();
+      if (!out) {
+        /* 降级 3：返回空 */
+        toast('模型返回了空内容，已改用普通要点写入');
+        try { counselToBrief(); } catch (e9) {}
+        return;
+      }
+
+      /* 降级 5：不含任何状态标记 → 判为格式失败 */
+      if (!/【(已定|待定|未定|排除)】/.test(out)) {
+        toast('模型这次没有按定稿格式返回（缺状态标记），已改用普通要点写入');
+        try { counselToBrief(); } catch (e10) {}
+        return;
+      }
+
+      var lines = cpFinalLines(out);
+      if (!lines.length) {
+        toast('定稿内容为空，已改用普通要点写入');
+        try { counselToBrief(); } catch (e11) {}
+        return;
+      }
+
+      /* 降级 4：按条目与字符双重截断。
+         ★ 语义（已与 team-lead 确认，不要改）：CP_FINAL_MAXLINES 是**条目**上限，
+           只对行首「· 」的行计数。五段的段名（一、整体故事与剧情走向 …）是固定骨架，
+           属于结构而非条目，不占作者的条目配额。
+           若改成连段名一起数，会出现「设了 40 条、实际只有 39 条」的偏差。 */
+      var maxLines = Number(window.CP_FINAL_MAXLINES) || 40;
+      var keptLines = [], items = 0, cut = 0;
+      for (var li = 0; li < lines.length; li++) {
+        var isItem = lines[li].indexOf('· ') === 0;
+        if (isItem) {
+          if (items >= maxLines) { cut++; continue; }
+          items++;
+        }
+        keptLines.push(lines[li]);
+      }
+      if (cut > 0) lines = keptLines;
+      var body = lines.join('\n');
+      /* 截断提示绝不引导作者去做破坏性操作。
+         早期措辞是「可点『撤销』查看完整内容」——那是错的：cpUndoBrief() 是撤回到写入前，
+         会把刚写好的定稿整块删掉，不但看不到完整内容，还会把已写的东西一起弄没。 */
+      if (cut > 0) body += '\n…（已截断 ' + cut + ' 条：为控制指令长度只保留前 ' + maxLines
+        + ' 条，完整内容仍在上方讨论里）';
+      var maxChars = Number(window.CP_FINAL_MAXCHARS) || 2600;
+      if (body.length > maxChars) body = body.slice(0, maxChars) + '…';
+
+      var block = '【剧情定稿指令 · ' + chLabel + '】\n' + body + '\n' + CP_FINAL_END;
+      if (cpWriteFinal(block)) {
+        toast('已生成定稿指令：' + lines.length + ' 条'
+          + (cut > 0 ? ('（超出的 ' + cut + ' 条已截断）') : '')
+          + '，写进「生成指令」；可点「撤销」撤回');
+      }
+    } catch (e) {
+      /* 外层兜底：任何非预期异常也要留给作者一份可用指令 */
+      try { toast('定稿过程出错：' + ((e && e.message) || e) + '；已改用普通要点写入'); } catch (e12) {}
+      try { counselToBrief(); } catch (e13) {}
+    }
   };
 
   /* ============================================================
@@ -776,6 +1253,9 @@
       var ta = document.getElementById('chBrief');
       if (ta) {
         ta.value = (ta.value ? ta.value + '\n' : '') + '【已确定的剧情走向】' + r;
+        cpPersistBrief();   /* 采纳是「定下来的走向」，必须落盘：
+                               这条蒸发是完全无声的（撤销还有 toast，采纳没有），
+                               且它正是产品原话「讨论过的内容被删改」的另一半 */
         toast('已采纳：已写进「生成指令」');
       } else {
         toast('已采纳');
@@ -1014,6 +1494,48 @@
         if (id ? chips[i].getAttribute('data-cid') === id : /on/.test(chips[i].className)) { target = chips[i]; break; }
       }
       if (target && target.scrollIntoView) target.scrollIntoView({ block: 'nearest' });
+    } catch (e) {}
+  };
+
+  /* ============================================================
+   * 切书时的内存态重置（跨书静默污染家族）
+   *
+   * 谁调用：index.html 的 switchBook()，由 agent-app-engineer 接线。
+   *
+   * 为什么不由 plus 自己监听切书：
+   *   本模块是靠「保存原函数引用 → 覆盖同名全局」挂进宿主的增强模块。
+   *   切书是宿主的核心管线（switchBook → resetChapterForm → 重渲染），
+   *   plus 再包一层 switchBook 会与宿主的改动抢时序，而且没法保证自己
+   *   排在 resetChapterForm 之后。交给宿主显式调用，时序可控、责任清楚。
+   *
+   * ★★ 这个函数里绝不能做任何落盘动作 ★★
+   *   切书路径上任何 counselSave() / cpPersistBrief() 都是错的。
+   *   尤其 counselSave() 是 save("counselLog", _counselLog)——按 curId 分书，
+   *   清空内存态之后再调，curId 已经切到新书，结果不是「保存清空」，
+   *   而是把新书原有的讨论写成空。（agent-app-engineer 在 index.html:3253
+   *   已把这个陷阱写死并做成断言。）
+   *   本函数只做一件事：把内存里的旧书残影清掉。不碰 DOM，不碰 IndexedDB。
+   *
+   * 为什么只清这两个：
+   *   _cpBriefBak  撤销快照。不清的话：A 书写指令 → 切 B 书 → 点「撤销」
+   *                → A 书指令被写进 B 书的生成指令框。补了落盘之后，
+   *                这个污染还会被真正写进 B 书，从「瞬时」变成「持久化」。
+   *   _cpRoutes    最近一次 AI 回复解析出的走向。切书后若 B 书参谋日志为空
+   *                （没有新 AI 回复触发重算），残留的仍是 A 书走向，
+   *                点「✓ 采纳」会采纳到错误的走向。
+   *
+   * 刻意**不清**的：
+   *   采纳/否决列表（counselAdopted / counselVeto）——它们走 load/save，
+   *   按 curBook() 分书隔离，切书会自动跟着换。清了反而毁掉另一本书的数据。
+   *   _orig* 系列——那是宿主原函数的引用，是常量，清掉会永久破坏包装链。
+   *
+   * 副作用（是预期行为，不是 bug）：重置后点「撤销」会提示
+   *   「没有可撤销的上一步」——本来就没有本轮写入可撤，正确。
+   * ============================================================ */
+  window.cpOnBookSwitch = function () {
+    try {
+      _cpBriefBak = null;
+      _cpRoutes = [];
     } catch (e) {}
   };
 
