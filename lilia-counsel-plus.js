@@ -56,12 +56,48 @@
     try { bid = String((typeof curId !== 'undefined' && curId) ? curId : ''); } catch (e) {}
     return 'lilia_cp_' + bid + '_' + k;
   }
-  function put(k, v) { try { save(k, v); } catch (e) { try { localStorage.setItem(cpBakKey(k), JSON.stringify(v)); } catch (e2) {} } }
+  /* 缺陷 2：主路径写成功就必须清掉兜底副本。
+     兜底只在「save 抛错」这一个时刻才该存在；留着会让下一次 load 取不到值时
+     读回一份过期副本——例如作者清空了讨论，却被兜底副本原样复活。 */
+  function put(k, v) {
+    try {
+      save(k, v);
+      try { localStorage.removeItem(cpBakKey(k)); } catch (e3) {}
+    } catch (e) {
+      try { localStorage.setItem(cpBakKey(k), JSON.stringify(v)); } catch (e2) {}
+    }
+  }
   function get1(k) {
     try { var v = load(k, null); if (v) return v; } catch (e) {}
     try { var raw = localStorage.getItem(cpBakKey(k)); if (raw) return JSON.parse(raw); } catch (e2) {}
     return null;
   }
+
+  /* ============================================================
+   * 缺陷 4b：存量旧全局兜底 key「只删不回填」
+   *
+   * v153 之前兜底 key 是 'lilia_cp_' + k —— 不带书 ID，是全局的。老用户机器上
+   * 可能还留着 lilia_cp_counselAdopted / lilia_cp_counselVeto / ... 这类旧 key。
+   *
+   * 为什么不迁移到新 key（'lilia_cp_<书ID>_<k>'）：旧 key 里没有任何书 ID 信息，
+   * 无法判断它当初属于哪本书。往当前书回填，等于把一份归属不明的内容灌进作者
+   * 正在写的这本书——正是 v153 要根治的跨书污染，只是换个方向再犯一次。所以只删。
+   * 代价（已写进更新日志向作者说明）：极少数老用户会发现「已采纳 / 已否决」列表空了，
+   * 重新点一次即可；不丢正文、不丢章节。
+   * ============================================================ */
+  window.CP_PURGE_LEGACY = 1;   /* 0=不动旧 key（回滚用） */
+  var CP_LEGACY_KEYS = ['counselAdopted', 'counselVeto', 'beatPicked', 'activeDeduction', 'plot'];
+  function cpPurgeLegacyBak() {
+    var removed = [];
+    try {
+      for (var i = 0; i < CP_LEGACY_KEYS.length; i++) {
+        var k = 'lilia_cp_' + CP_LEGACY_KEYS[i];
+        if (localStorage.getItem(k) !== null) { localStorage.removeItem(k); removed.push(k); }
+      }
+    } catch (e) {}
+    return removed;
+  }
+  try { if (window.CP_PURGE_LEGACY) cpPurgeLegacyBak(); } catch (ePurge) {}
 
   /* ============================================================
    * 模块 A：外观修正（取消手机端人物卡横滑）
@@ -292,6 +328,44 @@
     return '\n\n【作者已确定的剧情走向 · 不要再当作待议项重复提问，直接作为既定前提使用】\n' + lines + '\n';
   }
 
+  /* 列表标记正则（供 parseRoutes 用），与 DL.list 同源，同样排除小数开头。
+     缺陷 3a：不排除时「0.5 秒后，灯灭了」会被当成一条候选走向，
+     还会变成一个写着「5 秒后，灯灭了」的采纳/否决按钮——那是凭空造出来的走向。 */
+  function listMarkRe() {
+    return (window.CP_LIST_NUM === 0)
+      ? /^([①②③④⑤⑥]|[-•·]|\d{1,2}[.、)])\s*(.+)$/
+      : /^([①②③④⑤⑥]|[-•·]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)]))\s*(.+)$/;
+  }
+
+  /* 缺陷 3：判断「这一轮为什么没有可勾选的走向候选」。
+     返回 ''=不该提示（纯问答轮，或已有合格候选被去重/截断）；
+           'nolist'=有走向段头但一条列表项都没有；
+           'short'=有列表项但每条都不足 6 字、被 parseRoutes 的长度门槛全部滤掉。
+     两种成因要分开说：前者的下一步是「请它用 ①②③ 重列」，后者是「请它把每条写完整」。 */
+  function routeMissReason(text) {
+    try {
+      var t = String(text || '');
+      if (!/(?:可选走向|走向|接下来)[^\n]{0,40}[:：]/.test(t)) return '';
+      var seg = t;
+      var m = t.match(/(?:可选走向|走向|接下来)[^\n]{0,40}[:：][\s\S]{0,1200}$/);
+      if (m) seg = m[0];
+      var hasMark = 0, allShort = 1;
+      seg.split(/\r?\n/).forEach(function (raw) {
+        var ln = String(raw || '').trim();
+        if (!ln) return;
+        var mm = ln.match(listMarkRe());
+        var m2 = ln.match(/^(?:可选走向|走向)\s*[:：]\s*(.+)$/);
+        var body = mm ? mm[2] : (m2 ? m2[1] : '');
+        if (!body) return;
+        hasMark = 1;
+        if (String(body).trim().length >= 6) allShort = 0;
+      });
+      if (!hasMark) return 'nolist';
+      if (allShort) return 'short';
+      return '';
+    } catch (e) { return ''; }
+  }
+
   /* 从参谋回复里解析出「可选走向」。格式不固定（"可选走向："、"①②③"、"1. 2. 3."、"- "），
      所以只收跨度合理的列表项，且不依赖任何一种单一写法。 */
   function parseRoutes(text) {
@@ -303,7 +377,7 @@
     seg.split(/\r?\n/).forEach(function (raw) {
       var ln = String(raw || '').trim();
       if (!ln) return;
-      var mm = ln.match(/^([①②③④⑤⑥]|[-•·]|\d{1,2}[.、)])\s*(.+)$/);
+      var mm = ln.match(listMarkRe());
       if (mm) { if (mm[2].length >= 6) out.push(mm[2].trim()); return; }
       var m2 = ln.match(/^(?:可选走向|走向)\s*[:：]\s*(.+)$/);
       if (m2 && m2[1].length >= 6) out.push(m2[1].trim());
@@ -584,6 +658,12 @@
      0=不卡；2=要点至少覆盖 2 个分区 / 决策类（走向+结论）至少 2 条。 */
   window.CP_DIGEST_MINKIND = 0;
   window.CP_DIGEST_MINDECISIVE = 0;
+  /* 缺陷 3a：1=列表项判定排除「小数开头」（0.5 秒后… 这类散文不再被当成列表项）；
+     0=逐字回退到 v155 的旧正则。运行期可改，立即生效。 */
+  window.CP_LIST_NUM = 1;
+  /* 缺陷 3：走向候选抽不出来时是否在参谋回复下方给出说明。
+     1=给（只对「有走向段头却没抽出候选」这两种成因给）；0=逐字回退（完全静默）。 */
+  window.CP_ROUTE_HINT = 1;
 
   var DL = {
     minLine: 6,     /* 已移交给 window.CP_DIGEST_MINLINE，此字段保留兼容，函数内不再读取 */
@@ -614,10 +694,15 @@
     },
     /* 列表项：①②③ / 1. / - 。参谋列举「可选走向」时用的就是这些，
        它们本身即候选走向，不能再被词典判到别处去 */
-    list: /^([①②③④⑤⑥⑦⑧⑨⑩]|\d{1,2}[.、)]|[-•·>])\s*/,
+    list: (window.CP_LIST_NUM === 0)
+      ? /^([①②③④⑤⑥⑦⑧⑨⑩]|\d{1,2}[.、)]|[-•·>])\s*/
+      : /^([①②③④⑤⑥⑦⑧⑨⑩]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)])|[-•·>])\s*/,
     /* 噪声句：寒暄 / 能力声明 / 免责声明 / 复述 —— 一律不进指令 */
     noise: /(你好|很高兴|希望.{0,4}(有帮助|帮到你)|如果你还有|以上(是|为)?(我的)?(分析|建议|看法)|仅供参考|祝(你)?写作顺利|还有什么可以帮|我明白了|明白你的意思|有问题随时|随时(告诉|找我)|这只是.{0,8}可能|当然，?这只是|^好的[，,。]?$|谢谢你的(提问|补充))/,
-    head: /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/,
+    /* 同上：剥列表头时也必须跳过小数，否则「0.5 秒后」被削成「5 秒后」。 */
+    head: (window.CP_LIST_NUM === 0)
+      ? /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/
+      : /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)])|\*\*|##+)\s*/,
     md: /[*_`#>{}\[\]]/g
   };
 
@@ -1226,7 +1311,29 @@
         if (_counselLog[i].role === 'ai') { src = _counselLog[i].text; break; }
       }
       var routes = parseRoutes(src);
-      if (!routes.length) return;
+      if (!routes.length) {
+        /* 缺陷 3：参谋写了「走向」段头却一条候选都没列出来时，界面原本完全静默——
+           作者看到的是「这一轮下方没有任何按钮」，最自然的判断是按钮坏了。
+           现在按两种成因分别明说。纯问答轮（根本没有走向段头）继续静默：
+           那是参谋最常见的正常轮次，天天弹提示只会变成噪音。 */
+        if (window.CP_ROUTE_HINT) {
+          try {
+            var why = routeMissReason(src);
+            if (why && !last.__cpHintDone) {
+              var hb = document.createElement('div');
+              hb.className = 'cp-routes';
+              hb.innerHTML = '<div class="cp-rt"><div class="cp-rt-t">'
+                + (why === 'short'
+                    ? '这一轮列出了走向条目，但每条都不足 6 个字，没法作为候选采纳。可以让参谋把每条写成一句完整的话。'
+                    : '这一轮参谋提到了「走向」，但没列出可勾选的候选条目。可以让它用 ①②③ 编号重列一遍，或直接在「生成指令」里写下结论。')
+                + '</div></div>';
+              last.__cpHintDone = 1;
+              last.appendChild(hb);
+            }
+          } catch (e13) {}
+        }
+        return;
+      }
       var vetoed = vetoGet(), adopted = adoptGet();
       var wrap = document.createElement('div');
       wrap.className = 'cp-routes';
