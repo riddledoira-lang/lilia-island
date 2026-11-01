@@ -720,7 +720,26 @@
       { n: '开场', re: /开场|开头第一句|第一句/ },
       { n: '结尾/恍然大悟', re: /结尾|恍然大悟|收尾/ },
       { n: '伏笔', re: /伏笔|右眼|牡鹿|西里斯|科拉|符文石|声音/ }
-    ]
+    ],
+    /* v159：跨句状态归并 + 矛盾消解
+       subjects → 关键决策点的主题锚，用于把同一决策点散落在多分区、多轮的讨论归并成
+                  一条「最终状态」（时间序覆盖，后写覆盖前写）。
+       conflict → 矛盾信号词：讨论里明说「矛盾/冲突/二选一/vs/互相抢」的地方，
+                  即真正的未收敛冲突点，标记为「需裁定」。 */
+    subjects: [
+      { n: '回休息室', re: /回休息室|送薇拉回休息室/ },
+      { n: '三件套', re: /三件套/ },
+      { n: '五分钟', re: /五分钟|足秒足刻/ },
+      { n: '合伙人称呼', re: /合伙人/ },
+      { n: '菲比信息来源', re: /菲比主动|薇拉先问|菲比先/ },
+      { n: '沙菲克出场', re: /沙菲克.{0,8}(出不出现|出场|退场|不出现)/ },
+      { n: '阿杰特出场', re: /阿杰特.{0,6}(出|碰|不出现)/ },
+      { n: '手链笔', re: /手链.{0,10}(哪一笔|转|雾|烫|发烫|手腕)/ },
+      { n: '雾碎片', re: /雾碎片|两层叠加/ },
+      { n: '开场接口', re: /开场接口|被推开又凑回来|第〇节/ },
+      { n: '说漏', re: /说漏|差点说漏/ }
+    ],
+    conflict: /(矛盾|二选一|只能留|不能同时|互相抢|抢功|vs\s*|(?<!不)冲突)/
   };
 
   /* 一条待判定的句子 */
@@ -785,6 +804,14 @@
     return "";
   }
 
+  /* v159：按主题锚归并——返回句子命中的决策点名称，未命中返回 null */
+  function dlSubject(s) {
+    for (var i = 0; i < DL.subjects.length; i++) {
+      if (DL.subjects[i].re.test(s)) return DL.subjects[i].n;
+    }
+    return null;
+  }
+
   /* 打分：AI 回复优先 > 用户发言；越新越高；点到人物名字加分；长度适中加分 */
   function dlScore(s, meta, names) {
     var sc = meta.role === "ai" ? 10 : 6;
@@ -837,6 +864,7 @@
       adopted.forEach(function (t) { seen[dlKey(String(t))] = 1; });
       /* ④ 情节决策原文存档：命中 DL.decision 的句子原文（不截断）单独收集 */
       var decisions = [], dSeen = {};
+      var subjMap = {};
       for (var i = 0; i < src.length; i++) {
         var it = src[i]; if (!it) continue;
         var txt = String(it.text || '');
@@ -873,6 +901,20 @@
           /* 「建议走②」这类拍板句置顶，避免三个互斥候选并列时模型拿不准 */
           var bonus = (isList ? 10 : 0) + (/建议走|就按|按②|按①|按③|采用/.test(clean) ? 12 : 0);
           bucket[kind].push({ text: clean, sc: dlScore(clean, meta, names) + bonus });
+          /* v159：跨句状态归并 + 矛盾消解（在句子已判出 kind 之后执行）
+             归并：同一决策点（主题锚）的多句按时间序记录最新状态（后写覆盖前写）；
+             消解：命中 conflict 信号词的句子，把该决策点标记为「需裁定」。 */
+          var subj = dlSubject(clean);
+          if (subj) {
+            var st = kind === '待决' ? '待决' : (kind === '排除' ? '排除' : '已定');
+            /* 状态强度：排除(3) > 待决(2) > 已定(1)。只有强度不低于当前记录的才覆盖，
+               避免「顺带提及的长句(已定)」把「砍(排除)」这种更明确的结论覆盖掉 */
+            var sw = st === '排除' ? 3 : (st === '待决' ? 2 : 1);
+            var rec = subjMap[subj];
+            if (!rec) { rec = subjMap[subj] = { state: st, text: clean, conflict: false, w: 0 }; }
+            if (sw >= rec.w) { rec.state = st; rec.text = clean; rec.w = sw; }
+            if (DL.conflict.test(clean)) rec.conflict = true;
+          }
         });
       }
           /* ② 已采纳走向全保留：由 adoptedFull 在输出区前置，不再受 keep/上限约束 */
@@ -945,12 +987,30 @@
       var gapBlock = missing.length
         ? '\n【待补缺口 · 本轮讨论未覆盖】\n' + missing.map(function (n) { return '· ' + n; }).join('\n')
         : '';
-      var block = '【剧情参谋要点 · 下一轮据此写】\n' + body + gapBlock
+      /* v159：跨句状态归并 + 矛盾消解 的输出区
+         状态归并：把同一决策点的最终状态单列，消除散落多分区的冗余；
+         矛盾提示：把含冲突信号词的决策点单列，显式标记「需裁定」，避免模型拿矛盾指令去写 */
+      var subjNames = [];
+      for (var sn in subjMap) { if (subjMap[sn]) subjNames.push(sn); }
+      subjNames.sort(function (a, b) { return a.length - b.length; });
+      var mergeBlock = subjNames.length
+        ? '\n【状态归并 · 各决策点最终态】\n' + subjNames.map(function (n) {
+            var r = subjMap[n];
+            return '· ' + n + ' → ' + r.state + (r.conflict ? '（需裁定）' : '') + '：' + r.text;
+          }).join('\n')
+        : '';
+      var conflicts = subjNames.filter(function (n) { return subjMap[n] && subjMap[n].conflict; });
+      var conflictBlock = conflicts.length
+        ? '\n【矛盾提示 · 需人工裁定】\n' + conflicts.map(function (n) {
+            return '· ' + n + '：' + subjMap[n].text;
+          }).join('\n')
+        : '';
+      var block = '【剧情参谋要点 · 下一轮据此写】\n' + body + mergeBlock + conflictBlock + gapBlock
         + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
         + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
       /* ④ 情节决策原文存档：幂等覆盖写 KV，跨会话可查（与 counselAdopted/counselVeto 并列） */
       try { put('counselDecision', { at: now(), items: decisions }); } catch (e) {}
-      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length, excluded: (pickedBy['排除'] || []).length, gaps: missing.length };
+      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length, excluded: (pickedBy['排除'] || []).length, gaps: missing.length, merged: subjNames.length, conflicts: conflicts.length };
     } catch (e) { return null; }
   }
 
