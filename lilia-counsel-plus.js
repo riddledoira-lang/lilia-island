@@ -1445,6 +1445,9 @@
   window.CP_HYBRID_FORCE = 0;  /* 1=即便无矛盾/归并也强制交 DeepSeek 收敛 */
   window.CP_HYBRID_TEMP = 0.55;
   window.CP_HYBRID_MAXTOK = 3000;
+  /* v162：混合出口定稿块字符上限。比纯定稿（CP_FINAL_MAXCHARS=2600）更宽，
+     用于容纳完整不截断的「细节与设定」段 + 「已排除」段（这两段是备查性质，不抢决策配额）。 */
+  window.CP_HYBRID_MAXCHARS = 4000;
 
   /* 收敛 sys：与定稿同源，但定位为「对本地要点做收敛」，输入是 d 而非原文 */
   function cpHybridSys() {
@@ -1461,6 +1464,9 @@
       '⑦ 要点里「状态归并」区的状态是本地工具的初步判定，可能因同一句并列多个主题而误判——请你结合要点上下文重新裁定，不要照抄；',
       '⑧ 要点里「矛盾提示」区的每一项都必须给出明确裁定，不得含糊、不得并列两个互相冲突的结论；',
       '⑨ 情感落点与细节设定以要点里【情感】【细节】【走向·已确定】分区为准，找不到就标【未定】，不要编造。',
+      '⑩ 确实未定、或档案里没有依据的事项，必须标【未定】，不得强行收敛成【已定】——宁可标未定，也不要过度拍板；',
+      '⑪ 第四段「必须保留的细节与设定」不得为空：要点【细节】区里每一条保留项（伏笔呼应、时间线、人物设定、具体动作）都要落进第四段，不要把它们混进第二段「结论」；',
+      '⑫ 第五段「已排除」必须完整列出要点【排除】区与「这章不碰」清单里的每一项，不得遗漏、不得合并、不得省略。',
       '输出格式（五段的段名逐字照抄，每段下面若干条）：',
       '一、整体故事与剧情走向',
       '二、讨论达成的最终结论',
@@ -1564,21 +1570,25 @@
         return;
       }
 
-      /* ④ 截断（复用定稿的条目/字符双重截断口径） */
+      /* ④ 截断：决策段（一/二/三）受 CP_FINAL_MAXLINES 条目配额约束；
+         备查段（四、细节与设定 / 五、已排除）豁免配额，完整保留（v162 #3）。
+         字符上限用混合出口专属 CP_HYBRID_MAXCHARS（4000），不占用纯定稿的 2600。 */
       var maxLines = Number(window.CP_FINAL_MAXLINES) || 40;
-      var keptLines = [], items = 0, cut = 0;
+      var keptLines = [], items = 0, cut = 0, inTail = false;
       for (var li = 0; li < lines.length; li++) {
-        var isItem = lines[li].indexOf('· ') === 0;
-        if (isItem) {
+        var line = lines[li];
+        if (line.indexOf('四、') === 0 || line.indexOf('五、') === 0) { inTail = true; }
+        var isItem = line.indexOf('· ') === 0;
+        if (isItem && !inTail) {
           if (items >= maxLines) { cut++; continue; }
           items++;
         }
-        keptLines.push(lines[li]);
+        keptLines.push(line);
       }
       if (cut > 0) lines = keptLines;
       var body = lines.join('\n');
       if (cut > 0) body += '\n…（已截断 ' + cut + ' 条）';
-      var maxChars = Number(window.CP_FINAL_MAXCHARS) || 2600;
+      var maxChars = Number(window.CP_HYBRID_MAXCHARS) || 4000;
       if (body.length > maxChars) body = body.slice(0, maxChars) + '…';
 
       var chNum2 = '';
