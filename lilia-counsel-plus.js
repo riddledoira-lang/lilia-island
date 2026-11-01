@@ -739,7 +739,7 @@
       { n: '开场接口', re: /开场接口|被推开又凑回来|第〇节/ },
       { n: '说漏', re: /说漏|差点说漏/ }
     ],
-    conflict: /(矛盾|二选一|只能留|不能同时|互相抢|抢功|vs\s*|(?<!不)冲突)/
+    conflict: /(两条是矛盾的|是矛盾的|存在.{0,4}冲突|位置冲突|隐性冲突|互相抢功|抢功|vs\s*)/
   };
 
   /* 一条待判定的句子 */
@@ -865,6 +865,7 @@
       /* ④ 情节决策原文存档：命中 DL.decision 的句子原文（不截断）单独收集 */
       var decisions = [], dSeen = {};
       var subjMap = {};
+      var orphanConflicts = [];
       for (var i = 0; i < src.length; i++) {
         var it = src[i]; if (!it) continue;
         var txt = String(it.text || '');
@@ -905,15 +906,21 @@
              归并：同一决策点（主题锚）的多句按时间序记录最新状态（后写覆盖前写）；
              消解：命中 conflict 信号词的句子，把该决策点标记为「需裁定」。 */
           var subj = dlSubject(clean);
+          var isConf = DL.conflict.test(clean);
           if (subj) {
+            /* 状态判定：沿用全句 kind（待决/排除/已定）。窗口定位经实测在同句多主题
+               紧挨时无法切断（「手链笔」句里「羽毛降级」紧邻），反引入切词误判，故回退 */
             var st = kind === '待决' ? '待决' : (kind === '排除' ? '排除' : '已定');
-            /* 状态强度：排除(3) > 待决(2) > 已定(1)。只有强度不低于当前记录的才覆盖，
-               避免「顺带提及的长句(已定)」把「砍(排除)」这种更明确的结论覆盖掉 */
+            /* 状态强度：排除(3) > 待决(2) > 已定(1)。只有强度不低于当前记录的才覆盖 */
             var sw = st === '排除' ? 3 : (st === '待决' ? 2 : 1);
             var rec = subjMap[subj];
             if (!rec) { rec = subjMap[subj] = { state: st, text: clean, conflict: false, w: 0 }; }
             if (sw >= rec.w) { rec.state = st; rec.text = clean; rec.w = sw; }
-            if (DL.conflict.test(clean)) rec.conflict = true;
+            if (isConf) rec.conflict = true;
+          } else if (isConf) {
+            /* v160：无主题锚的冲突句（如「条目2(a)和条目4存在隐性冲突」）单独收集，
+               conflict 词典已精确化，只收明确的决策冲突信号 */
+            orphanConflicts.push(clean);
           }
         });
       }
@@ -1000,17 +1007,17 @@
           }).join('\n')
         : '';
       var conflicts = subjNames.filter(function (n) { return subjMap[n] && subjMap[n].conflict; });
-      var conflictBlock = conflicts.length
-        ? '\n【矛盾提示 · 需人工裁定】\n' + conflicts.map(function (n) {
-            return '· ' + n + '：' + subjMap[n].text;
-          }).join('\n')
+      var allConflicts = conflicts.map(function (n) { return n + '：' + subjMap[n].text; })
+        .concat(orphanConflicts.map(function (t) { return '（未归类冲突）' + t; }));
+      var conflictBlock = allConflicts.length
+        ? '\n【矛盾提示 · 需人工裁定】\n' + allConflicts.map(function (t) { return '· ' + t; }).join('\n')
         : '';
       var block = '【剧情参谋要点 · 下一轮据此写】\n' + body + mergeBlock + conflictBlock + gapBlock
         + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
         + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
       /* ④ 情节决策原文存档：幂等覆盖写 KV，跨会话可查（与 counselAdopted/counselVeto 并列） */
       try { put('counselDecision', { at: now(), items: decisions }); } catch (e) {}
-      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length, excluded: (pickedBy['排除'] || []).length, gaps: missing.length, merged: subjNames.length, conflicts: conflicts.length };
+      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length, excluded: (pickedBy['排除'] || []).length, gaps: missing.length, merged: subjNames.length, conflicts: allConflicts.length };
     } catch (e) { return null; }
   }
 
