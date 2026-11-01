@@ -668,7 +668,7 @@
   var DL = {
     minLine: 6,     /* 已移交给 window.CP_DIGEST_MINLINE，此字段保留兼容，函数内不再读取 */
     minRate: 0.06,  /* 已不再作为成功判据；rate 现仅用于向作者展示压缩比例 */
-    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3, 方向: 12 },
+    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3, 方向: 12, 排除: 8 },
     /* 判定顺序（供 dlClassify 用）：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
        走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。
        这个顺序是对的，不能动。 */
@@ -682,7 +682,7 @@
     /* 预算分配顺序：决策类先拿预算。
        原先沿用判定顺序，情感(5)+细节(6) 先吃掉 1800 字里的约 1320 字，
        而真正决定下一轮写什么的「走向 / 结论」只剩约 480 字 ≈ 4 条。 */
-    budgetOrder: ["走向", "结论", "方向", "待决", "细节", "情感"],
+    budgetOrder: ["走向", "结论", "方向", "待决", "排除", "细节", "情感"],
     lex: {
       /* 走向只收「未来动作与决策」：去掉了 之后 / 结尾 / 顺序 这类会被误命中的泛词 */
       走向: /(接下来|下一步|下一章|后续|走向|路线|分岔|建议走|建议(你|让|把|先)|不如|不妨|可以(考虑|试试|先)|最终|收束|摊牌|挑明|主动道歉|先开口|先低头|结局)/,
@@ -705,7 +705,22 @@
       ? /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/
       : /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)])|\*\*|##+)\s*/,
     md: /[*_`#>{}\[\]]/g,
-    decision: /(决心内容|三件套|隔开沙菲克|回休息室|合伙人|凑回来|自我牺牲|足秒足刻|这五分钟|被推开|推开)/
+    decision: /(决心内容|三件套|隔开沙菲克|回休息室|合伙人|凑回来|自我牺牲|足秒足刻|这五分钟|被推开|推开)/,
+    exclude: /(排除|砍掉|砍了|砍[。！？；，,、]|整段砍|整节砍|一律不能用|不能这么用|这章不碰|这章不出现|本章不出现|这章不出场|本章不出场|不当(已知)?(事实)?写|否掉|已否决|否决|废掉|作废|降级|仅备查|备查|不列(入|为)(正文|选项))/,
+    pending: /(待定|未定|未确认|还没定|没定|二选一|保留还是砍|保留还是|要不要保留|要不要|是否保留|是否|取决于你|你自己定|还没想好|留个口子|具体.{0,4}(待定|未定))/,
+    outline: /^([一二三四五六七八九十]{1,2}[、.．]|[A-Ga-g][.、)．]|第\d{1,2}[条章节])/,
+    scenes: [
+      { n: '克劳奇线', re: /克劳奇/ },
+      { n: '羽毛感应', re: /羽毛/ },
+      { n: '身体/精神状态', re: /蜜獾|兽魂|反噬|身体|精神状态/ },
+      { n: '沙菲克线', re: /沙菲克|记账/ },
+      { n: '手链/物转动', re: /手链|手腕/ },
+      { n: '请柬/酒窖', re: /请柬|酒窖|马尔福大礼/ },
+      { n: '时间线', re: /第76章|76章|两三天/ },
+      { n: '开场', re: /开场|开头第一句|第一句/ },
+      { n: '结尾/恍然大悟', re: /结尾|恍然大悟|收尾/ },
+      { n: '伏笔', re: /伏笔|右眼|牡鹿|西里斯|科拉|符文石|声音/ }
+    ]
   };
 
   /* 一条待判定的句子 */
@@ -750,7 +765,12 @@
       /* 标题行（【xx】）单独成条，是有价值的分区信息 */
       String(ln).split(/(?<=[。！？；])/).forEach(function (seg) {
         var s = String(seg || "").trim();
-        if (s.length >= 6) out.push(s);
+        if (s.length >= 6) {
+          /* v158：提纲标题残留（「九、送薇拉回休息室那段」「B. 他带回来的东西」）
+             是讨论的问题列表，不是指令，短句即丢 */
+          if (DL.outline.test(s) && s.length < 22) return;
+          out.push(s);
+        }
       });
     });
     return out;
@@ -809,7 +829,7 @@
       if (!src.length) return null;
       var names = dlCharNames();
       var vetoed = vetoGet(), adopted = adoptGet();
-      var bucket = { 走向: [], 结论: [], 情感: [], 细节: [], 待决: [], 方向: [] };
+      var bucket = { 走向: [], 结论: [], 情感: [], 细节: [], 待决: [], 方向: [], 排除: [] };
       var seen = {}, rawLen = 0;
       /* ② 已采纳走向全保留：不再受 keep.走向=6 与 CP_DIGEST_MAX 上限约束。
          同时把已采纳句子的 key 标记进 seen，避免它在讨论原文里重复出现时被二次计入 */
@@ -841,7 +861,13 @@
             var dk = dlKey(full);
             if (full.length >= 6 && !dSeen[dk]) { dSeen[dk] = 1; decisions.push(full); }
           }
-          var kind = isList ? '走向' : ((it.role === 'me' && /[？?]/.test(clean)) ? '待决' : dlClassify(clean));
+          /* v158：排除/待决 在词典分类前独立前置判定，对齐 DeepSeek 的
+             「已砍清单 + 未定状态标记」。待决最优先（「保留还是砍?」这类二选一
+             必须先归未定态，不能因含「砍」字被误判为排除），排除次之，最后才走 isList/dlClassify。 */
+          var kind;
+          if (DL.pending.test(clean)) kind = '待决';
+          else if (DL.exclude.test(clean)) kind = '排除';
+          else kind = isList ? '走向' : ((it.role === 'me' && /[？?]/.test(clean)) ? '待决' : dlClassify(clean));
           if (!kind) return;
           seen[k] = 1;
           /* 「建议走②」这类拍板句置顶，避免三个互斥候选并列时模型拿不准 */
@@ -912,12 +938,19 @@
         var _dec = ((pickedBy['走向'] || []).length) + ((pickedBy['结论'] || []).length);
         if (_dec < _minDec) return null;
       }
-      var block = '【剧情参谋要点 · 下一轮据此写】\n' + body
+      /* v158：场景完整性体检 + 缺口清单，对齐 DeepSeek 的「待补给缺口汇总」。
+         缺覆盖的场景在输出末尾提示，纯增量、不改变现有提炼与 minLen 判据 */
+      var missing = [];
+      DL.scenes.forEach(function (sc) { if (!sc.re.test(body)) missing.push(sc.n); });
+      var gapBlock = missing.length
+        ? '\n【待补缺口 · 本轮讨论未覆盖】\n' + missing.map(function (n) { return '· ' + n; }).join('\n')
+        : '';
+      var block = '【剧情参谋要点 · 下一轮据此写】\n' + body + gapBlock
         + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
         + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
       /* ④ 情节决策原文存档：幂等覆盖写 KV，跨会话可查（与 counselAdopted/counselVeto 并列） */
       try { put('counselDecision', { at: now(), items: decisions }); } catch (e) {}
-      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length };
+      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length, excluded: (pickedBy['排除'] || []).length, gaps: missing.length };
     } catch (e) { return null; }
   }
 
