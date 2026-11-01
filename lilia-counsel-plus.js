@@ -635,7 +635,7 @@
    * ============================================================ */
   window.CP_DIGEST = 1;        /* 1=提炼要点写进指令；0=旧行为（最后一条原文前 6000 字） */
   window.CP_DIGEST_MAX = 1800; /* 要点块总字数上限 */
-  window.CP_DIGEST_TURN = 12;  /* 参与提炼的最近轮数 */
+  window.CP_DIGEST_TURN = 9999;  /* 参与提炼的最近轮数（v157：全量，不再丢早期轮次） */
   window.CP_DIGEST_LINE = 120; /* 单条要点字数上限 */
   /* 修复 1：提炼成功的判据改为「绝对量」，不再用压缩比例。
      minRate 用「要点字数 / 讨论原文字数」当判据是错的：要点条数被 DL.keep 与跨轮去重
@@ -668,7 +668,7 @@
   var DL = {
     minLine: 6,     /* 已移交给 window.CP_DIGEST_MINLINE，此字段保留兼容，函数内不再读取 */
     minRate: 0.06,  /* 已不再作为成功判据；rate 现仅用于向作者展示压缩比例 */
-    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3 },
+    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3, 方向: 12 },
     /* 判定顺序（供 dlClassify 用）：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
        走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。
        这个顺序是对的，不能动。 */
@@ -678,11 +678,11 @@
          clsOrder    → 判定顺序，与上面的 order 完全一致（dlClassify 用）
          budgetOrder → 预算分配与输出顺序（buildCounselDigest 用）
        order 保留原名，兼容任何外部引用。 */
-    clsOrder: ["情感", "细节", "走向", "结论", "待决"],
+    clsOrder: ["情感", "细节", "方向", "走向", "结论", "待决"],
     /* 预算分配顺序：决策类先拿预算。
        原先沿用判定顺序，情感(5)+细节(6) 先吃掉 1800 字里的约 1320 字，
        而真正决定下一轮写什么的「走向 / 结论」只剩约 480 字 ≈ 4 条。 */
-    budgetOrder: ["走向", "结论", "待决", "细节", "情感"],
+    budgetOrder: ["走向", "结论", "方向", "待决", "细节", "情感"],
     lex: {
       /* 走向只收「未来动作与决策」：去掉了 之后 / 结尾 / 顺序 这类会被误命中的泛词 */
       走向: /(接下来|下一步|下一章|后续|走向|路线|分岔|建议走|建议(你|让|把|先)|不如|不妨|可以(考虑|试试|先)|最终|收束|摊牌|挑明|主动道歉|先开口|先低头|结局)/,
@@ -690,7 +690,8 @@
       情感: /(情感|感情|情绪|心动|暧昧|吃醋|醋意|冷战|哄|告白|表白|吻|拥抱|委屈|吃味|裂痕|信任|依赖|安抚|脸红|眼眶|鼻酸|心疼|失落|撒娇|不安|动心|柔软|酸涩|绷紧|松开|别扭|较劲)/,
       /* 细节不收「必须」：那是结论语气，收到结论区更准 */
       细节: /(伏笔|细节|呼应|回扣|道具|时间线|年表|顺序|先后|设定|规则|限制|保留|不要忘|不能忘|记得|埋|铺垫|flag|FLAG|手势|口头禅|习惯|伤疤|信物|铁律|禁区)/,
-      待决: /(要不要|需不需要|你觉得呢|还是说|待定|还没想好|你自己定|二选一|取决于你)/
+      待决: /(要不要|需不需要|你觉得呢|还是说|待定|还没想好|你自己定|二选一|取决于你)/,
+      方向: /(节奏|主线|脉络|结构|主题|立意|动机|世界观|叙事|视角|基调|张力|冲突|开场|结尾|回来|离开|送薇拉|隔开|退场|三件套|决心|合伙人|五分钟|凑回来|推开|请柬|场景|时间)/
     },
     /* 列表项：①②③ / 1. / - 。参谋列举「可选走向」时用的就是这些，
        它们本身即候选走向，不能再被词典判到别处去 */
@@ -703,7 +704,8 @@
     head: (window.CP_LIST_NUM === 0)
       ? /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/
       : /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)])|\*\*|##+)\s*/,
-    md: /[*_`#>{}\[\]]/g
+    md: /[*_`#>{}\[\]]/g,
+    decision: /(决心内容|三件套|隔开沙菲克|回休息室|合伙人|凑回来|自我牺牲|足秒足刻|这五分钟|被推开|推开)/
   };
 
   /* 一条待判定的句子 */
@@ -716,6 +718,14 @@
     return s;
   }
   CFG.dLineMax = function () { return Number(window.CP_DIGEST_LINE) || 120; };
+  /* ④ 情节决策原文清理：与 dlClean 相同，但不做 120 字截断，保留决策原文完整 */
+  function dlFull(s) {
+    s = String(s || "").replace(/\r/g, " ").trim();
+    s = s.replace(DL.head, "").replace(DL.head, "");
+    s = s.replace(DL.md, "");
+    s = s.replace(/\s{2,}/g, " ").trim();
+    return s;
+  }
 
   function dlKey(s) { return String(s || "").replace(/[\s，。、；：！？!?,;:（）()「」《》"'…—\-·*#]/g, "").slice(0, 60); }
 
@@ -762,7 +772,8 @@
     for (var i = 0; i < names.length; i++) { if (s.indexOf(names[i]) >= 0) { sc += 4; break; } }
     var L = s.length;
     if (L >= 12 && L <= 90) sc += 3; else if (L > 90) sc += 1;
-    if (/^[①②③④⑤⑥]/.test(s)) sc += 2;                  /* 明确的可选走向列表项 */
+    if (/^[①②③④⑤⑥]/.test(s)) sc += 2;  /* 明确的可选走向列表项 */
+    if (DL.decision.test(s)) sc += 25;  /* 情节决策句优先召回 */
     return sc;
   }
 
@@ -798,8 +809,14 @@
       if (!src.length) return null;
       var names = dlCharNames();
       var vetoed = vetoGet(), adopted = adoptGet();
-      var bucket = { 走向: [], 结论: [], 情感: [], 细节: [], 待决: [] };
+      var bucket = { 走向: [], 结论: [], 情感: [], 细节: [], 待决: [], 方向: [] };
       var seen = {}, rawLen = 0;
+      /* ② 已采纳走向全保留：不再受 keep.走向=6 与 CP_DIGEST_MAX 上限约束。
+         同时把已采纳句子的 key 标记进 seen，避免它在讨论原文里重复出现时被二次计入 */
+      var adoptedFull = adopted.map(function (t) { return '（已确定）' + String(t); });
+      adopted.forEach(function (t) { seen[dlKey(String(t))] = 1; });
+      /* ④ 情节决策原文存档：命中 DL.decision 的句子原文（不截断）单独收集 */
+      var decisions = [], dSeen = {};
       for (var i = 0; i < src.length; i++) {
         var it = src[i]; if (!it) continue;
         var txt = String(it.text || '');
@@ -818,6 +835,12 @@
           /* 列表项（参谋列举「可选走向」时用的 ①②③/1./-）本身就是候选走向，
              不再交给词典判定——否则跨轮定的那条走向会因为措辞朴素而被丢掉 */
           var isList = DL.list.test(seg);
+          /* ④ 情节决策原文存档：命中决策词典的句子原文（不截断）单独收集，独立于分类 */
+          if (DL.decision.test(seg)) {
+            var full = dlFull(seg);
+            var dk = dlKey(full);
+            if (full.length >= 6 && !dSeen[dk]) { dSeen[dk] = 1; decisions.push(full); }
+          }
           var kind = isList ? '走向' : ((it.role === 'me' && /[？?]/.test(clean)) ? '待决' : dlClassify(clean));
           if (!kind) return;
           seen[k] = 1;
@@ -826,8 +849,7 @@
           bucket[kind].push({ text: clean, sc: dlScore(clean, meta, names) + bonus });
         });
       }
-      /* 已采纳的走向是作者拍过板的决定，无条件排在最前 */
-      bucket['走向'] = adopted.map(function (t) { return { text: '（已确定）' + String(t), sc: 999 }; }).concat(bucket['走向']);
+          /* ② 已采纳走向全保留：由 adoptedFull 在输出区前置，不再受 keep/上限约束 */
 
       var max = Number(window.CP_DIGEST_MAX) || 1800;
       var pickedBy = {}, total = 0, kept = 0;
@@ -852,7 +874,14 @@
       if (kept < _minLine) return null;
       /* 修复 2：输出顺序与预算分配顺序一致（决策类在前），
          否则刚把走向/结论抢到预算，又把情感/细节排到块首，作者看到的重点还是错的 */
-      var body = DL.budgetOrder.filter(function (k) { return pickedBy[k] && pickedBy[k].length; })
+      var adoptedBlock = adoptedFull.length
+        ? '【走向 · 已确定（全保留）】\n' + adoptedFull.map(function (t) { return '· ' + t; }).join('\n')
+        : '';
+      var decisionBlock = decisions.length
+        ? '【情节决策 · 原文存档】\n' + decisions.map(function (t) { return '· ' + t; }).join('\n')
+        : '';
+      var body = (adoptedBlock ? adoptedBlock + '\n' : '') + (decisionBlock ? decisionBlock + '\n' : '')
+        + DL.budgetOrder.filter(function (k) { return pickedBy[k] && pickedBy[k].length; })
         .map(function (k) { return '【' + k + '】\n' + pickedBy[k].map(function (t) { return '· ' + t; }).join('\n'); })
         .join('\n');
       if (!body) return null;
@@ -886,7 +915,9 @@
       var block = '【剧情参谋要点 · 下一轮据此写】\n' + body
         + '\n（由最近 ' + src.length + ' 条讨论本地提炼：原文 ' + rawLen + ' 字 → 要点 ' + body.length + ' 字。'
         + '要点用于约束下一轮走向；涉及具体措辞与事实仍以正文为准）\n' + CP_END;
-      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length };
+      /* ④ 情节决策原文存档：幂等覆盖写 KV，跨会话可查（与 counselAdopted/counselVeto 并列） */
+      try { put('counselDecision', { at: now(), items: decisions }); } catch (e) {}
+      return { text: block, raw: rawLen, chars: body.length, kept: kept, rate: rate, turns: src.length, decisions: decisions.length };
     } catch (e) { return null; }
   }
 
