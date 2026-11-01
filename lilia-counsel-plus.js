@@ -1424,6 +1424,182 @@
   };
 
   /* ============================================================
+   * 模块 I：混合提炼出口 counselHybridBrief()
+   *
+   * 「本地零 token 提炼器 + 外接 DeepSeek」串行接力，二者在同一窗口（#chBrief）协同：
+   *   ① 本地 buildCounselDigest()（0 token）先跑，把整轮讨论压成结构化要点 d；
+   *   ② 按分型分流（三道闸）：
+   *      闸1 本地技术性失败（null，内容<6条/<80字）→ 零 token 落原文，不调 AI；
+   *      闸2 本地成功且无矛盾、无需收敛 → 零 token 落要点块，不调 AI；
+   *      闸3 需要收敛时，DeepSeek 只吃 d（要点，≈6200 字），非原文（≈12.6 万字），
+   *          单次调用，失败即落本地产物 d，绝不重试；
+   *   ③ 成功时要点块（本地产物）+ 定稿块（DeepSeek 产物）在 #chBrief 并存。
+   *
+   * 与 counselToBrief / counselFinalizeBrief 的区别：二者是独立二选一；本出口是串行接力，
+   * 本地产物永远兜底，DeepSeek 只在「成功且有语义收敛需求」时增强，不重复消耗 token。
+   * 回滚：window.CP_HYBRID = 0 即回到 v160 的两按钮，本出口不参与。
+   * 只做加法：不修改 counselToBrief / counselFinalizeBrief / buildCounselDigest 任何一行。
+   * ============================================================ */
+  window.CP_HYBRID = 1;        /* 1=启用混合出口；0=关闭（回到两按钮） */
+  window.CP_HYBRID_MODEL = ''; /* 空 = 用 CP_FINAL_MODEL 同款（ai.counselModel || deepseek-flash） */
+  window.CP_HYBRID_FORCE = 0;  /* 1=即便无矛盾/归并也强制交 DeepSeek 收敛 */
+  window.CP_HYBRID_TEMP = 0.55;
+  window.CP_HYBRID_MAXTOK = 3000;
+
+  /* 收敛 sys：与定稿同源，但定位为「对本地要点做收敛」，输入是 d 而非原文 */
+  function cpHybridSys() {
+    return [
+      '你是一位长篇小说的「剧情定稿编辑」，不是写手，也不是聊天对象。',
+      '职责：作者已用本地工具把一整轮讨论提炼成一份「要点」，你的任务是复核并收敛这份要点，产出一份可直接用于下一轮正文生成的定稿指令。',
+      '铁律：',
+      '① 只输出下面规定格式的条列，不要寒暄、不要开场白、不要任何解释性文字；',
+      '② 不要输出 Markdown 标题符号（#）与加粗星号（**），作者在手机上看；',
+      '③ 每一条必须是一句话，行首「· 」，行尾带且只带一个状态标记：【已定】/【待定】/【未定】/【排除】；',
+      '④ 状态判定标准：已被作者明确采纳、或已经写进正文的=【已定】；方向定了但具体做法还没定=【待定】；讨论过但没有结论的=【未定】；已被作者否决、或明确不采用的=【排除】；',
+      '⑤ 第五段的每一条固定标【排除】，它记录的是「已经砍掉、不列入正文」的东西，只备查不执行；',
+      '⑥ 绝不写正文、绝不代写段落；',
+      '⑦ 要点里「状态归并」区的状态是本地工具的初步判定，可能因同一句并列多个主题而误判——请你结合要点上下文重新裁定，不要照抄；',
+      '⑧ 要点里「矛盾提示」区的每一项都必须给出明确裁定，不得含糊、不得并列两个互相冲突的结论；',
+      '⑨ 情感落点与细节设定以要点里【情感】【细节】【走向·已确定】分区为准，找不到就标【未定】，不要编造。',
+      '输出格式（五段的段名逐字照抄，每段下面若干条）：',
+      '一、整体故事与剧情走向',
+      '二、讨论达成的最终结论',
+      '三、关键情感落点',
+      '四、必须保留的细节与设定',
+      '五、已排除（不列入正文，仅备查）'
+    ].join('\n');
+  }
+
+  /* 收敛 user：喂本地要点 d（非原文），显式标注归并区需复核、矛盾区需裁定 */
+  function cpHybridUser(d) {
+    var chNum = '', chTitle = '';
+    try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e) {}
+    try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e) {}
+    var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
+    var s = '下面是作者与剧情参谋一整轮讨论的本地提炼要点（已按 走向/结论/方向/待决/排除/细节/情感 分类，'
+      + '并附「状态归并」与「矛盾提示」两个区）：\n\n' + String(d.text || '') + '\n\n';
+    s += '注意：\n'
+      + '· 「状态归并」区的状态是本地工具的初步判定，可能误判（例如同一句并列多个主题时），请结合要点上下文重新裁定；\n'
+      + '· 「矛盾提示」区的每一项都必须裁定出唯一结论，不得并列冲突结论。\n\n';
+    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（五段，每条带状态标记）。';
+    return s;
+  }
+
+  window.counselHybridBrief = async function () {
+    try {
+      /* 降级 0：开关关闭 → 转调原逻辑（纯本地） */
+      if (!window.CP_HYBRID) {
+        try { counselToBrief(); } catch (e) {}
+        return;
+      }
+      /* 讨论为空 */
+      var last = null;
+      for (var i = _counselLog.length - 1; i >= 0; i--) {
+        if (_counselLog[i] && _counselLog[i].role === 'ai') { last = _counselLog[i]; break; }
+      }
+      if (!last) { toast('还没有参谋的回复可以落地'); return; }
+      var ta = document.getElementById('chBrief');
+      if (!ta) return;
+
+      /* 讨论过短 → 原样写入（零 token，与 counselToBrief 一致） */
+      var rawTotal = 0;
+      try {
+        _counselLog.slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
+      } catch (e2) {}
+      if (rawTotal <= 700) {
+        if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
+        return;
+      }
+
+      /* ① 本地提炼（0 token） */
+      var d = buildCounselDigest();
+      if (!d) {
+        /* 闸1：技术性失败（内容<6条/<80字）→ 零 token 落原文，不调 AI */
+        if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('本轮讨论过短，已按原样写入（未调用 AI，0 token）');
+        return;
+      }
+
+      /* ② 判断是否需要 DeepSeek 收敛 */
+      var needAI = (d.conflicts > 0) || (d.merged > 0) || (Number(window.CP_HYBRID_FORCE) === 1);
+      if (!needAI) {
+        /* 闸2：无需收敛 → 零 token 落要点块，不调 AI */
+        if (cpWriteBrief(d.text)) toast('已本地提炼 ' + d.kept + ' 条要点（0 token，未调用 AI）');
+        return;
+      }
+
+      /* 未配置 AI → 落本地产物（不调 AI） */
+      var ai = {};
+      try { ai = load('ai', {}) || {}; } catch (e3) {}
+      if (!ai.base || !String(ai.base).trim()) {
+        if (cpWriteBrief(d.text)) toast('检测到 ' + d.conflicts + ' 项矛盾 / ' + d.merged + ' 项决策需收敛，但未配置 AI——已按本地要点写入（未收敛，0 token）');
+        return;
+      }
+
+      /* ③ DeepSeek 收敛（单次，吃 d 非原文） */
+      try { trajTag('混合定稿'); } catch (e4) {}
+      var _m = String(window.CP_HYBRID_MODEL || '').trim() || String(window.CP_FINAL_MODEL || '').trim() || ai.counselModel || 'deepseek-flash';
+      var _t = Number(window.CP_HYBRID_TEMP);
+      if (!isFinite(_t)) _t = 0.55;
+      var _mt = Number(window.CP_HYBRID_MAXTOK) || 3000;
+      var out = '';
+      try {
+        out = await callAI({ sys: cpHybridSys(), user: cpHybridUser(d), temperature: _t, max_tokens: _mt, modelOverride: _m });
+      } catch (e5) {
+        /* 闸3：AI 异常 → 落本地产物，不重试 */
+        if (cpWriteBrief(d.text)) toast('DeepSeek 收敛失败（' + ((e5 && e5.message) || e5 || '未知错误') + '），已按本地要点写入（未重试）');
+        return;
+      }
+      out = String(out || '').trim();
+      if (!out) {
+        if (cpWriteBrief(d.text)) toast('DeepSeek 返回空内容，已按本地要点写入（未重试）');
+        return;
+      }
+      if (!/【(已定|待定|未定|排除)】/.test(out)) {
+        if (cpWriteBrief(d.text)) toast('DeepSeek 未按定稿格式返回（缺状态标记），已按本地要点写入（未重试）');
+        return;
+      }
+      var lines = cpFinalLines(out);
+      if (!lines.length) {
+        if (cpWriteBrief(d.text)) toast('定稿内容为空，已按本地要点写入');
+        return;
+      }
+
+      /* ④ 截断（复用定稿的条目/字符双重截断口径） */
+      var maxLines = Number(window.CP_FINAL_MAXLINES) || 40;
+      var keptLines = [], items = 0, cut = 0;
+      for (var li = 0; li < lines.length; li++) {
+        var isItem = lines[li].indexOf('· ') === 0;
+        if (isItem) {
+          if (items >= maxLines) { cut++; continue; }
+          items++;
+        }
+        keptLines.push(lines[li]);
+      }
+      if (cut > 0) lines = keptLines;
+      var body = lines.join('\n');
+      if (cut > 0) body += '\n…（已截断 ' + cut + ' 条）';
+      var maxChars = Number(window.CP_FINAL_MAXCHARS) || 2600;
+      if (body.length > maxChars) body = body.slice(0, maxChars) + '…';
+
+      var chNum2 = '';
+      try { chNum2 = String((document.getElementById('chNum') || {}).value || ''); } catch (e6) {}
+      var chTitle2 = '';
+      try { chTitle2 = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e7) {}
+      var chLabel2 = '第' + (chNum2 || '?') + '章' + (chTitle2 ? ('《' + chTitle2 + '》') : '');
+
+      /* ⑤ 落两块：本地产物（要点块）+ DeepSeek 产物（定稿块），并存 */
+      cpWriteBrief(d.text);
+      var block = CP_FINAL_BEGIN + ' · ' + chLabel2 + '】\n' + body + '\n' + CP_FINAL_END;
+      if (cpWriteFinal(block)) {
+        toast('混合提炼完成：本地要点 ' + d.kept + ' 条（0 token）+ DeepSeek 收敛定稿 ' + items + ' 条（输入 ' + d.chars + ' 字，未喂原文）；可点「撤销」撤回');
+      }
+    } catch (e) {
+      try { toast('混合提炼出错：' + ((e && e.message) || e) + '；已按普通要点写入'); } catch (e8) {}
+      try { counselToBrief(); } catch (e9) {}
+    }
+  };
+
+  /* ============================================================
    * 模块 G：确定走向按钮（优化建议 1 的 UI）
    * ============================================================ */
   var _origCounselRender = (typeof counselRender === 'function') ? counselRender : null;

@@ -8156,7 +8156,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v160";
+const APP_VERSION="v161";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8166,6 +8166,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v161","剧情参谋新增「混合提炼」出口：本地零 token 提炼 + 需要时才调 DeepSeek 收敛（只加不删，不动其它功能）\n· 【本地先跑】先把整轮讨论本地提炼成结构化要点（走向/结论/排除/待决/归并/矛盾，0 token）。\n· 【只在该调时调 AI】仅当检测到「矛盾待裁定」或「决策点需收敛」时，才交 DeepSeek 单次收敛；\n否则零 token 直落本地要点，不碰 API。\n· 【省约 18 倍输入】DeepSeek 只吃本地要点（约 6 千字），不再喂整轮原文（约 13 万字），\n输入成本大幅下降。\n· 【绝不重复消耗】本地提炼失败→零 token 落原文；AI 失败/空/格式不符→落本地产物，全程不重试。\n· 【同一窗口并存】成功时「本地要点块 + DeepSeek 定稿块」一起写进本章生成指令，要点备查、定稿执行。\n说明\n· 原「写进本章指令 / 定稿指令」两按钮行为一字未改；「混合提炼」是新增的第三个出口\n· window.CP_HYBRID=0 即隐藏该按钮、回到原两按钮；其余参数仍可在控制台按需调整"],
   ["v160","剧情参谋要点块矛盾消解补漏 + 降噪（只改本地提炼器，不动其它功能）\n· 【补漏】此前只认「有明确主题锚」的冲突句，散落、无主题锚的真冲突（如「条目 12 自己就写了两条是矛盾的」\n「条目 2(a) 和条目 4 存在隐性冲突」「条目 6 和条目 4 的位置冲突」）会漏检；现在这些也会\n以「（未归类冲突）」收进【矛盾提示 · 需人工裁定】区，不再漏。\n· 【降噪】冲突信号词从宽泛的「矛盾 / 冲突 / 二选一 / 只能留 / 不能同时 / 互相抢」收紧为\n「两条是矛盾的 / 是矛盾的 / 存在…冲突 / 位置冲突 / 隐性冲突 / 互相抢功 / 抢功 / vs」，\n把「不主动介入矛盾」「天然冲突」这类非决策句挡在门外，矛盾提示区从十几条噪声收敛到真冲突。\n说明\n· CP_DIGEST=0 整体回到旧行为；其余提炼参数仍可在控制台按需调整\n· 除上述提炼器改动外，其它功能、提示词与注入内容一字未改"],
   ["v159","剧情参谋要点块新增「跨句状态归并 + 矛盾消解」（只改本地提炼器，不动其它功能）\n· 【跨句状态归并】同一决策点（回休息室 / 三件套 / 五分钟 / 合伙人 / 菲比信息来源 / 沙菲克 /\n阿杰特 / 手链笔 / 雾碎片 / 开场接口 / 说漏）散落在多分区、多轮的讨论，现在按主题收敛成\n一条「最终状态」（已定 / 待决 / 排除，按状态强度 排除＞待决＞已定 取最终态），单列【状态归并】区。\n· 【矛盾消解】讨论里明说「矛盾 / 冲突 / 二选一 / vs / 互相抢」的未收敛冲突点，不再混在\n「已确定」里误导写作，现在单列【矛盾提示 · 需人工裁定】区，显式暴露待裁定项。\n说明\n· CP_DIGEST=0 整体回到旧行为；其余提炼参数仍可在控制台按需调整\n· 除上述提炼器改动外，其它功能、提示词与注入内容一字未改"],
   ["v158","剧情参谋要点块对齐 DeepSeek 提取版（只改本地提炼器，不动其它功能）\n· 【新增「排除 / 已砍」分类】砍掉 / 排除 / 不碰 / 不出场 / 否掉 这类负向结论，此前会混进\n「走向 / 结论」等确定区误导写作，现在单独归入【排除】区，仅备查。\n· 【未定项不再冒充已确定】「保留还是砍」「要不要 / 是否 / 二选一」这类未决句，此前会被\n当作已确定写进要点，现在在词典判定前独立识别、单独归入【待决】区。\n· 【过滤讨论提纲残留】「九、送薇拉回休息室那段」「B. 他带回来的东西」这类讨论提纲的\n编号标题，此前会被当成指令抓进来，现在短句即丢，不进要点。\n· 【新增场景完整性体检】提炼后自动检查克劳奇线 / 羽毛感应 / 身体精神状态 / 沙菲克线 /\n手链 / 请柬酒窖 / 时间线 / 开场 / 结尾 / 伏笔 十类主线场景是否都有覆盖，缺失的会在\n要点末尾追加「待补缺口」清单。\n说明\n· CP_DIGEST=0 整体回到旧行为；其余提炼参数仍可在控制台按需调整\n· 除上述提炼器改动外，其它功能、提示词与注入内容一字未改"],
@@ -15717,9 +15718,21 @@ function cpSyncFinalBtn(){
     if(b) b.style.display=(window.CP_FINAL_BRIEF===0)?"none":"";
   }catch(e){}
 }
+/* v161：参谋弹窗「混合提炼」按钮的总开关。
+   CP_HYBRID=0 → 按钮不显示（回到 v160 的两按钮）。每次打开弹窗现读 window 值，不缓存。
+   按钮本体只负责触发 counselHybridBrief()；该函数由 lilia-counsel-plus.js 提供，
+   这里不实现——plus 未加载时点击会得到「函数未定义」，属预期（不在本文件兜底）。 */
+window.CP_HYBRID=1;
+function cpSyncHybridBtn(){
+  try{
+    var b=document.getElementById("counselHybridBtn");
+    if(b) b.style.display=(window.CP_HYBRID===0)?"none":"";
+  }catch(e){}
+}
 function counselOpen(){
   try{
     cpSyncFinalBtn();
+    cpSyncHybridBtn();
     if(!_counselLog.length){
       try{ _counselLog=counselLoad()||[]; }catch(e){ _counselLog=[]; }
     }
@@ -16830,6 +16843,7 @@ window.addEventListener('load',function(){
       <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
       <button type="button" onclick="counselToBrief()">写进本章指令</button>
       <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
+      <button type="button" id="counselHybridBtn" style="display:none;" onclick="counselHybridBrief()" title="先本地零 token 提炼，仅在检测到矛盾或需收敛时交 DeepSeek 单次收敛（吃本地要点、不喂原文，省约 4 倍输入），一键写进本章生成指令">混合提炼</button>
       <button type="button" onclick="counselExport()" title="把本轮参谋讨论（含已采纳/已否决走向）完整导出为 Markdown 文件下载，便于留存与查阅">导出讨论记录</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
