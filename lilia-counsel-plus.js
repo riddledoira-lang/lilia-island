@@ -1518,6 +1518,26 @@
         toast('已生成定稿指令：' + lines.length + ' 条'
           + (cut > 0 ? ('（超出的 ' + cut + ' 条已截断）') : '')
           + '，写进「生成指令」；可点「撤销」撤回');
+        /* v169：写盘后立刻过一次指令质量闸门（本地计算，零 token）。
+           源材料取本轮参谋讨论原文——它能抓到「讨论里出现过、但没被写进指令」的物证，
+           这正是上一版把暗红药剂这条核爆线丢掉的那类缺口。 */
+        try {
+          if (window.CP_INSTR_AUDIT !== 0 && typeof window.cpInstrReport === 'function') {
+            var _src = '';
+            try { _src = (cpLogScoped() || []).map(function (m) { return String((m && m.text) || ''); }).join('\n'); } catch (eS) {}
+            var _rp = window.cpInstrReport(body, _src, cpChNum());
+            if (_rp && _rp.texts && _rp.texts.length) {
+              console.warn('[指令质量闸门] ' + _rp.level + '\n· ' + _rp.texts.join('\n· '));
+              try {
+                if (_rp.level === 'block') {
+                  alert('指令质量闸门（阻断级）\n\n' + _rp.texts.join('\n\n') + '\n\n建议改完再生成；仍要继续可直接生成。');
+                } else {
+                  toast('⚠️ 指令质量闸门：' + _rp.texts.length + ' 条提示（详见控制台 / 点「🔍 指令体检」可复看）');
+                }
+              } catch (eT) {}
+            }
+          }
+        } catch (eA) { console.warn('[指令质量闸门] 运行失败(非致命)：', eA && eA.message); }
       }
     } catch (e) {
       /* 外层兜底：任何非预期异常也要留给作者一份可用指令 */
@@ -2169,6 +2189,152 @@
       _cpRoutes = [];
     } catch (e) {}
   };
+
+  /* ============================================================
+   * 模块 E · 指令质量闸门（v169）
+   *
+   * 为什么需要：v144–v168 修的全是「管道保真度」——让作者说过的话一条不丢地
+   * 到达深度续写。管道已经不漏了，但没有任何一环对「指令本身的内容质量」负责：
+   * 一段弱指令会被完整、忠实地执行，产出忠实但无用的正文。
+   *
+   * 本闸门是「筛选器」的落地，全部本地计算、零 token、纯函数、可单测：
+   *   ① cpInstrAudit  文本级自检（槽位缺失 / 排除自伤 / 互斥时间 / 章号越界）
+   *   ② cpInstrGap    差集体检（源材料里有、指令里没有的物证与人物）——
+   *                    这一条才是能抓到「核爆线被丢掉」的检查
+   * ============================================================ */
+  window.CP_INSTR_AUDIT = 1;
+
+  /* 具象物证词根（通用，不绑定任何一本书） */
+  var CP_PROP_RE = /瓶|药剂?|汁|糖|字条|纸条?|信|疤|伤痕?|链|珠|羽毛?|袍|帚|刀|镜|钥匙|杯|盘|斗篷|罐|绳|扣子?|戒指|铃|灯|爪印|请柬|名单|绷带|手套|帽子|靴|箱子|口袋|纽扣|硬币|针|线|发带|袖口|领子/;
+  /* 量词前导的实体抽取：比通用词典噪音低得多，命中即物证 */
+  var CP_CLS_RE = /(一只|一瓶|一张|一道|一颗|一枚|一条|一封|一把|一根|一双|一串|一件|一截|一片|一剂|一壶|一杯|一盘|一方|一块|一本|一支|一副|一盏|一罐)([\u4e00-\u9fa5]{1,4})/g;
+
+  /* 从文本中抽取物证实体（量词前导 + 通用词根）。返回去重数组。 */
+  function cpProps(text){
+    var out = {}, t = String(text || '');
+    var m; CP_CLS_RE.lastIndex = 0;
+    while ((m = CP_CLS_RE.exec(t))) { if (m[2]) out[m[2]] = 1; }
+    var lines = t.split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i];
+      if (/^\s*[-·*]?\s*【排除】/.test(s)) continue;      /* 排除行不算「指令里有的物证」 */
+      var g = s.match(CP_PROP_RE);
+      if (g) out[g[0]] = 1;
+    }
+    return Object.keys(out);
+  }
+
+  /* 抽取本章相关人物名（以人物卡为准，未命中则不报人物差集） */
+  function cpCharNames(text){
+    var t = String(text || ''), out = {};
+    var chars = [];
+    try { chars = (typeof load === 'function' ? load('chars', []) : (window.__chars || [])) || []; } catch (e) { chars = []; }
+    for (var i = 0; i < chars.length; i++) {
+      var n = chars[i] && chars[i].name;
+      if (n && t.indexOf(n) >= 0) out[n] = 1;
+    }
+    return Object.keys(out);
+  }
+
+  /* ① 文本级自检 */
+  function cpInstrAudit(text, opt){
+    opt = opt || {};
+    var t = String(text || '');
+    var issues = [];
+    var lines = t.split(/\r?\n/);
+    var keepLines = [], exLines = [];
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i];
+      if (/【排除】/.test(s)) exLines.push(s);
+      else keepLines.push(s);
+    }
+    var keep = keepLines.join('\n');
+
+    /* A1 物证槽位：可落地的物证少于 2 种，结尾大概率降级成陈述句 */
+    var props = cpProps(keep);
+    if (props.length < 2) {
+      issues.push({ code: 'A1', level: 'warn',
+        text: '本章指令里可落地的具象物证只有 ' + props.length + ' 种' + (props.length ? '（' + props.join('、') + '）' : '') +
+              '。少于 2 种时，结尾没有东西可结算，模型会退回「我记着这笔账」这类态度陈述。' });
+    }
+    /* A2 结尾锚 */
+    if (!/结尾|收尾|末段|最后一段|章末|收束/.test(t)) {
+      issues.push({ code: 'A2', level: 'warn', text: '指令没有写结尾怎么收。缺结尾锚点时，收束会滑向概括性陈词。' });
+    }
+    /* A3 排除自伤：排除行否定的动作，在保留行里仍被要求 */
+    var NEG = [{ re: /不带|不带回|不写.{0,4}带|不写.{0,4}给|别带/, word: '带' },
+               { re: /不给|不送|不递/, word: '给' },
+               { re: /不出现|不出场/, word: '出现' },
+               { re: /不提|不写.{0,4}提/, word: '提' }];
+    for (var k = 0; k < NEG.length; k++) {
+      var hitEx = false;
+      for (var j = 0; j < exLines.length; j++) if (NEG[k].re.test(exLines[j])) { hitEx = true; break; }
+      if (!hitEx) continue;
+      if (keep.indexOf(NEG[k].word) >= 0) {
+        issues.push({ code: 'A3', level: 'block',
+          text: '【排除】里否定了「' + NEG[k].word + '」，但指令其它位置仍在要求它——两条约束互相矛盾，模型只能各取一半。' });
+      }
+    }
+    /* A4 互斥时间：短时与持续并存 */
+    var shortT = /两三天|三五天|几天内|一小时|几分钟|五分钟|半小时/.test(t);
+    var longT = /一直|始终|从没|从未|这些天|这段时间|连着/.test(t);
+    if (shortT && longT) {
+      issues.push({ code: 'A4', level: 'warn', text: '指令里同时出现「短时段」与「一直/始终」两类时间表达，二者互斥，会让开场的时间状态自相矛盾。' });
+    }
+    /* A5 章号越界 */
+    if (opt.chNum && Number(opt.chNum) > 0) {
+      var mm, re = /第\s*(\d+)\s*章/g, bad = [];
+      while ((mm = re.exec(t))) {
+        var n = Number(mm[1]);
+        if (n > Number(opt.chNum)) bad.push('第' + n + '章');
+      }
+      if (bad.length) {
+        issues.push({ code: 'A5', level: 'warn', text: '指令引用了 ' + bad.join('、') + '，但当前是第 ' + opt.chNum + ' 章——未来章被引成了已发生的事。' });
+      }
+    }
+    var lvl = 'ok';
+    for (var q = 0; q < issues.length; q++) {
+      if (issues[q].level === 'block') { lvl = 'block'; break; }
+      if (issues[q].level === 'warn') lvl = 'warn';
+    }
+    return { level: lvl, issues: issues, props: props };
+  }
+
+  /* ② 差集体检：源材料（参谋讨论 / 作者贴的素材 / 上一版底本）里有、指令里没有的 */
+  function cpInstrGap(instr, source){
+    var a = cpProps(source || ''), b = cpProps(instr || '');
+    var bs = {}; for (var i = 0; i < b.length; i++) bs[b[i]] = 1;
+    var missProp = [];
+    for (var j = 0; j < a.length; j++) if (!bs[a[j]]) missProp.push(a[j]);
+    var ca = cpCharNames(source || ''), cb = {};
+    var cn = cpCharNames(instr || ''); for (var m = 0; m < cn.length; m++) cb[cn[m]] = 1;
+    var missChar = [];
+    for (var n = 0; n < ca.length; n++) if (!cb[ca[n]]) missChar.push(ca[n]);
+    return { missProp: missProp, missChar: missChar };
+  }
+
+  /* ③ 一次跑完，给界面用的文案 */
+  window.cpInstrReport = function (instr, source, chNum) {
+    var r = cpInstrAudit(instr, { chNum: chNum });
+    var g = cpInstrGap(instr, source);
+    var texts = [];
+    var i;
+    for (i = 0; i < r.issues.length; i++) texts.push((r.issues[i].level === 'block' ? '⛔ ' : '⚠️ ') + r.issues[i].text);
+    if (g.missProp.length) texts.push('⚠️ 源材料里有、但指令里没写的物证：' + g.missProp.join('、') + '。若其中有本章的核爆物证（要被喝下/被毁/被交出去的那件），补回指令，否则结尾无从结算。');
+    if (g.missChar.length) texts.push('⚠️ 源材料里出现、指令未提及的人物：' + g.missChar.join('、') + '。');
+    var level = r.level;
+    if (level !== 'block' && g.missProp.length >= 3) level = 'warn';
+    return { level: level, texts: texts, audit: r, gap: g };
+  };
+
+  /* 供宿主「🔍 指令体检」读取本轮参谋讨论原文（差集的源材料） */
+  window.cpCounselSourceText = function () {
+    try { return (cpLogScoped() || []).map(function (m) { return String((m && m.text) || ''); }).join('\n'); } catch (e) { return ''; }
+  };
+
+  window.cpInstrAudit = cpInstrAudit;
+  window.cpInstrGap = cpInstrGap;
+  window.cpProps = cpProps;
 
   window.__LILIA_COUNSEL_PLUS__.ok = true;
 })();
