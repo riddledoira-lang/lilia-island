@@ -8156,7 +8156,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v164";
+const APP_VERSION="v165";
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8166,6 +8166,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v165","剧情参谋指令出口三合一：「混合提炼」升级并改名「生成定稿指令」，旧「定稿指令」「写进本章指令」退役（按钮隐藏、函数保留可回滚）\n· 【为什么合并】三个出口功能重复；实测旧「定稿指令」仍会把【未定】写进指令框（v164 只锁了混合提炼一路），「写进本章指令」的【待决】块同样干扰深度续写。\n· 【输入升级】生成定稿指令在本地要点之外，新增喂入：作者已拍板采纳的走向（一律【已定】）、已否决的走向（一律【排除】）、当前作品上下文（分卷设定/人物卡，约 4000 字）——状态判定更准、锁死决定更贴档案。\n· 【质量不变】锁死铁律、物理锚点、人设红线、格式闸（含【未定】即拒收降级）全部保留；成本仅增约 ¥0.002/次。\n说明\n· 面板指令出口从此只有一个：讨论 → 点「生成定稿指令」→ 深度续写\n· counselFinalizeBrief / counselToBrief 函数未删；CP_FINAL_BRIEF 改回 1、按钮去掉 display:none 即回滚"],
   ["v164","修复 v163「未定档」导致深度续写质量倒退：剧情参谋定稿改「锁死版」，未定项不再进写作指令\n· 【根因】v163 把【未定】写进了深度续写消费的指令，AI 读到「没定」就留白、转而编造注水日常（剥栗子/查图书一类），并丢失核心物理锚点。\n· 【锁死版定稿】收敛铁律改为：所有待决项必须替作者锁死成【已定】，严禁输出【未定】【待定】；模型若仍输出未定即判格式失败、走降级，绝不让「未定」进深度续写指令。\n· 【核心物理锚点】定稿必须给出至少一个关键道具/动作/伤疤/体征，写明外观、气味、温度（如「带血的安神剂」「烧伤的疤痕」），防止续写丢失具象锚点。\n· 【人设红线】定稿显式写出不能越界的人设底线（如克劳奇绝不主动给情报、詹姆斯绝不竹筒倒豆子），防 OOC。\n· 【本地点块移出指令】讨论要点块（含【待决】）改为存入备查（counselDigest），不再写进「生成指令」框——它只对作者可见，不再干扰深度续写。\n· 【废除闸2 + 降级防护】不再因「无矛盾」跳过收敛；未配置 AI / 收敛失败时先清掉旧定稿块再落本地要点，避免两套矛盾指令并存，并明确提示「未收敛，深度续写可能留白」。\n说明\n· 仅改「混合提炼」出口（counselHybridBrief）及其提示词；深度续写本身未动\n· 参谋面板上的讨论与待决信息完整保留，只是不再当作写作指令"],
   ["v163","「混合提炼」定稿指令补「未定档」与「待补给缺口」第六段（只改混合出口，不动其它功能）\n· 【未定档真正落地】此前虽允许标【未定】，实际却全收敛成【已定/排除】；现在收敛铁律给出明确判例（档案查无此人/此设定时只能标【未定】，不得臆造），未定项不再被强行拍板。\n· 【新增第六段「待补给缺口」】尚未拍板、或档案缺失的软性点（如菲比知识面、右眼灰紫是否伏笔、科拉是谁）单独汇总成第六段，标【未定】、供作者现场定夺，不再混进「已定」误导写作，也不凭空捏造。\n· 【情感落点去判断句】第三段「关键情感落点」只写「情感怎么呈现」，禁用「他觉得/她心想/感到」这类判断句，改用动作、表情、比喻落点，情感段更可执行。\n说明\n· 仅改「混合提炼」出口（counselHybridBrief）；「写进本章指令 / 定稿指令」两按钮行为不变\n· 第六段与「已排除」段同为备查性质，不吃 40 条决策配额；window.CP_HYBRID_MAXCHARS=4000 仍管字符上限"],
   ["v162","「混合提炼」定稿补细节 + 消过度收敛（只改混合出口，不动其它功能）\n· 【细节段不再空】收敛 prompt 明确要求第四段「必须保留的细节与设定」逐条列出（伏笔/时间线/设定/动作），不得混进第二段。\n· 【排除段不再截断】第五段「已排除」从 40 条决策配额里豁免，完整保留「这章不碰」清单，不再截断丢伏笔。\n· 【允许未定】确实未定、档案无依据的事项标【未定】，不再强行拍成【已定】，避免过度收敛导致 OOC。\n说明\n· 仅改「混合提炼」出口（counselHybridBrief）；「写进本章指令 / 定稿指令」两按钮行为不变\n· window.CP_HYBRID_MAXCHARS=4000 控制定稿块字符上限；CP_HYBRID=0 即隐藏混合按钮"],
@@ -15714,7 +15715,9 @@ let _counselLastErr=null;
    CP_FINAL_BRIEF=0 → 按钮不显示（回到 v152 的按钮组）。每次打开弹窗现读 window 值，不缓存。
    按钮本体只负责触发 counselFinalizeBrief()；该函数由 lilia-counsel-plus.js 提供，
    这里不实现——plus 未加载时点击会得到「函数未定义」，属预期（不在本文件兜底）。 */
-window.CP_FINAL_BRIEF=1;
+/* v165：定稿指令按钮退役（被「生成定稿指令」=原混合提炼全面取代，且其允许【未定】进指令框是质量漏洞）。
+   置 0 → 按钮不显示；函数 counselFinalizeBrief 本体保留未删，需要回滚时改回 1 即可。 */
+window.CP_FINAL_BRIEF=0;
 function cpSyncFinalBtn(){
   try{
     var b=document.getElementById("counselFinalBtn");
@@ -16844,9 +16847,10 @@ window.addEventListener('load',function(){
     <textarea id="counselInput" style="min-height:80px;margin-top:10px;" placeholder="问参谋：这一章之后有哪几种走向？这个决定符合薇拉的人设吗？第 12 章的伏笔怎么接才不生硬？"></textarea>
     <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
       <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
-      <button type="button" onclick="counselToBrief()">写进本章指令</button>
+      <!-- v165：「写进本章指令」按钮退役（其【待决】块会干扰深度续写；零 token 兜底已内化进生成定稿指令的降级路径）。函数 counselToBrief 保留未删，去掉本行 style 即回滚。 -->
+      <button type="button" style="display:none;" onclick="counselToBrief()">写进本章指令</button>
       <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
-      <button type="button" id="counselHybridBtn" style="display:none;" onclick="counselHybridBrief()" title="先本地零 token 提炼，仅在检测到矛盾或需收敛时交 DeepSeek 单次收敛（吃本地要点、不喂原文，省约 4 倍输入），一键写进本章生成指令">混合提炼</button>
+      <button type="button" id="counselHybridBtn" style="display:none;" onclick="counselHybridBrief()" title="把整轮讨论收敛成「锁死版」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
       <button type="button" onclick="counselExport()" title="把本轮参谋讨论（含已采纳/已否决走向）完整导出为 Markdown 文件下载，便于留存与查阅">导出讨论记录</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
