@@ -2323,6 +2323,13 @@
     for (i = 0; i < r.issues.length; i++) texts.push((r.issues[i].level === 'block' ? '⛔ ' : '⚠️ ') + r.issues[i].text);
     if (g.missProp.length) texts.push('⚠️ 源材料里有、但指令里没写的物证：' + g.missProp.join('、') + '。若其中有本章的核爆物证（要被喝下/被毁/被交出去的那件），补回指令，否则结尾无从结算。');
     if (g.missChar.length) texts.push('⚠️ 源材料里出现、指令未提及的人物：' + g.missChar.join('、') + '。');
+    if (typeof window.cpInstrAuditV171 === 'function') {
+      try {
+        (window.cpInstrAuditV171(instr) || []).forEach(function (x) {
+          texts.push((x.level === 'block' ? '\u26d4 ' : '\u26a0\ufe0f ') + x.text);
+        });
+      } catch (e) {}
+    }
     var level = r.level;
     if (level !== 'block' && g.missProp.length >= 3) level = 'warn';
     return { level: level, texts: texts, audit: r, gap: g };
@@ -2332,6 +2339,89 @@
   window.cpCounselSourceText = function () {
     try { return (cpLogScoped() || []).map(function (m) { return String((m && m.text) || ''); }).join('\n'); } catch (e) { return ''; }
   };
+
+  /* ============================================================
+   * v171 · 三处新闸门（全部本地纯函数，零 token，有实测依据）
+   *
+   * 依据来自 v170/V169/DeepSeek版/究极缝合版 的四方比对：
+   *   ① 核爆物证密度：缝合版 33 处 vs 其余 1~6 处 → 差集必须从「提示」升级为「阻断」
+   *   ② V169 指令 43 条锁死，正文却漏执行第18条（伊格诺图斯悖论 0 处）与第22条（请柬 0 处）
+   *      → 条目越多执行率越低，需要条数上限
+   *   ③ V169 指令把结尾写死成「该磨牙了」→ 结尾三件套 0/3；
+   *      V143 要点式指令不写死结尾 → 三件套 1/3
+   *      → 指令必须只给「结尾验收标准」，禁止给结尾句子
+   * ============================================================ */
+
+  /* 结尾三件套验收标准（R5）的本地打分。返回 {score, detail}。
+     只判最后 400 字：物证结算 / 不可逆动作 / 未完成动作+时间锚。 */
+  var CP_END_PROP = /瓶|药|剂|汁|字条|纸|信|疤|链|珠|羽毛?|斗篷|帚|刀|钥匙|杯|盘|罐|扣子?|戒指|铃|灯|爪印|请柬|名单|手套|帽子|靴|箱子|口袋|硬币|拼图|挂坠|纸条?/;
+  var CP_END_IRREV = /喝下去?了?|喝完|吞下|撕了?掉?|烧掉|扔进|砸碎|折断|签了?字?|交出去?了?|递出去?了?|说出口了?|承认了|点破|揭穿|走进去|推开门|拧开|打开瓶/;
+  var CP_END_ANCHOR = /明天|后天|下[周星个][五一二三四六日天]?|周五|周一|周二|周三|周四|周六|周日|圣诞节|今晚|明晚|第\s*\d+\s*天|三日后|一周后/;
+  var CP_END_ACT = /我[^。！？]{0,6}(走向|走进|进去|去找|去见|去看|出发|动身|推开|拧开|喝下|离开|回去|转身)|转身(往|向|走)|往[^，。]{0,6}(走|去)/;
+  /* 结算动词：物证不能只是「被提到」，必须给出最终状态或动作结果。
+     反例（实测）：V167「珠子里的雾安安静静地趴着，像什么都没发生过」、
+     V169「雾在珠子里缓缓翻了个身，又沉下去了」、143「没转，也没散。它只是在等」
+     ——三处都出现了物证，但没有一件落到「最终状态」，属于悬置而非结算。 */
+  var CP_END_SETTLE = /搁在|放在|搁回|收进|塞进|揣进|空了|空瓶|瓶底|剩|发烫|烫了一下|转了两圈|转得比|停下来|撕|折好|扣上|拧开|喝完|喝下去|交出去|递到|按在掌心/;
+
+  function cpScoreEnding(text){
+    var t = String(text || '').replace(/\s+/g, '');
+    var tail = t.slice(-400);
+    if (!tail) return { score: 0, detail: { prop: false, irrev: false, anchor: false }, note: '正文为空' };
+    var d = {
+      prop: CP_END_PROP.test(tail) && CP_END_SETTLE.test(tail),   /* 物证给出最终状态（结算位） */
+      irrev: CP_END_IRREV.test(tail),        /* 已发生的不可逆动作 */
+      anchor: CP_END_ANCHOR.test(tail) && CP_END_ACT.test(tail)  /* 未完成动作 + 时间锚 */
+    };
+    var score = (d.prop ? 1 : 0) + (d.irrev ? 1 : 0) + (d.anchor ? 1 : 0);
+    return { score: score, detail: d, tail: tail.slice(-120) };
+  }
+  window.cpScoreEnding = cpScoreEnding;
+
+  /* ② 指令侧：A6 结尾写死检测 / A7 排除连带检测 / A8 条数上限 */
+  function cpInstrAuditV171(text, opt){
+    opt = opt || {};
+    var out = [];
+    var lines = String(text || '').split(/\r?\n/);
+    var body = [], exLines = [];
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i];
+      if (/【排除】|已排除/.test(s)) exLines.push(s); else body.push(s);
+    }
+    var keep = body.join('\n');
+
+    /* A6 结尾写死：指令直接给出了结尾动作句 / 结尾原话 */
+    var deadEnd = null;
+    for (var j = 0; j < body.length; j++) {
+      var ln = body[j];
+      if (!/结尾|收束|收尾|章末/.test(ln)) continue;
+      if (CP_END_IRREV.test(ln) || /["“][^"”]{4,}["”]/.test(ln) || /该磨牙|记着这笔账|像在绕/.test(ln)) { deadEnd = ln; break; }
+    }
+    if (deadEnd) {
+      out.push({ code: 'A6', level: 'block',
+        text: '指令把结尾写死了（' + String(deadEnd).slice(0, 40).replace(/\s+/g, '') + '…）。实测：V169 指令写死「该磨牙了」→ 结尾三件套 0/3；V143 要点式指令不写死 → 1/3。只给验收标准，别给句子。' });
+    }
+    /* A7 排除连带：排除项是否切断了时间锚 / 核爆物证 */
+    var cut = [];
+    for (var k = 0; k < exLines.length; k++) {
+      if (CP_END_ANCHOR.test(exLines[k])) cut.push('时间锚');
+      if (/瓶|药|剂|安神|馅饼|纸包|带回来|带东西/.test(exLines[k])) cut.push('核心物证');
+      if (/沙菲克/.test(exLines[k])) cut.push('沙菲克（缝合版结尾「下周五」的时间锚来源）');
+    }
+    if (cut.length) {
+      out.push({ code: 'A7', level: 'block',
+        text: '【排除】可能切断了 ' + cut.join(' / ') + '。实测：V169 排除沙菲克后，正文失去「下周五」这个时间锚，结尾三件套直接少一项。' });
+    }
+    /* A8 条数上限：条目越多，正文漏执行率越高 */
+    var items = 0;
+    for (var m = 0; m < lines.length; m++) if (/^\s*[·•\-*]/.test(lines[m])) items++;
+    if (items > 25) {
+      out.push({ code: 'A8', level: 'warn',
+        text: '指令共 ' + items + ' 条。实测：V169 的 43 条里，第18条（伊格诺图斯悖论）与第22条（请柬）在正文中漏执行（0 处命中）。超过 25 条时建议把关键项前置、其余移入备查。' });
+    }
+    return out;
+  }
+  window.cpInstrAuditV171 = cpInstrAuditV171;
 
   window.cpInstrAudit = cpInstrAudit;
   window.cpInstrGap = cpInstrGap;

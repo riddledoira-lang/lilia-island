@@ -8157,7 +8157,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v170";
+const APP_VERSION="v171";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8173,6 +8173,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v171","V171 三处新闸门 + 结尾补救 + 参谋输出结构契约（依据四方实测比对）。\n· 【A6 结尾写死检测·阻断】指令若直接给出结尾动作句/台词/比喻即判阻断。实测：V169 指令写死「该磨牙了」→ 结尾三件套 0/3；V143 要点式不写死 → 1/3。只给验收标准，别给句子。\n· 【A7 排除连带检测·阻断】【排除】若切断时间锚或核爆物证即告警。实测：V169 排除沙菲克后，正文失去「下周五」这个时间锚，三件套直接少一项——而沙菲克正是缝合版结尾时间锚的来源。\n· 【A8 条目纪律】指令条目 >25 条告警。实测：43 条的定稿指令在最终正文里漏执行了两条已锁死的关键项（伊格诺图斯悖论 0 处、请柬 0 处命中）。\n· 【结尾三件套自动评分】深度续写完成后本地打分（物证结算 / 不可逆动作 / 未完成动作加时间锚），低于 2/3 时提示「✎ 只重写结尾」。\n· 【✎ 只重写结尾】新增按钮（体检台内）：只把最后 6 段与结尾验收标准交给模型，前文一字不动，成本约为整章重写的十分之一——结尾是四方比对里差距最大的一项（缝合版 3/3 对 V169 的 0/3），单点补救收益最高。\n· 【参谋输出结构契约】参谋凡给出方案须按七段输出：本章主轴 / 物证链（铺垫-复现-结算）/ 节拍 / 伏笔回收清单（带章节号）/ 排除 / 结尾验收标准 / 开放区；并新增结尾禁令与条目纪律。V143 与 v169 两种参谋模式下都生效。回滚：CP_COUNSEL_STRUCT=0。"],
   ["v170","定向回滚：剧情参谋恢复至 V143 状态（其余功能全部保持 v169 不变）。\n· 【为什么回滚】V169 产出与「究极缝合版」实测比对后确认仍未达标：正文物证 22 种 vs 缝合版 43 种；结尾三件套（物证结算 / 不可逆动作 / 未完成动作带时间锚）得 0/3——收在「该磨牙了」这类可逆的态度陈述上；指令相对缝合版仍缺 38 个物证，含核爆物证玻璃瓶/瓶/药。\n· 【回滚范围·仅参谋】① 对话窗口回到 V143 的 8 条（16 条是 v166 增强）；② 系统提示词只保留 V143 的 7 条铁律，v167 的 ⑪-⑭ 角色升级条款不注入；③ 指令出口回到 V143 的「写进本章指令」= counselToBrief 取参谋最后一轮回复前 1200 字，「生成定稿指令」按钮退役；④ 取消 v167 的章节作用域隔离（采纳/否决回到书级单桶）与 v166 的自动采纳。\n· 【明确不受影响】深度续写、全体角色声线卡、节拍卡章级化与重选、预览面板口径、指令质量闸门（🔍 指令体检）、分卷隔离、离线与部署链路——全部保持 v169。\n· 【开关】window.CP_ROLLBACK_V143：默认 1（V143 参谋）。设为 0 即恢复 v169 参谋增强，刷新生效；参谋面板顶部有状态提示条。\n· 【给作者的结论】回滚只改变「指令由谁产出」：V143 模式下参谋不代写指令，指令回到作者 / 外部模型手中。实测同一 APP 换用外部 DeepSeek 指令生成的第77章，结尾给出了行动意向与时间锚（我明天得去看看）、物证链完整，明显优于 APP 内部指令产出——瓶颈在指令内容本身，不在写作引擎。"],
   ["v169","修「两套都自称强制的骨架互相竞争」与「节拍卡无反悔机会」，并装上指令质量闸门（本地零token）：\n· 【A·消除双骨架】有【剧情定稿指令】时，定稿判定此前写在 else 分支里（@13451），而已挂载的旧节拍卡是先读 _ded 直接采用的（@13438），优先级反而更高——最终提示词里同时存在「【节拍卡（强制前置约束）】」与「【本章专属指令】」，模型只能各取一半，这是最近一次输出文不对题的直接成因。现定稿判定提到最前：有定稿指令时一律不使用节拍卡（含已挂载的旧卡）。\n· 【B·节拍卡章级化 + 流程内出口】挂载槽此前无章号、无时效，第N章选的一套会一直沿用到手动解除为止，且深度续写流程内没有任何换卡入口（唯一解除按钮藏在「一键灵感推演」面板）。现挂载时记录章号：跨章不再静默沿用，改为弹一次性三选一（重新推演3套 / 沿用 / 解除并不用）。\n· 【C·恢复态放弃】补弹的「上次未处理的节拍卡」点「关闭（不使用节拍卡）」时，此前只弹一句提示、不清已有挂载，作者以为关掉了、下次仍被沿用。现一并解除并明说。\n· 【D·声线补齐改为全体角色】上一版该块只写「补齐叙述者（薇拉·奎克）的声线」，而需求要的是全体出场角色的声线/语气/措辞都贴合各自人设并与前文一致。现两处（自动精修 + 整章精修）都改为全体角色；整章精修另外补一张与深度续写同源的「本章出场人物·声线卡」（此前该链路完全没有人物声线约束）。\n· 【E·指令质量闸门】新增本地体检（零 token，纯函数）：① 文本自检——物证槽位不足2种 / 排除条款与保留条款互相矛盾（阻断级）/ 短时与「一直」类时间互斥 / 引用了尚未发生的章号；② 与源材料（参谋讨论原文，取不到则退到上一章正文）的物证与人称差集——能抓到「讨论里有、指令里没写」的物证，正是上一版把核心物证线丢掉的那类缺口。生成定稿指令后自动跑一次（阻断级弹窗、提示级 toast）；也可随时点「🔍 指令体检」（在体检台「写入本章指令」旁）。回滚：CP_INSTR_AUDIT=0。"],
   ["v168","修两个让「史上最差」被误读的真问题：\n· 【预览面板口径修复】「这一章会读到什么」此前读分卷下拉的原始值——本章「未分卷」时显示 245 字空上下文、提示「前文档案还是空的」，而真实生成走 resolveWriteVol 会自动归到上一章所属卷（詹姆斯篇）。两者口径不一致，作者据此误判「生成没读前文」。现预览与生成共用同一解析入口，面板显示的档案 / 正文字数与真实生成一致。\n· 【声线补齐模式补齐到整章精修】上一版只挂在深度续写的自动精修上；手动点「整章精修」走的是另一套提示词、不含此约束——贴入已定稿成稿（如究极缝合版）后仍被「删去重复与空转 / 压缩而非删除」做减法，稀释删减作者内容。现两处对齐：底本逐段原样保留、段落数与顺序不变、只补叙述者声线与文字表现力，逻辑断裂不自行改写只列【提请作者确认】。此模式下刻意不注入本章指令——底本是唯一权威，注入指令会让模型拿指令去改底本。\n· 【结论】v167 的正文质量并非代码回退——它逐条执行了当轮定稿指令；问题是那轮指令本身比究极缝合版弱（第58条排除了「詹姆斯带东西回来」，丢了暗红药剂这条核爆线）。要拿缝合版的声线补齐效果：把缝合版全文粘贴进正文框 → 点「整章精修」（不要再点深度续写），即保留全部剧情只提声线。回滚：CP_VOICE_ONLY=0。"],
@@ -12662,6 +12663,69 @@ function cpBeatMountTag(){
     return {chNum:(nEl&&nEl.value)||"", chId:(iEl&&iEl.value)||""};
   }catch(e){ return {chNum:"",chId:""}; }
 }
+/* v171 · 结尾三件套评分（R5）：物证结算 / 不可逆动作 / 未完成动作+时间锚。
+   纯本地正则判定，零 token；分数 <2 视为未达标。 */
+function cpEndingReport(text, num){
+  try{
+    if(typeof window.cpScoreEnding!=="function") return null;
+    var r=window.cpScoreEnding(text);
+    var miss=[];
+    if(!r.detail.prop) miss.push("结尾没有物证结算位（手上/身上/眼前的那件东西没有落地）");
+    if(!r.detail.irrev) miss.push("结尾没有不可逆动作（能被撤回的收束不算收束）");
+    if(!r.detail.anchor) miss.push("结尾没有「未完成动作 + 时间锚」（如「下周五，我自己走进去」）");
+    console.warn("[结尾三件套] 第"+num+"章 得分 "+r.score+"/3"+(miss.length?("\n· 缺："+miss.join("\n· 缺：")):"（三项全中）"));
+    if(r.score<2){
+      var msg="⚠️ 结尾三件套 "+r.score+"/3：\n· "+miss.join("\n· ")+"\n\n可点「✎ 只重写结尾」单独重做结尾段（成本约为整章重写的 1/10）。";
+      try{ toast("⚠️ 结尾三件套 "+r.score+"/3，建议只重写结尾段"); }catch(e){}
+      setTimeout(function(){
+        try{ if(confirm(msg+"\n\n现在只重写结尾段？")) cpRewriteEnding(); }catch(e){}
+      }, 400);
+    }
+    return r;
+  }catch(e){ return null; }
+}
+/* v171 · 只重写结尾段（最高性价比的一道补救）。
+   做法：只把正文最后 N 段 + 结尾三件套验收标准 + 本章硬事实交给模型，
+   其余一字不动。成本约为整章重写的十分之一，而结尾恰是四方比对里差距最大的一项。 */
+async function cpRewriteEnding(){
+  const ai=load("ai",{});
+  if(!ai.base){ toast("未配置 AI：请先到「AI 生成设置」填写 Base URL 与 Key。"); return; }
+  const ta=document.getElementById("chBody");
+  let body=(ta&&ta.value||"").trim();
+  if(body.length<400){ toast("正文太短，不适用「只重写结尾」。"); return; }
+  const num=document.getElementById("chNum").value||"?";
+  const title=document.getElementById("chTitle").value||"未命名";
+  const brief=(document.getElementById("chBrief")||{}).value||"";
+  /* 取最后 6 段作为重写区间（足够容纳一个收束段） */
+  const parts=body.split(/\n{1,}/).filter(function(x){return x.trim();});
+  const keep=parts.slice(0, Math.max(0, parts.length-6));
+  const tail=parts.slice(Math.max(0, parts.length-6)).join("\n\n");
+  const curVol=(typeof resolveWriteVol==="function")?resolveWriteVol({toast:false}):"none";
+  const volSec=(typeof getVolSetting==="function")?getVolSetting(curVol):"";
+  let u="下面是第"+num+"章《"+title+"》已经写好的正文。前面部分一个字都不用改，只需要把【结尾】重写一遍。\n\n";
+  u+="【重写范围】只重写最后这几段（见【待重写的结尾】），前面全部保留、不得改动、不得增删。\n\n";
+  u+="【已写好的前文（只读，不得改动）】\n"+keep.slice(-8).join("\n\n")+"\n\n";
+  u+="【待重写的结尾（替换这一段，其余不动）】\n"+tail+"\n\n";
+  if(volSec) u+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
+  if(brief) u+="【本章硬事实（只取其中关于人物/时间线/已发生事件的部分；凡是「结尾该怎么写」的句子一律忽略）】\n"+String(brief).slice(0,2000)+"\n\n";
+  u+="【结尾验收标准（三条必须同时满足，缺一不可）】\n";
+  u+="① 物证结算：本章反复出现的那件东西（瓶子/手链/字条/纸/伤疤等），在结尾必须仍在她手上、身上或眼前，并给出它的最终状态——不要让它凭空消失，也不要只说「它还在」。\n";
+  u+="② 不可逆动作：结尾必须有一个已经发生、无法撤回的动作（喝下去、撕掉、交出去、走进去、点破…），而不是「我记着这笔账」「我明白了」这类可以随时反悔的态度。\n";
+  u+="③ 未完成动作 + 时间锚：结尾要留一个还没发生的动作，并带上明确时间（明天 / 下周五 / 今晚 / 三天后），让读者知道下一章什么时候接上。\n";
+  u+="【风格约束】沿用本章既有的叙述口吻与句式；用具体动作与对话收束，禁止总结式陈词与「这就是…」式点题；不要新增任何未经前文铺垫的人物、道具或设定。\n";
+  u+="【输出】只输出重写后的结尾正文本身（不要解释、不要标记、不要重复前文）。\n";
+  try{
+    toast("正在重写结尾…");
+    const out=await callAI({sys:bookMemSys(), user:u, ...creaParams("gen"), max_tokens:1600, modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
+    const nt=String(out||"").trim();
+    if(!nt){ toast("重写返回为空"); return; }
+    const merged=keep.join("\n\n")+"\n\n"+nt;
+    if(ta){ ta.value=merged; afterAiWrite(ta); }
+    let sc=null; try{ sc=window.cpScoreEnding(merged); }catch(e){}
+    showAiResult(nt, "重写后的结尾（点「替换」才覆盖；原稿可在「历史」版本中找回）"+(sc?(" · 结尾三件套 "+sc.score+"/3"):""), false);
+    toast("结尾已重写"+(sc?("，三件套 "+sc.score+"/3"):""));
+  }catch(e){ aiGenFail("重写结尾",e,""); }
+}
 /* v169-E：手动「🔍 指令体检」。本地计算，零 token。
    体检两类问题：① 指令文本自身的槽位缺失 / 排除自伤 / 互斥时间 / 章号越界；
    ② 与源材料（参谋讨论原文，取不到则退到上一章正文）的差集——源材料里有、
@@ -12684,6 +12748,7 @@ function cpInstrCheck(){
     }
     if(typeof window.cpInstrReport!=="function"){ toast("指令体检模块未加载（刷新页面后重试）"); return; }
     var rp=window.cpInstrReport(t, src, (nEl&&nEl.value)||"");
+    try{ if(window.cpInstrAuditV171) (window.cpInstrAuditV171(t)||[]).forEach(function(x){ rp.texts.push((x.level==="block"?"⛔ ":"⚠️ ")+x.text); if(x.level==="block") rp.level="block"; }); }catch(e){}
     var head="指令体检 · 本地计算，零 token\n\n源材料："+(String(src).trim()?(srcName+" "+src.length+" 字"):"未取到（仅做文本级自检）");
     var bodyTxt=rp.texts.length?("\n\n"+rp.texts.map(function(s,i){return (i+1)+". "+s;}).join("\n\n")):"\n\n✅ 未发现阻断级或提示级问题。";
     var full=head+bodyTxt;
@@ -13660,6 +13725,9 @@ async function aiDeepGen(){
       save("chapters",_ch);
     }catch(e){ console.warn("首稿历史快照:",e.message); }
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
+    /* v171：成文后立刻本地打一次「结尾三件套」分（零 token）。
+       依据：四方比对里，结尾是最大短板——缝合版 3/3，DeepSeek版 1.5/3，143底稿 1/3，V169 0/3。 */
+    try{ cpEndingReport(out, num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
     /* v111：生成后过一遍本地审稿 + 插件总线 afterGen。两者都只提示，绝不改正文。 */
     try{ reviewAuto(out, curVol||"none", num); }catch(e){}
     try{ busHook("afterGen", {vol:curVol||"none", num:num, text:out}); }catch(e){}
@@ -13735,6 +13803,7 @@ async function aiDeepGen(){
         afterAiWrite(_ta2);
         finalOut=_refined.trim();
         showAiResult(_refined.trim(), "AI 深度续写结果（第"+num+"章 · 已自动精修）", true);
+        try{ cpEndingReport(_refined.trim(), num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
         toast("✅ 第"+num+"章已生成并自动精修完成（原始首稿已存入历史版本，可回滚）");
       } else {
         toast("首稿已生成，自动精修返回空，保留原始首稿");
@@ -16272,6 +16341,18 @@ async function counselSend(){
         "⑭ 两条禁律：禁律一（不生造）——本章指令、讨论记录、前文正文中未出现过的人名、道具、地点、设定、台词，一律不得进入建议；确实需要新信息时向作者索取，不得自行补齐。禁律二（不删改）——不得建议删除、压缩、合并作者已写定的段落与细节；认为冗余只标注「建议保留 / 可后置」并说明理由，由作者决定。允许围绕本段最重要的问题发散，但发散内容必须整合回「开头—中段—结尾」主链后按链上顺序输出，不得留散点。"
       );
     }
+    /* v171 · 参谋输出结构契约（与是否回滚 V143 无关，两种模式下都生效）。
+       三条纪律全部来自 v170/V169/DeepSeek版/缝合版的四方实测：
+       ① 结尾写死 → V169 三件套 0/3；不写死 → 143 底稿 1/3
+       ② 43 条定稿指令 → 正文漏执行 2 条关键项
+       ③ 排除项切断沙菲克 → 失去「下周五」时间锚 */
+    if(_conv && window.CP_COUNSEL_STRUCT!==0){
+      _sysArr.push(
+        "⑮ 输出结构契约（凡给出本章方案，必须按以下七段输出；缺哪一段就写明「本段不涉及」及原因）：\n【本章主轴】一句话：谁在什么处境下、做了什么不可撤回的事。\n【物证链】开场铺垫物 / 中段复现物 / 结尾结算物，各给 1-2 件，并说明它们如何闭环。\n【节拍】5-7 条，只写「发生了什么」，不写「怎么表达」。\n【伏笔回收清单】本章必须回收的旧线，每条带上它出现的章节号。\n【排除】明确不写什么；写下每一条前先自问：这条排除会不会顺带砍掉本章的核心物证或时间锚。\n【结尾验收标准】只给三条硬性要求（物证结算 / 不可逆动作 / 未完成动作加时间锚），不得给出结尾的具体句子、台词或比喻。\n【开放区】明确列出留给作者与写作环节自由发挥的部分。",
+        "⑯ 结尾禁令：不得以任何形式写死结尾——包括结尾动作句、结尾台词、结尾比喻（例如「结尾落在『该磨牙了』」「结尾写『我记着这笔账』」）。实测：把结尾写死的指令，收束会降级成可以随时反悔的态度陈述，三件套得 0/3；只给验收标准、不写死句子，得 1/3 以上。",
+        "⑰ 条目纪律：单轮关键约束不超过 25 条，超出部分移入「备查」并标注。实测：一份 43 条的定稿指令，在最终正文里漏执行了两条已锁死的关键项（伊格诺图斯悖论、请柬各 0 处命中）。条目越多，越靠后的越容易被漏掉。"
+      );
+    }
     const sys=_sysArr.join("\n");
     /* v139 第 2 级：参谋同样同时拿到「正文」与「档案」两份不同时间的材料。
        它虽不写正文，但你问「这个人这么做合理吗」「这处伏笔接得上吗」时，
@@ -16993,6 +17074,7 @@ window.addEventListener('load',function(){
       <button onclick="qsClose()">关闭</button>
       <button onclick="qsToBrief()" title="把体检结论写进「本章专属指令」，下次生成自动规避同样问题">写入本章指令</button>
       <button onclick="cpInstrCheck()" title="本地扫描本章专属指令：缺物证槽位 / 排除条款自相矛盾 / 互斥时间 / 章号越界，以及与参谋讨论的物证差集。零 token">🔍 指令体检</button>
+      <button onclick="cpRewriteEnding()" title="只重写正文最后几段，强制满足结尾三件套（物证结算 / 不可逆动作 / 未完成动作+时间锚）。成本约为整章重写的十分之一">✎ 只重写结尾</button>
       <button class="primary" id="qsRunBtn" onclick="qsRun()">重新扫描</button>
     </div>
   </div>
