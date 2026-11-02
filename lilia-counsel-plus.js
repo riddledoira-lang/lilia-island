@@ -295,13 +295,14 @@
   function cpChNum() {
     try { var el = document.getElementById('chNum'); return (el && el.value) ? String(el.value) : ''; } catch (e) { return ''; }
   }
-  function cpAdoptKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && c) ? ('counselAdopted_ch_' + c) : 'counselAdopted'; }
-  function cpVetoKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && c) ? ('counselVeto_ch_' + c) : 'counselVeto'; }
+  /* v170：回滚态（CP_ROLLBACK_V143=1）下取消章节分桶——V143 是书级单桶。运行时读取，与脚本加载顺序无关。 */
+  function cpAdoptKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && window.CP_ROLLBACK_V143 !== 1 && c) ? ('counselAdopted_ch_' + c) : 'counselAdopted'; }
+  function cpVetoKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && window.CP_ROLLBACK_V143 !== 1 && c) ? ('counselVeto_ch_' + c) : 'counselVeto'; }
   /* 讨论记录按章过滤：带章标记的消息只在本章可见；无标记的（v167 之前产生的）
      保留可见，避免一次性清空作者的历史讨论。 */
   function cpLogScoped() {
     var base = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
-    if (window.CP_LOG_PERCHAP === 0) return base;
+    if (window.CP_LOG_PERCHAP === 0 || window.CP_ROLLBACK_V143 === 1) return base;
     var c = cpChId(), n = cpChNum();
     if (!c && !n) return base;
     var f = base.filter(function (m) {
@@ -1908,7 +1909,7 @@
   var CP_ADOPT_RE = /(就按|按这[个条方案]|定死|定下来|就这么定|就这样定|拍板|锁死|不再问|别再问|不要再问|不再改|不再动|就采用|就保留|定了[：，。!！])/;
   var CP_ADOPT_NOT = /(要不要|需不需要|还是说|二选一|待定|未定|还没想好|你觉得呢|取决于你|是不是该|行不行|可不可以)/;
   window.cpAutoAdopt = function (q) {
-    if (!window.CP_AUTO_ADOPT) return 0;
+    if (!window.CP_AUTO_ADOPT || window.CP_ROLLBACK_V143 === 1) return 0;
     var n = 0;
     try {
       String(q || '').split(/(?<=[。！？；\n])/).forEach(function (seg) {

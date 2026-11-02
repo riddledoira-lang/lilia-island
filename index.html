@@ -8157,7 +8157,13 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v169";
+const APP_VERSION="v170";
+/* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
+   1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
+        counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
+   0 = 恢复 v169 的参谋增强（16 条窗口 / ⑪-⑭ 角色升级 / 生成定稿指令 / 按章分桶）。
+   ★ 只作用于「剧情参谋」：深度续写、声线卡、节拍卡章级化、预览口径、指令质量闸门等全部不受影响。 */
+window.CP_ROLLBACK_V143=1;
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8167,6 +8173,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v170","定向回滚：剧情参谋恢复至 V143 状态（其余功能全部保持 v169 不变）。\n· 【为什么回滚】V169 产出与「究极缝合版」实测比对后确认仍未达标：正文物证 22 种 vs 缝合版 43 种；结尾三件套（物证结算 / 不可逆动作 / 未完成动作带时间锚）得 0/3——收在「该磨牙了」这类可逆的态度陈述上；指令相对缝合版仍缺 38 个物证，含核爆物证玻璃瓶/瓶/药。\n· 【回滚范围·仅参谋】① 对话窗口回到 V143 的 8 条（16 条是 v166 增强）；② 系统提示词只保留 V143 的 7 条铁律，v167 的 ⑪-⑭ 角色升级条款不注入；③ 指令出口回到 V143 的「写进本章指令」= counselToBrief 取参谋最后一轮回复前 1200 字，「生成定稿指令」按钮退役；④ 取消 v167 的章节作用域隔离（采纳/否决回到书级单桶）与 v166 的自动采纳。\n· 【明确不受影响】深度续写、全体角色声线卡、节拍卡章级化与重选、预览面板口径、指令质量闸门（🔍 指令体检）、分卷隔离、离线与部署链路——全部保持 v169。\n· 【开关】window.CP_ROLLBACK_V143：默认 1（V143 参谋）。设为 0 即恢复 v169 参谋增强，刷新生效；参谋面板顶部有状态提示条。\n· 【给作者的结论】回滚只改变「指令由谁产出」：V143 模式下参谋不代写指令，指令回到作者 / 外部模型手中。实测同一 APP 换用外部 DeepSeek 指令生成的第77章，结尾给出了行动意向与时间锚（我明天得去看看）、物证链完整，明显优于 APP 内部指令产出——瓶颈在指令内容本身，不在写作引擎。"],
   ["v169","修「两套都自称强制的骨架互相竞争」与「节拍卡无反悔机会」，并装上指令质量闸门（本地零token）：\n· 【A·消除双骨架】有【剧情定稿指令】时，定稿判定此前写在 else 分支里（@13451），而已挂载的旧节拍卡是先读 _ded 直接采用的（@13438），优先级反而更高——最终提示词里同时存在「【节拍卡（强制前置约束）】」与「【本章专属指令】」，模型只能各取一半，这是最近一次输出文不对题的直接成因。现定稿判定提到最前：有定稿指令时一律不使用节拍卡（含已挂载的旧卡）。\n· 【B·节拍卡章级化 + 流程内出口】挂载槽此前无章号、无时效，第N章选的一套会一直沿用到手动解除为止，且深度续写流程内没有任何换卡入口（唯一解除按钮藏在「一键灵感推演」面板）。现挂载时记录章号：跨章不再静默沿用，改为弹一次性三选一（重新推演3套 / 沿用 / 解除并不用）。\n· 【C·恢复态放弃】补弹的「上次未处理的节拍卡」点「关闭（不使用节拍卡）」时，此前只弹一句提示、不清已有挂载，作者以为关掉了、下次仍被沿用。现一并解除并明说。\n· 【D·声线补齐改为全体角色】上一版该块只写「补齐叙述者（薇拉·奎克）的声线」，而需求要的是全体出场角色的声线/语气/措辞都贴合各自人设并与前文一致。现两处（自动精修 + 整章精修）都改为全体角色；整章精修另外补一张与深度续写同源的「本章出场人物·声线卡」（此前该链路完全没有人物声线约束）。\n· 【E·指令质量闸门】新增本地体检（零 token，纯函数）：① 文本自检——物证槽位不足2种 / 排除条款与保留条款互相矛盾（阻断级）/ 短时与「一直」类时间互斥 / 引用了尚未发生的章号；② 与源材料（参谋讨论原文，取不到则退到上一章正文）的物证与人称差集——能抓到「讨论里有、指令里没写」的物证，正是上一版把核心物证线丢掉的那类缺口。生成定稿指令后自动跑一次（阻断级弹窗、提示级 toast）；也可随时点「🔍 指令体检」（在体检台「写入本章指令」旁）。回滚：CP_INSTR_AUDIT=0。"],
   ["v168","修两个让「史上最差」被误读的真问题：\n· 【预览面板口径修复】「这一章会读到什么」此前读分卷下拉的原始值——本章「未分卷」时显示 245 字空上下文、提示「前文档案还是空的」，而真实生成走 resolveWriteVol 会自动归到上一章所属卷（詹姆斯篇）。两者口径不一致，作者据此误判「生成没读前文」。现预览与生成共用同一解析入口，面板显示的档案 / 正文字数与真实生成一致。\n· 【声线补齐模式补齐到整章精修】上一版只挂在深度续写的自动精修上；手动点「整章精修」走的是另一套提示词、不含此约束——贴入已定稿成稿（如究极缝合版）后仍被「删去重复与空转 / 压缩而非删除」做减法，稀释删减作者内容。现两处对齐：底本逐段原样保留、段落数与顺序不变、只补叙述者声线与文字表现力，逻辑断裂不自行改写只列【提请作者确认】。此模式下刻意不注入本章指令——底本是唯一权威，注入指令会让模型拿指令去改底本。\n· 【结论】v167 的正文质量并非代码回退——它逐条执行了当轮定稿指令；问题是那轮指令本身比究极缝合版弱（第58条排除了「詹姆斯带东西回来」，丢了暗红药剂这条核爆线）。要拿缝合版的声线补齐效果：把缝合版全文粘贴进正文框 → 点「整章精修」（不要再点深度续写），即保留全部剧情只提声线。回滚：CP_VOICE_ONLY=0。"],
   ["v167","剧情参谋角色升级 + 章节作用域隔离 + 声线补齐模式（第77章诊断落地）\n· 【章节作用域隔离】采纳/否决清单与参谋讨论此前都是书级存储：第77章敲定的「暗红药剂 / 克劳奇台词 / 时间线锁五分钟」会原样带进第78章成为既定事实，这是强制令跨章污染的真实通道。现按章节 ID 分桶（counselAdopted_ch_<id> / counselVeto_ch_<id>），讨论消息打章标记后按章过滤，切章即自动失效。回滚：CP_ADOPT_PERCHAP=0 / CP_LOG_PERCHAP=0。\n· 【去章号硬编码】场景体检清单仍是第76/77章专属，开启体检时会把上一章场景当作本章「待补缺口」诱导编造。现改为通用结构锚（开场/中段/结尾/伏笔线索/人物关系）。\n· 【参谋角色升级①】sys 新增⑪ 职责优先级：线索与伏笔分析 > 情节点的合理生成 > 内容精彩度提升，冲突按此取舍并在首行标明本轮主轴。\n· 【参谋角色升级②】新增⑫ 线性梳理契约：按 开头→中段→结尾 推进，当前区段未收敛不得跳段或回头重开；每轮必须输出【区段】【本段已定·逐条并注明落位】【本段未决】三行。\n· 【参谋角色升级③】新增⑬ 六类全覆盖：情感点 / 关键细节 / 人物关系 / 人物情节 / 人物心态 / 线索推进路径，不涉及的一类写明原因，不得以省略代替说明。\n· 【参谋角色升级④】新增⑭ 两条禁律：不生造（未在本章指令、讨论、前文中出现的人名/道具/地点/设定/台词不得进入建议，缺信息向作者索取）；不删改（不得建议删除/压缩/合并作者已写定的段落与细节，认为冗余只标注「建议保留/可后置」）。允许围绕最重要问题发散，但必须整合回主链按序输出，不得留散点。\n· 【声线补齐模式】本章正文已由作者定稿时，精修不再重做剧情：新增最高优先级块，显式覆盖【优化要求】④ 的减法要求——底本逐段原样保留（段落数与顺序不变，只允许段内调句），只补叙述者薇拉·奎克的声线（自嘲式让步、厨房与神奇生物类比喻、短句与破折号内心闪回、嘴贫嘴硬）与文字表现力（感官精度 / 节奏 / 反差 / 以动作对话替代概括）；发现逻辑断裂不自行改写，另起「【提请作者确认】」列出。回滚：CP_VOICE_ONLY=0。"],
@@ -16230,7 +16237,7 @@ async function counselSend(){
     _counselLog.push({role:"me", text:q, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
     inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
-    const hist=_counselLog.slice(-16).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
+    const hist=_counselLog.slice(window.CP_ROLLBACK_V143===1?-8:-16).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
     /* v153：收敛改造总开关。CP_COUNSEL_CONVERGE=0 时只保留 v152 原版的 7 条（⑤ 用回原文，
        ⑧⑨⑩ 一条都不追加），sys 字符串与 v152 逐字相同——可灰度、可单条回滚。 */
     const _conv=(window.CP_COUNSEL_CONVERGE!==0);
@@ -16257,7 +16264,7 @@ async function counselSend(){
     /* v167 · 剧情参谋角色升级（作者核心诉求：反复追问已定项 / 敲定细节丢失 / 凭空生造 / 稀释删改既有内容）
        只加 4 条，且都写成「可机检的输出契约」而不是散装禁令——上一轮实测证明：
        条款堆得越多，有效约束密度越低，模型反而更容易丢东西。 */
-    if(_conv && window.CP_COUNSEL_ROLE!==0){
+    if(_conv && window.CP_COUNSEL_ROLE!==0 && window.CP_ROLLBACK_V143!==1){
       _sysArr.push(
         "⑪ 职责优先级：线索与伏笔分析 ＞ 情节点的合理生成 ＞ 内容精彩度提升。三者冲突时按此顺序取舍，并在回复第一行标明【本轮主轴：线索/情节点/精彩度】；",
         "⑫ 线性梳理契约（凡涉及本章结构，必须遵守）：严格按 开头 → 中段 → 结尾 推进；当前区段未收敛前不得跳到下一区段，也不得回头重开上一区段；每轮回复必须含三行——【区段：开头/中段/结尾】【本段已定：逐条列出，并注明每条落在本段的哪个位置】【本段未决：逐条列出】；",
@@ -16426,7 +16433,7 @@ function migrateStatuses(){
     if(changed) save("chapters", ch);
   }catch(e){ console.warn("状态迁移失败(非致命):", e.message); }
 }
-window.addEventListener('load', function(){ migrateStatuses(); });
+window.addEventListener('load', function(){ migrateStatuses(); try{ var _rb=document.getElementById('cpRollbackBar'); if(_rb) _rb.style.display=(window.CP_ROLLBACK_V143===1)?'':'none'; }catch(e){} });
 
 /* 注册 Service Worker：让工作台可离线、可「装成 APP」，且自动同步新版本 */
 if('serviceWorker' in navigator){
@@ -17010,15 +17017,16 @@ window.addEventListener('load',function(){
     <h3>剧情参谋（只讨论，不动正文）</h3>
     <div class="meta" id="counselMeta"></div>
     <!-- v112：常驻错误条。原先报错只走 2.4 秒的 toast，一闪就没，用户无法判断原因 -->
+    <div id="cpRollbackBar" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--warn,rgba(220,150,0,.45));font-size:12px;line-height:1.6;">⏪ <b>剧情参谋已回滚至 V143 模式</b>：参谋只讨论、只给选项，指令出口为「写进本章指令」（取参谋最后一轮回复前 1200 字）。深度续写、声线卡、节拍卡章级化、指令体检等其余功能保持 v169 不变。切回 v169 参谋增强：控制台执行 CP_ROLLBACK_V143=0 后刷新。</div>
     <div id="counselErr" style="display:none;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--danger);"></div>
     <div id="counselLog" style="max-height:46vh;overflow:auto;margin-top:10px;"></div>
     <textarea id="counselInput" style="min-height:80px;margin-top:10px;" placeholder="问参谋：这一章之后有哪几种走向？这个决定符合薇拉的人设吗？第 12 章的伏笔怎么接才不生硬？"></textarea>
     <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
       <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
       <!-- v165：「写进本章指令」按钮退役（其【待决】块会干扰深度续写；零 token 兜底已内化进生成定稿指令的降级路径）。函数 counselToBrief 保留未删，去掉本行 style 即回滚。 -->
-      <button type="button" style="display:none;" onclick="counselToBrief()">写进本章指令</button>
+      <button type="button" onclick="counselToBrief()">写进本章指令</button>
       <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
-      <button type="button" id="counselHybridBtn" style="display:none;" onclick="counselHybridBrief()" title="把整轮讨论收敛成「锁死版」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
+      <button type="button" id="counselHybridBtn" style="display:none;" data-v170-retired="1" onclick="counselHybridBrief()" title="把整轮讨论收敛成「锁死版」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
       <button type="button" onclick="counselExport()" title="把本轮参谋讨论（含已采纳/已否决走向）完整导出为 Markdown 文件下载，便于留存与查阅">导出讨论记录</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
