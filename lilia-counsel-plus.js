@@ -278,10 +278,44 @@
    * 模块 D：否决走向（优化建议 1）
    * 被否决的走向存起来，之后既不再作为选项提出，也不会进正文生成。
    * ============================================================ */
-  function vetoGet() { var o = get1('counselVeto'); return (o && Array.isArray(o.items)) ? o.items : []; }
+  /* ============================================================
+   * 模块 D2：章节作用域（v167）
+   *
+   * 采纳/否决清单与讨论记录此前都是「书级」存储：作者在第 77 章敲定的
+   * 「暗红药剂 / 克劳奇那句台词 / 时间线锁五分钟」，会被原样带进第 78 章，
+   * 成为后续章节的既定事实——这就是「强制令跨章污染」的真实通道。
+   * 现按章节 ID 分桶：切章即自动失效，无需手动清理。
+   * 回滚：window.CP_ADOPT_PERCHAP = 0（回到书级单桶，旧数据随即重新可见）。
+   * ============================================================ */
+  window.CP_ADOPT_PERCHAP = 1;
+  window.CP_LOG_PERCHAP = 1;
+  function cpChId() {
+    try { var el = document.getElementById('chId'); return (el && el.value) ? String(el.value) : ''; } catch (e) { return ''; }
+  }
+  function cpChNum() {
+    try { var el = document.getElementById('chNum'); return (el && el.value) ? String(el.value) : ''; } catch (e) { return ''; }
+  }
+  function cpAdoptKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && c) ? ('counselAdopted_ch_' + c) : 'counselAdopted'; }
+  function cpVetoKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && c) ? ('counselVeto_ch_' + c) : 'counselVeto'; }
+  /* 讨论记录按章过滤：带章标记的消息只在本章可见；无标记的（v167 之前产生的）
+     保留可见，避免一次性清空作者的历史讨论。 */
+  function cpLogScoped() {
+    var base = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+    if (window.CP_LOG_PERCHAP === 0) return base;
+    var c = cpChId(), n = cpChNum();
+    if (!c && !n) return base;
+    var f = base.filter(function (m) {
+      if (!m) return false;
+      if (!m.ch && !m.chNum) return true;
+      return (c && m.ch === c) || (n && m.chNum === n);
+    });
+    return f.length ? f : base;
+  }
+
+  function vetoGet() { var o = get1(cpVetoKey()); return (o && Array.isArray(o.items)) ? o.items : []; }
   function vetoSave(items) {
     items = items.slice(-CFG.vetoMax);
-    put('counselVeto', { at: now(), items: items });
+    put(cpVetoKey(), { at: now(), items: items });
   }
   function vetoAdd(t) {
     t = String(t || '').trim(); if (!t) return;
@@ -293,8 +327,8 @@
     t = String(t || '').trim();
     vetoSave(vetoGet().filter(function (x) { return x !== t; }));
   }
-  function adoptGet() { var o = get1('counselAdopted'); return (o && Array.isArray(o.items)) ? o.items : []; }
-  function adoptSave(items) { put('counselAdopted', { at: now(), items: items.slice(-CFG.adoptMax) }); }
+  function adoptGet() { var o = get1(cpAdoptKey()); return (o && Array.isArray(o.items)) ? o.items : []; }
+  function adoptSave(items) { put(cpAdoptKey(), { at: now(), items: items.slice(-CFG.adoptMax) }); }
   function adoptAdd(t) {
     t = String(t || '').trim(); if (!t) return;
     var a = adoptGet();
@@ -561,8 +595,8 @@
          问到谁，就把谁提到前面：问「沙菲克这么做合理吗」时沙菲克必须出现在人物卡里。 */
       var q = '';
       try {
-        for (var li = _counselLog.length - 1; li >= 0; li--) {
-          if (_counselLog[li] && _counselLog[li].role === 'me') { q = String(_counselLog[li].text || ''); break; }
+        var _scLog = cpLogScoped(); for (var li = _scLog.length - 1; li >= 0; li--) {
+          if (_scLog[li] && _scLog[li].role === 'me') { q = String(_scLog[li].text || ''); break; }
         }
       } catch (eq) {}
       if (!q) { q = ((document.getElementById('counselInput') || {}).value || ''); }
@@ -736,17 +770,16 @@
     exclude: /(排除|砍掉|砍了|砍[。！？；，,、]|整段砍|整节砍|一律不能用|不能这么用|这章不碰|这章不出现|本章不出现|这章不出场|本章不出场|不当(已知)?(事实)?写|否掉|已否决|否决|废掉|作废|降级|仅备查|备查|不列(入|为)(正文|选项))/,
     pending: /(待定|未定|未确认|还没定|没定|二选一|保留还是砍|保留还是|要不要保留|要不要|是否保留|是否|取决于你|你自己定|还没想好|留个口子|具体.{0,4}(待定|未定))/,
     outline: /^([一二三四五六七八九十]{1,2}[、.．]|[A-Ga-g][.、)．]|第\d{1,2}[条章节])/,
+    /* v167：原场景锚是第76/77章的专属清单（克劳奇线/羽毛感应/沙菲克线/手链/请柬/第76章…），
+       对其它章节全部失配，且一旦开启场景体检就会把上一章的场景当作本章的「待补缺口」，
+       诱导模型去补写从未讨论过的情节——正是跨章污染的第二个通道。
+       现改为与内容无关的通用结构锚，只认「章节部位」不认具体剧情。 */
     scenes: [
-      { n: '克劳奇线', re: /克劳奇/ },
-      { n: '羽毛感应', re: /羽毛/ },
-      { n: '身体/精神状态', re: /蜜獾|兽魂|反噬|身体|精神状态/ },
-      { n: '沙菲克线', re: /沙菲克|记账/ },
-      { n: '手链/物转动', re: /手链|手腕/ },
-      { n: '请柬/酒窖', re: /请柬|酒窖|马尔福大礼/ },
-      { n: '时间线', re: /第76章|76章|两三天/ },
-      { n: '开场', re: /开场|开头第一句|第一句/ },
-      { n: '结尾/恍然大悟', re: /结尾|恍然大悟|收尾/ },
-      { n: '伏笔', re: /伏笔|右眼|牡鹿|西里斯|科拉|符文石|声音/ }
+      { n: '开场', re: /开场|开头|第一句|起笔/ },
+      { n: '中段', re: /中段|中间|过渡|转场/ },
+      { n: '结尾', re: /结尾|收尾|最后一?句|落点/ },
+      { n: '伏笔/线索', re: /伏笔|线索|呼应|铺垫|回收|钩子/ },
+      { n: '人物关系', re: /关系|对手戏|互动|对手/ }
     ],
     /* v159：跨句状态归并 + 矛盾消解
        subjects → 关键决策点的主题锚，用于把同一决策点散落在多分区、多轮的讨论归并成
@@ -851,7 +884,7 @@
   counselToPlot = function () {
     try {
       var last = null;
-      for (var i = _counselLog.length - 1; i >= 0; i--) { if (_counselLog[i].role === 'ai') { last = _counselLog[i]; break; } }
+      var _scLog = cpLogScoped(); for (var i = _scLog.length - 1; i >= 0; i--) { if (_scLog[i].role === 'ai') { last = _scLog[i]; break; } }
       if (!last) { toast('还没有参谋的回复可以存'); return; }
       var full = String(last.text || '');
       var line = prompt('存为一条剧情线索，写一句标题（可改）：', full.slice(0, 40).replace(/\n/g, ' '));
@@ -871,7 +904,7 @@
   /* 从整轮讨论里提炼要点块。失败（讨论太短 / 没有结论句）返回 null，由调用方回退原文。 */
   function buildCounselDigest() {
     try {
-      var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+      var log = cpLogScoped();
       var turnMax = Number(window.CP_DIGEST_TURN) || 12;
       var src = log.slice(-turnMax);
       if (!src.length) return null;
@@ -1133,7 +1166,7 @@
   counselToBrief = function () {
     try {
       var last = null;
-      for (var i = _counselLog.length - 1; i >= 0; i--) { if (_counselLog[i].role === 'ai') { last = _counselLog[i]; break; } }
+      var _scLog = cpLogScoped(); for (var i = _scLog.length - 1; i >= 0; i--) { if (_scLog[i].role === 'ai') { last = _scLog[i]; break; } }
       if (!last) { toast('还没有参谋的回复可以落地'); return; }
       var ta = document.getElementById('chBrief');
       if (!ta) return;
@@ -1155,7 +1188,7 @@
       /* 讨论本身就短时，提炼没有收益（分区标题反而让它变长）——直接原样写入 */
       var rawTotal = 0;
       try {
-        _counselLog.slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
+        cpLogScoped().slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
       } catch (e2) {}
       if (rawTotal <= 700) {
         if (cpWriteLegacy(kept)) toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
@@ -1335,8 +1368,8 @@
     /* 降级 2：讨论为空 → 与 counselToBrief 完全一致的提示 */
     var last = null;
     try {
-      for (var i = _counselLog.length - 1; i >= 0; i--) {
-        if (_counselLog[i] && _counselLog[i].role === 'ai') { last = _counselLog[i]; break; }
+      var _scLog = cpLogScoped(); for (var i = _scLog.length - 1; i >= 0; i--) {
+        if (_scLog[i] && _scLog[i].role === 'ai') { last = _scLog[i]; break; }
       }
     } catch (e0) {}
     if (!last) { toast('还没有参谋的回复可以落地'); return; }
@@ -1364,7 +1397,7 @@
 
     try {
       /* ---- 组装输入 ---- */
-      var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+      var log = cpLogScoped();
       var turnMax = Number(window.CP_FINAL_TURNS) || 40;
       var inMax = Number(window.CP_FINAL_INCHARS) || 24000;
       var src = log.slice(-turnMax);
@@ -1567,7 +1600,7 @@
     try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e) {}
     try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e) {}
     var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
-    var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+    var log = cpLogScoped();
     var turnMax = Number(window.CP_FINAL_TURNS) || 40;
     var inMax = Number(window.CP_HYBRID_INCHARS) || 24000;
     var src = log.slice(-turnMax);
@@ -1608,8 +1641,8 @@
       }
       /* 讨论为空 */
       var last = null;
-      for (var i = _counselLog.length - 1; i >= 0; i--) {
-        if (_counselLog[i] && _counselLog[i].role === 'ai') { last = _counselLog[i]; break; }
+      var _scLog = cpLogScoped(); for (var i = _scLog.length - 1; i >= 0; i--) {
+        if (_scLog[i] && _scLog[i].role === 'ai') { last = _scLog[i]; break; }
       }
       if (!last) { toast('还没有参谋的回复可以落地'); return; }
       var ta = document.getElementById('chBrief');
@@ -1749,8 +1782,8 @@
       var tag = (last.children && last.children[0]) ? (last.children[0].textContent || '') : '';
       if (!/参谋/.test(tag)) return;                       /* 只给参谋的回复加按钮 */
       var src = '';
-      for (var i = _counselLog.length - 1; i >= 0; i--) {
-        if (_counselLog[i].role === 'ai') { src = _counselLog[i].text; break; }
+      var _scLog = cpLogScoped(); for (var i = _scLog.length - 1; i >= 0; i--) {
+        if (_scLog[i].role === 'ai') { src = _scLog[i].text; break; }
       }
       var routes = parseRoutes(src);
       if (!routes.length) {
