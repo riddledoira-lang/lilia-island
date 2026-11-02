@@ -1788,11 +1788,31 @@
            连带砍掉的是核爆线本身（指令里「隐形衣/伊格诺图斯」0 处，而 V171 有 14 处）。
            现在主清单最多 mainCap 条，剩下的配额留给附录。 */
         var mainCap = Math.min(maxLines, (Number(window.CP_NARR_MAXMAIN) || 17));
-        _main.forEach(function (g) {
-          var put = [];
-          for (var m = 0; m < g.a.length; m++) { if (_used >= mainCap) break; put.push(g.a[m]); _used++; }
-          if (put.length) keptLines.push(_nameOf[g.f]);
-          for (var q = 0; q < put.length; q++) keptLines.push(put[q]);
+        var _idxOf = {}; _main.forEach(function (g) { _idxOf[g.f] = 0; });
+        var _seq = [];
+        /* 第一遍：五个关键字段各保底 1 条。旧实现按 N1→N7 顺序填满，17 条被 N1-N3 吃光，
+           实测 V173 把 N5 决定性结尾动作与 N6 角色红线整段挤没（gaps=["N5"]）。 */
+        ['N1', 'N2', 'N3', 'N4', 'N5'].forEach(function (f) {
+          if (_used >= mainCap) return;
+          var g = null;
+          for (var i = 0; i < _main.length; i++) { if (_main[i].f === f) { g = _main[i]; break; } }
+          if (!g || !g.a.length) return;
+          _seq.push({ f: f, item: g.a[0] }); _idxOf[f] = 1; _used++;
+        });
+        /* 第二遍：轮询补足，不按序灌满——按序灌会让排在前面的字段吃掉全部余额。 */
+        var _more = true;
+        while (_used < mainCap && _more) {
+          _more = false;
+          for (var i2 = 0; i2 < _main.length; i2++) {
+            if (_used >= mainCap) break;
+            var g2 = _main[i2];
+            if (_idxOf[g2.f] < g2.a.length) { _seq.push({ f: g2.f, item: g2.a[_idxOf[g2.f]] }); _idxOf[g2.f]++; _used++; _more = true; }
+          }
+        }
+        var _lastF = null;
+        _seq.forEach(function (x) {
+          if (x.f !== _lastF) { keptLines.push(_nameOf[x.f]); _lastF = x.f; }
+          keptLines.push(x.item);
         });
         if (_appx.length) {
           var _appxOut = [];
@@ -2638,11 +2658,29 @@
     head.push('【叙事主清单】');
     var names = { N1: '一、本章主轴', N2: '二、核心物理道具', N3: '三、开场接口', N4: '四、推理三段论', N5: '五、决定性结尾动作', N6: '六、角色行动红线', N7: '七、节拍' };
     var used = 0;
-    order.forEach(function (f) {
+    /* v173 回归修复：与 counselHybridBrief 同口径——先给五个关键字段各保底 1 条，
+       再轮询补足。按序灌满会把 N5 决定性结尾动作挤成 0 条。 */
+    var idxOf = {}; order.forEach(function (f) { idxOf[f] = 0; });
+    var seq = [];
+    ['N1', 'N2', 'N3', 'N4', 'N5'].forEach(function (f) {
+      if (used >= mainCap2) return;
       var arr = p.fields[f] || [];
       if (!arr.length) return;
-      head.push(names[f]);
-      arr.forEach(function (it) { if (used < mainCap2) { head.push('· ' + it); used++; } });
+      seq.push({ f: f, item: arr[0] }); idxOf[f] = 1; used++;
+    });
+    var more = true;
+    while (used < mainCap2 && more) {
+      more = false;
+      for (var oi = 0; oi < order.length; oi++) {
+        if (used >= mainCap2) break;
+        var f2 = order[oi], a2 = p.fields[f2] || [];
+        if (idxOf[f2] < a2.length) { seq.push({ f: f2, item: a2[idxOf[f2]] }); idxOf[f2]++; used++; more = true; }
+      }
+    }
+    var lastF = null;
+    seq.forEach(function (x) {
+      if (x.f !== lastF) { head.push(names[x.f]); lastF = x.f; }
+      head.push('· ' + x.item);
     });
     appx.push('【降级附录】');
     if (p.fields.X1.length) {
@@ -2671,6 +2709,16 @@
       return out;
     }
     var mainText = p.fields.N1.concat(p.fields.N2, p.fields.N3, p.fields.N4, p.fields.N5, p.fields.N6, p.fields.N7).join('\n');
+
+    /* A17 章号锚点污染 → 警告。
+       实测 V173：指令「开场接口接詹姆斯篇第76章成稿」被 AI 当成叙事时间状语照抄，
+       正文开场直接写出「第76章那晚他明明被我推开了」——读者眼里这不是伏笔，是排版事故。
+       要定位上一章的情节，必须用情节锚点（「接过请柬那晚」「他被打发走之后」），不能裸用章号。 */
+    var chHits = mainText.match(/第\s*\d+\s*章/g);
+    if (chHits && chHits.length) {
+      out.push({ code: 'A17', level: 'warn',
+        text: '主清单里出现裸章号「' + chHits.slice(0, 3).join('、') + '」共 ' + chHits.length + ' 处。章号是元叙述锚点，AI 会把它当成叙事时间状语抄进正文（实测 V173 正文开场写出「第76章那晚他明明被我推开了」）。请改用情节锚点表述，例如「接过请柬那晚」「他被打发走之后」。' });
+    }
 
     /* A9 关键字段留白 → 阻断 */
     if (CP_RE_UNSET.test(mainText)) {
