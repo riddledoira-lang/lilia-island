@@ -1238,6 +1238,45 @@
     return true;
   }
 
+  /* v164 降级路径专用写入：DeepSeek 收敛不可用（未配置 AI / 异常 / 空返回 / 格式不符）时，
+     只能落本地要点块——但本地要点块含【待决】，深度续写读到会留白编造。
+     这里做两件防护（单次备份，撤销一步到位）：
+       ① 先清除旧的锁死版定稿块（CP_FINAL_BEGIN..CP_FINAL_END）——
+          否则旧定稿与新要点并存，深度续写会同时吃到两套互相矛盾的指令；
+       ② 再写本地要点块，由调用方用 toast 明确警告「未收敛，深度续写可能留白」。 */
+  function cpWriteBriefDegraded(block) {
+    var ta = document.getElementById('chBrief');
+    if (!ta) return false;
+    _cpBriefBak = ta.value;
+    var v = String(ta.value || '');
+    var b = v.indexOf(CP_FINAL_BEGIN);
+    if (b >= 0) {
+      var stop = -1;
+      var e = v.indexOf(CP_FINAL_END, b);
+      if (e >= 0) stop = e + CP_FINAL_END.length;
+      else {
+        var nx = v.indexOf('\n【', b + 1);
+        stop = (nx > 0) ? (nx + 1) : v.length;
+      }
+      v = (v.slice(0, b) + v.slice(stop)).replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+    }
+    var bb = v.indexOf(CP_BEGIN);
+    if (bb >= 0) {
+      var ee = v.indexOf(CP_END, bb);
+      if (ee >= 0) { v = v.slice(0, bb) + block + v.slice(ee + CP_END.length); }
+      else {
+        var nx2 = v.indexOf('\n【', bb + 1);
+        v = (nx2 > 0) ? (v.slice(0, bb) + block + v.slice(nx2 + 1)) : (v.slice(0, bb) + block);
+      }
+      v = v.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+    } else {
+      v = (v ? v + '\n' : '') + block;
+    }
+    ta.value = v;
+    cpPersistBrief();
+    return true;
+  }
+
   /* 指令框写入后触发一次落盘。三条写入路径（cpWriteBrief / cpWriteLegacy / cpWriteFinal）
      都必须调用它。
      ★ 为什么必须显式调：主程序给 #chBrief 绑的 input 监听只对「用户敲键盘」生效，
@@ -1453,29 +1492,31 @@
   function cpHybridSys() {
     return [
       '你是一位长篇小说的「剧情定稿编辑」，不是写手，也不是聊天对象。',
-      '职责：作者已用本地工具把一整轮讨论提炼成一份「要点」，你的任务是复核并收敛这份要点，产出一份可直接用于下一轮正文生成的定稿指令。',
+      '职责：作者已用本地工具把一整轮讨论提炼成一份「要点」，你的任务是复核并收敛这份要点，产出一份可直接驱动「深度续写」生成正文的成品指令。',
       '铁律：',
       '① 只输出下面规定格式的条列，不要寒暄、不要开场白、不要任何解释性文字；',
       '② 不要输出 Markdown 标题符号（#）与加粗星号（**），作者在手机上看；',
-      '③ 每一条必须是一句话，行首「· 」，行尾带且只带一个状态标记：【已定】/【待定】/【未定】/【排除】；',
-      '④ 状态判定标准：已被作者明确采纳、或已经写进正文的=【已定】；方向定了但具体做法还没定=【待定】；讨论过但没有结论的=【未定】；已被作者否决、或明确不采用的=【排除】；',
+      '③ 每一条必须是一句话，行首「· 」，行尾带且只带一个状态标记：【已定】/【排除】；',
+      '④ 这份指令是给「深度续写 AI」直接消费的成品指令，不是给人看的过程存档。状态判定只有两档：确定要写的=【已定】；已被作者否决、或明确不采用、不列入正文的=【排除】。严禁出现【待定】【未定】两档；',
       '⑤ 第五段的每一条固定标【排除】，它记录的是「已经砍掉、不列入正文」的东西，只备查不执行；',
       '⑥ 绝不写正文、绝不代写段落；',
       '⑦ 要点里「状态归并」区的状态是本地工具的初步判定，可能因同一句并列多个主题而误判——请你结合要点上下文重新裁定，不要照抄；',
       '⑧ 要点里「矛盾提示」区的每一项都必须给出明确裁定，不得含糊、不得并列两个互相冲突的结论；',
-      '⑨ 情感落点与细节设定以要点里【情感】【细节】【走向·已确定】分区为准，找不到就标【未定】，不要编造。',
-      '⑩ 确实未定、或档案里没有依据的事项，必须标【未定】，不得强行收敛成【已定】——宁可标未定，也不要过度拍板；示例：档案里查无此人、查无此设定时只能标【未定】，不得臆造；',
-      '⑪ 第四段「必须保留的细节与设定」不得为空：要点【细节】区里每一条保留项（伏笔呼应、时间线、人物设定、具体动作）都要落进第四段，不要把它们混进第二段「结论」；',
-      '⑫ 第五段「已排除」必须完整列出要点【排除】区与「这章不碰」清单里的每一项，不得遗漏、不得合并、不得省略。',
-      '⑬ 第三段「关键情感落点」只写「情感怎么呈现」，不写「角色如何想」——禁用「他觉得 / 她心想 / 感到」这类判断句，改用动作、表情、比喻来落点；',
-      '⑭ 第六段「待补给缺口」专门汇总标【未定】的软性点（尚未拍板、或档案缺失），供作者现场定夺，不执行、不编造。',
+      '⑨ 【锁死铁律·最重要】这份指令严禁出现【未定】/【待定】。深度续写读到「没定」就会留白，然后编造「剥栗子、查图书、聊门锁质量」这类毫无张力的注水日常。对要点里【待决】【状态归并→待决】【矛盾提示】区里所有「还没拍板」的事项，你必须基于人物卡、前文上下文与已给定的事实，替作者做出最合理的具体决定（锁死成【已定】），并在该条里写明你锁死的依据；',
+      '⑩ 情感落点与细节设定以要点里【情感】【细节】【走向·已确定】分区为准；找不到依据的，基于人物卡和前文上下文做出最合理的具体决定（锁死），不得留白、不得编造与档案冲突的内容；',
+      '⑪ 必须给出本章的「核心物理锚点」：至少一个关键道具/动作/伤疤/体征，写明它的外观、气味、温度，以及至少一处与之相关的具体细节（如「带血的安神剂」「烧伤的疤痕」「手腕发烫的手链」）。物理锚点是情感的物理支撑——没有它，悬疑感会垮成「小情侣日常猜心思」；',
+      '⑫ 必须给出「人设红线」：每个关键反派/角色绝不可做的事（如「克劳奇绝不主动提供情报、绝不发善心」「詹姆斯绝不竹筒倒豆子全说」）。人设红线是防止 OOC 的硬约束，宁可明确锁死，也不可让 AI 自由发挥导致人设崩塌；',
+      '⑬ 第四段「必须保留的细节与设定」不得为空：要点【细节】区里每一条保留项（伏笔呼应、时间线、人物设定、具体动作、物理锚点）都要落进第四段，不要把它们混进第二段「结论」；',
+      '⑭ 第五段「已排除」必须完整列出要点【排除】区与「这章不碰」清单里的每一项，不得遗漏、不得合并、不得省略。',
+      '⑮ 第三段「关键情感落点」只写「情感怎么呈现」，不写「角色如何想」——禁用「他觉得 / 她心想 / 感到」这类判断句，改用动作、表情、比喻、以及与之绑定的物理锚点来落点；',
+      '⑯ 第六段「锁死的补充决定」：把要点里所有原本「待决/未定」的软性点，逐条替作者锁死成【已定】的具体决定（写明依据），不留任何留白给深度续写。',
       '输出格式（六段的段名逐字照抄，每段下面若干条）：',
       '一、整体故事与剧情走向',
       '二、讨论达成的最终结论',
       '三、关键情感落点',
       '四、必须保留的细节与设定',
       '五、已排除（不列入正文，仅备查）',
-      '六、待补给缺口（尚未拍板或档案缺失的软性点，标【未定】）'
+      '六、锁死的补充决定（原本待决的软性点，已替作者锁死）'
     ].join('\n');
   }
 
@@ -1490,7 +1531,7 @@
     s += '注意：\n'
       + '· 「状态归并」区的状态是本地工具的初步判定，可能误判（例如同一句并列多个主题时），请结合要点上下文重新裁定；\n'
       + '· 「矛盾提示」区的每一项都必须裁定出唯一结论，不得并列冲突结论。\n\n';
-    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（六段，每条带状态标记；第六段汇总标【未定】的软性点）。';
+    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（六段，每条带状态标记【已定】或【排除】；这是给深度续写 AI 的成品指令，所有待决项都必须替作者锁死成【已定】，严禁出现【未定】【待定】，并务必给出核心物理锚点与人设红线）。';
     return s;
   }
 
@@ -1528,19 +1569,16 @@
         return;
       }
 
-      /* ② 判断是否需要 DeepSeek 收敛 */
-      var needAI = (d.conflicts > 0) || (d.merged > 0) || (Number(window.CP_HYBRID_FORCE) === 1);
-      if (!needAI) {
-        /* 闸2：无需收敛 → 零 token 落要点块，不调 AI */
-        if (cpWriteBrief(d.text)) toast('已本地提炼 ' + d.kept + ' 条要点（0 token，未调用 AI）');
-        return;
-      }
+      /* ② v164：原「闸2」（无矛盾无归并就跳过收敛、直接落本地要点块）已废除。
+         原因：本地要点块含【待决】，深度续写读到「没定」就留白、然后编造
+         「剥栗子、查图书、聊门锁质量」一类注水日常——这与有没有矛盾无关，
+         只要落的是本地点块就会中招。所以只要配置了 AI，一律走收敛产出锁死版。 */
 
-      /* 未配置 AI → 落本地产物（不调 AI） */
+      /* 未配置 AI → 降级落本地要点块（清掉旧定稿块，防两套指令并存） */
       var ai = {};
       try { ai = load('ai', {}) || {}; } catch (e3) {}
       if (!ai.base || !String(ai.base).trim()) {
-        if (cpWriteBrief(d.text)) toast('检测到 ' + d.conflicts + ' 项矛盾 / ' + d.merged + ' 项决策需收敛，但未配置 AI——已按本地要点写入（未收敛，0 token）');
+        if (cpWriteBriefDegraded(d.text)) toast('未配置 AI——已按本地要点写入（未收敛，含待决项，深度续写可能留白；建议配置 AI 后收敛成锁死版）');
         return;
       }
 
@@ -1554,22 +1592,24 @@
       try {
         out = await callAI({ sys: cpHybridSys(), user: cpHybridUser(d), temperature: _t, max_tokens: _mt, modelOverride: _m });
       } catch (e5) {
-        /* 闸3：AI 异常 → 落本地产物，不重试 */
-        if (cpWriteBrief(d.text)) toast('DeepSeek 收敛失败（' + ((e5 && e5.message) || e5 || '未知错误') + '），已按本地要点写入（未重试）');
+        /* 闸3：AI 异常 → 降级落本地要点块（清旧定稿），不重试 */
+        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 收敛失败（' + ((e5 && e5.message) || e5 || '未知错误') + '），已按本地要点写入（未重试；含待决项，深度续写可能留白）');
         return;
       }
       out = String(out || '').trim();
       if (!out) {
-        if (cpWriteBrief(d.text)) toast('DeepSeek 返回空内容，已按本地要点写入（未重试）');
+        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 返回空内容，已按本地要点写入（未重试；含待决项，深度续写可能留白）');
         return;
       }
-      if (!/【(已定|待定|未定|排除)】/.test(out)) {
-        if (cpWriteBrief(d.text)) toast('DeepSeek 未按定稿格式返回（缺状态标记），已按本地要点写入（未重试）');
+      /* v164：锁死版只允许【已定】/【排除】——若模型仍输出【待定】【未定】，
+         说明没有锁死，判为格式不符走降级（宁可降级也不让「未定」进深度续写指令） */
+      if (!/【(已定|排除)】/.test(out) || /【(待定|未定)】/.test(out)) {
+        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 未按锁死格式返回（缺状态标记或仍含【待定】【未定】），已按本地要点写入（未重试；含待决项，深度续写可能留白）');
         return;
       }
       var lines = cpFinalLines(out);
       if (!lines.length) {
-        if (cpWriteBrief(d.text)) toast('定稿内容为空，已按本地要点写入');
+        if (cpWriteBriefDegraded(d.text)) toast('定稿内容为空，已按本地要点写入（含待决项，深度续写可能留白）');
         return;
       }
 
@@ -1600,12 +1640,31 @@
       try { chTitle2 = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e7) {}
       var chLabel2 = '第' + (chNum2 || '?') + '章' + (chTitle2 ? ('《' + chTitle2 + '》') : '');
 
-      /* ⑤ 落两块：本地产物（要点块）+ DeepSeek 产物（定稿块），并存 */
-      cpWriteBrief(d.text);
-      var block = CP_FINAL_BEGIN + ' · ' + chLabel2 + '】\n' + body + '\n' + CP_FINAL_END;
-      if (cpWriteFinal(block)) {
-        toast('混合提炼完成：本地要点 ' + d.kept + ' 条（0 token）+ DeepSeek 收敛定稿 ' + items + ' 条（输入 ' + d.chars + ' 字，未喂原文）；可点「撤销」撤回');
+      /* ⑤ v164：本地点块（过程存档，含待决/矛盾）不再写进 #chBrief——它会被深度续写当成指令，
+         读到【待决】【未定】就留白、然后编造「剥栗子、查图书、聊门锁质量」这类毫无张力的注水日常。
+         本地点块改存备查（curBook.counselDigest，供参谋面板/导出查看）；#chBrief 只保留
+         「锁死版定稿块」（深度续写成品指令），并先移除旧要点块避免干扰。撤销恢复含旧要点块的状态。 */
+      try { save('counselDigest', { text: d.text, kept: d.kept, chars: d.chars, at: Date.now() }); } catch (eSave) {}
+      _cpBriefBak = String(ta.value || '');   /* 备份（含旧要点块+旧定稿块），供撤销恢复 */
+      var v0 = String(ta.value || '');
+      var b0 = v0.indexOf(CP_BEGIN);
+      if (b0 >= 0) {
+        var e0 = v0.indexOf(CP_END, b0);
+        var stop0 = (e0 >= 0) ? (e0 + CP_END.length) : v0.length;
+        v0 = (v0.slice(0, b0) + v0.slice(stop0)).replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
       }
+      var block = CP_FINAL_BEGIN + ' · ' + chLabel2 + '】\n' + body + '\n' + CP_FINAL_END;
+      var bf = v0.indexOf(CP_FINAL_BEGIN);
+      if (bf >= 0) {
+        var ef = v0.indexOf(CP_FINAL_END, bf);
+        var stopf = (ef >= 0) ? (ef + CP_FINAL_END.length) : v0.length;
+        v0 = v0.slice(0, bf) + block + v0.slice(stopf);
+      } else {
+        v0 = (v0 ? v0 + '\n' : '') + block;
+      }
+      ta.value = v0.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
+      cpPersistBrief();
+      toast('混合提炼完成：锁死版定稿 ' + items + ' 条已写入「生成指令」供深度续写（含物理锚点与人设红线）；本地要点 ' + d.kept + ' 条已存入备查（不进指令，避免干扰）；可点「撤销」撤回');
     } catch (e) {
       try { toast('混合提炼出错：' + ((e && e.message) || e) + '；已按普通要点写入'); } catch (e8) {}
       try { counselToBrief(); } catch (e9) {}
