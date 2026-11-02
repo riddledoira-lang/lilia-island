@@ -576,13 +576,41 @@
       } catch (e2) {}
       var ctx = { body: body, question: q, recent: recent, vol: vol };
 
-      s += buildFactBlock();
+      /* v166：块序重排——人物卡/分卷/已定状态等高优先级材料前置，章节清单后置。
+         原序把全量章节清单（90 章规模约 2.5k 字）排在第一位，收敛输入按
+         CTXCHARS 头部截断时，排在中后段的人物卡整段被切掉。 */
       s += '【本分卷】' + volName(vol) + '\n';
       try { var pov = getVolPov(vol); if (pov) s += '【本卷人称铁律】' + pov + '\n'; } catch (e3) {}
       try { var vs = getVolSetting(vol); if (vs) s += '【本卷设定】' + String(vs).slice(0, 900) + '\n'; } catch (e4) {}
 
       s += buildStructBlock();
       s += buildCharBlock(ctx);
+
+      /* v166：定稿回流——#chBrief 里已锁定的定稿块注入参谋上下文。
+         此前定稿内容对参谋完全不可见（counselCtx 不含 chBrief），已定死的
+         开头/中间/结尾结构滑出聊天窗口后就被当待议项重开讨论。 */
+      try {
+        var _taB = document.getElementById('chBrief');
+        var _bv = String((_taB && _taB.value) || '');
+        var _fb = _bv.indexOf(CP_FINAL_BEGIN);
+        if (_fb >= 0) {
+          var _fe = _bv.indexOf(CP_FINAL_END, _fb);
+          var _fblk = (_fe >= 0) ? _bv.slice(_fb, _fe + CP_FINAL_END.length) : _bv.slice(_fb, _fb + 3000);
+          if (_fblk.length > 3000) _fblk = _fblk.slice(0, 3000) + '\n…（定稿块过长已截断，完整内容在「生成指令」框）';
+          s += '【本章已锁定的定稿指令（作者已拍板。以下内容一律视为既定事实：不得重开讨论、不得当作待议项再次提问、不得建议改动，除非作者主动提出要改）】\n' + _fblk + '\n';
+        }
+      } catch (eB) {}
+
+      /* 修复 3：先给「已经定了什么」，再给「不能提什么」。
+         两块的相对顺序固定为 adopt → veto，与各自的开关状态无关。 */
+      var ab = adoptBlock();
+      if (ab) s += ab;
+      var vb = vetoBlock();
+      if (vb) s += vb;
+
+      if (body.trim()) s += '【当前编辑器正文尾部】\n' + body.slice(-1200) + '\n';
+
+      s += buildFactBlock();
 
       try {
         var d = getDigest(); var v = (d.volumes || {})[vol] || {};
@@ -603,14 +631,6 @@
         }
       } catch (e6) {}
 
-      if (body.trim()) s += '【当前编辑器正文尾部】\n' + body.slice(-1200) + '\n';
-
-      /* 修复 3：先给「已经定了什么」，再给「不能提什么」。
-         两块的相对顺序固定为 adopt → veto，与各自的开关状态无关。 */
-      var ab = adoptBlock();
-      if (ab) s += ab;
-      var vb = vetoBlock();
-      if (vb) s += vb;
       if (s.length < CFG.ragStop) s += buildRecallBlock(ctx);
     } catch (err) {
       /* 任何异常都退回主程序原实现，绝不让增强版本把参谋搞挂 */
@@ -663,12 +683,17 @@
   window.CP_LIST_NUM = 1;
   /* 缺陷 3：走向候选抽不出来时是否在参谋回复下方给出说明。
      1=给（只对「有走向段头却没抽出候选」这两种成因给）；0=逐字回退（完全静默）。 */
+  /* v166：场景完整性体检默认关闭（CP_GAP_CHECK=1 才启用）。
+     原实现的场景清单是第77章讨论的产物，被当成了普适检查表：对其它章节，
+     「待补缺口」会把羽毛感应/手链/请柬一类与本章无关的场景列成「未覆盖」，
+     收敛 AI 按锁死铁律把它们当待锁死项处理——等于诱导编造。 */
+  window.CP_GAP_CHECK = 0;
   window.CP_ROUTE_HINT = 1;
 
   var DL = {
     minLine: 6,     /* 已移交给 window.CP_DIGEST_MINLINE，此字段保留兼容，函数内不再读取 */
     minRate: 0.06,  /* 已不再作为成功判据；rate 现仅用于向作者展示压缩比例 */
-    keep: { 走向: 6, 结论: 6, 情感: 5, 细节: 6, 待决: 3, 方向: 12, 排除: 8 },
+    keep: { 走向: 6, 结论: 10, 情感: 5, 细节: 6, 待决: 3, 方向: 12, 排除: 8 },
     /* 判定顺序（供 dlClassify 用）：越具体的类越先判，避免「必须 / 之后」这类泛词把句子抢走。
        走向放最后判词典，但列表项（①②③）直接判为走向，见 dlClassify。
        这个顺序是对的，不能动。 */
@@ -691,7 +716,7 @@
       /* 细节不收「必须」：那是结论语气，收到结论区更准 */
       细节: /(伏笔|细节|呼应|回扣|道具|时间线|年表|顺序|先后|设定|规则|限制|保留|不要忘|不能忘|记得|埋|铺垫|flag|FLAG|手势|口头禅|习惯|伤疤|信物|铁律|禁区)/,
       待决: /(要不要|需不需要|你觉得呢|还是说|待定|还没想好|你自己定|二选一|取决于你)/,
-      方向: /(节奏|主线|脉络|结构|主题|立意|动机|世界观|叙事|视角|基调|张力|冲突|开场|结尾|回来|离开|送薇拉|隔开|退场|三件套|决心|合伙人|五分钟|凑回来|推开|请柬|场景|时间)/
+      方向: /(节奏|主线|脉络|结构|主题|立意|动机|世界观|叙事|视角|人称|基调|张力|冲突|开场|开头|结尾|收尾|场景|时间线|顺序)/
     },
     /* 列表项：①②③ / 1. / - 。参谋列举「可选走向」时用的就是这些，
        它们本身即候选走向，不能再被词典判到别处去 */
@@ -705,7 +730,9 @@
       ? /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\d{1,2}[.、)]|\*\*|##+)\s*/
       : /^([①②③④⑤⑥⑦⑧⑨⑩]|[-•·*>]|\*\*\d{1,2}\.\*\*|\d{1,2}(?:\.(?!\d)|[、)])|\*\*|##+)\s*/,
     md: /[*_`#>{}\[\]]/g,
-    decision: /(决心内容|三件套|隔开沙菲克|回休息室|合伙人|凑回来|自我牺牲|足秒足刻|这五分钟|被推开|推开)/,
+    /* v166：去第77章硬编码。决策加分只认通用拍板语——原词典全是第77章特定剧情词，
+       对其它章节的讨论一句都命不中，+25 加分形同虚设。 */
+    decision: /(就按|定死|定下来|就这么定|拍板|锁死|不再问|已确定|定稿指令)/,
     exclude: /(排除|砍掉|砍了|砍[。！？；，,、]|整段砍|整节砍|一律不能用|不能这么用|这章不碰|这章不出现|本章不出现|这章不出场|本章不出场|不当(已知)?(事实)?写|否掉|已否决|否决|废掉|作废|降级|仅备查|备查|不列(入|为)(正文|选项))/,
     pending: /(待定|未定|未确认|还没定|没定|二选一|保留还是砍|保留还是|要不要保留|要不要|是否保留|是否|取决于你|你自己定|还没想好|留个口子|具体.{0,4}(待定|未定))/,
     outline: /^([一二三四五六七八九十]{1,2}[、.．]|[A-Ga-g][.、)．]|第\d{1,2}[条章节])/,
@@ -726,19 +753,12 @@
                   一条「最终状态」（时间序覆盖，后写覆盖前写）。
        conflict → 矛盾信号词：讨论里明说「矛盾/冲突/二选一/vs/互相抢」的地方，
                   即真正的未收敛冲突点，标记为「需裁定」。 */
-    subjects: [
-      { n: '回休息室', re: /回休息室|送薇拉回休息室/ },
-      { n: '三件套', re: /三件套/ },
-      { n: '五分钟', re: /五分钟|足秒足刻/ },
-      { n: '合伙人称呼', re: /合伙人/ },
-      { n: '菲比信息来源', re: /菲比主动|薇拉先问|菲比先/ },
-      { n: '沙菲克出场', re: /沙菲克.{0,8}(出不出现|出场|退场|不出现)/ },
-      { n: '阿杰特出场', re: /阿杰特.{0,6}(出|碰|不出现)/ },
-      { n: '手链笔', re: /手链.{0,10}(哪一笔|转|雾|烫|发烫|手腕)/ },
-      { n: '雾碎片', re: /雾碎片|两层叠加/ },
-      { n: '开场接口', re: /开场接口|被推开又凑回来|第〇节/ },
-      { n: '说漏', re: /说漏|差点说漏/ }
-    ],
+    /* v159：跨句状态归并 + 矛盾消解
+       v166：subjects 原是第77章讨论的 11 个决策点主题锚（全部为该章特定决策点），
+       对其它章节全部失配。收敛输入已改喂讨论原文（见 cpHybridUser），
+       状态归并与矛盾消解交由收敛 AI 在原文上自行完成，本地锚清空。
+       conflict 保留：无锚冲突句（orphanConflicts）的收集逻辑不变。 */
+    subjects: [],
     conflict: /(两条是矛盾的|是矛盾的|存在.{0,4}冲突|位置冲突|隐性冲突|互相抢功|抢功|vs\s*)/
   };
 
@@ -785,7 +805,7 @@
       String(ln).split(/(?<=[。！？；])/).forEach(function (seg) {
         var s = String(seg || "").trim();
         if (s.length >= 6) {
-          /* v158：提纲标题残留（「九、送薇拉回休息室那段」「B. 他带回来的东西」）
+          /* v158：提纲标题残留（「九、某某场景那段」「B. 他带回来的东西」）
              是讨论的问题列表，不是指令，短句即丢 */
           if (DL.outline.test(s) && s.length < 22) return;
           out.push(s);
@@ -812,9 +832,10 @@
     return null;
   }
 
-  /* 打分：AI 回复优先 > 用户发言；越新越高；点到人物名字加分；长度适中加分 */
+  /* 打分：v166 反转为用户 > AI——作者的判断优先于参谋的复述（原实现 AI+10 > 用户+6，
+     是「作者原话被丢、AI 复述存活」的权威倒置的一半成因） */
   function dlScore(s, meta, names) {
-    var sc = meta.role === "ai" ? 10 : 6;
+    var sc = meta.role === "ai" ? 5 : 12;
     sc += Math.min(meta.rec, 6);                              /* 最近程度 0..6 */
     for (var i = 0; i < names.length; i++) { if (s.indexOf(names[i]) >= 0) { sc += 4; break; } }
     var L = s.length;
@@ -873,7 +894,8 @@
         var meta = { role: it.role || 'ai', rec: Math.min(6, Math.round((i + 1) / src.length * 6)) };
         dlSplit(txt).forEach(function (seg) {
           if (DL.noise.test(seg)) return;
-          var clean = dlClean(seg);
+          /* v166：用户发言不做 120 字截断——作者的要求原样保留（AI 回复仍截） */
+          var clean = (it.role === 'me') ? dlFull(seg) : dlClean(seg);
           if (clean.length < 6) return;
           var k = dlKey(clean);
           if (seen[k]) return;
@@ -897,6 +919,10 @@
           if (DL.pending.test(clean)) kind = '待决';
           else if (DL.exclude.test(clean)) kind = '排除';
           else kind = isList ? '走向' : ((it.role === 'me' && /[？?]/.test(clean)) ? '待决' : dlClassify(clean));
+          /* v166：用户陈述句免词典过滤——不命中任何词典也按作者指令收进结论区。
+             原实现直接 return，实测把「惊喜互动/冲淡恐怖压抑/暗藏付出/暗中观察」
+             这类无关键词的作者核心要求整句丢弃，只留下命中「建议」等词的参谋复述。 */
+          if (!kind && it.role === 'me') kind = '结论';
           if (!kind) return;
           seen[k] = 1;
           /* 「建议走②」这类拍板句置顶，避免三个互斥候选并列时模型拿不准 */
@@ -990,7 +1016,7 @@
       /* v158：场景完整性体检 + 缺口清单，对齐 DeepSeek 的「待补给缺口汇总」。
          缺覆盖的场景在输出末尾提示，纯增量、不改变现有提炼与 minLen 判据 */
       var missing = [];
-      DL.scenes.forEach(function (sc) { if (!sc.re.test(body)) missing.push(sc.n); });
+      if (window.CP_GAP_CHECK) DL.scenes.forEach(function (sc) { if (!sc.re.test(body)) missing.push(sc.n); });
       var gapBlock = missing.length
         ? '\n【待补缺口 · 本轮讨论未覆盖】\n' + missing.map(function (n) { return '· ' + n; }).join('\n')
         : '';
@@ -1182,7 +1208,10 @@
   window.CP_FINAL_TURNS = 40;      /* 参与定稿的最近条数（尽量覆盖全轮） */
   /* 以下为调用参数与输入预算，同样挂 window，使用处现读 */
   window.CP_FINAL_INCHARS = 24000;  /* 喂给模型的讨论原文预算 */
-  window.CP_FINAL_CTXCHARS = 4000;  /* 喂给模型的上下文预算 */
+  window.CP_FINAL_CTXCHARS = 8000;  /* 喂给模型的上下文预算（v166：4000→8000。
+     原值配合头部截断会把排在中后段的人物卡整段切掉——90 章规模实测人物卡
+     从第 3772 字才开始，4000 字线只放进来 228 字，收敛 AI 写人设红线时手里
+     根本没有人物卡。块序重排（见 counselCtx）+ 预算翻倍双保险。 */
   window.CP_FINAL_TEMP = 0.55;      /* 定稿要稳，明显低于参谋讨论的 0.85 */
   window.CP_FINAL_MAXTOK = 3000;
   window.CP_FINAL_MODEL = '';       /* 空 = 用参谋同款模型（ai.counselModel || deepseek-flash） */
@@ -1490,11 +1519,15 @@
      用于容纳完整不截断的「细节与设定」段 + 「已排除」段（这两段是备查性质，不抢决策配额）。 */
   window.CP_HYBRID_MAXCHARS = 4000;
 
-  /* 收敛 sys：与定稿同源，但定位为「对本地要点做收敛」，输入是 d 而非原文 */
+  /* 收敛 sys：v166 改造——输入从「本地要点」换成「讨论原文」，规则随之重写：
+     ① 新增作者优先铁律（⑦），作者亲口说定的要求一条不许丢；
+     ② 去第77章硬编码示例（注水日常举例/物理锚点举例/人设红线举例全部移除），
+        人设红线改为从人物卡「行为禁区」推导；
+     ③ 原⑦⑧⑬⑭对「要点分区」的引用改为对讨论原文的引用。 */
   function cpHybridSys() {
     return [
       '你是一位长篇小说的「剧情定稿编辑」，不是写手，也不是聊天对象。',
-      '职责：作者已用本地工具把一整轮讨论提炼成一份「要点」，你的任务是复核并收敛这份要点，产出一份可直接驱动「深度续写」生成正文的成品指令。',
+      '职责：把作者与「剧情参谋」一整轮讨论的原文，收敛成一份可直接驱动「深度续写」生成正文的成品指令。',
       '铁律：',
       '① 只输出下面规定格式的条列，不要寒暄、不要开场白、不要任何解释性文字；',
       '② 不要输出 Markdown 标题符号（#）与加粗星号（**），作者在手机上看；',
@@ -1502,17 +1535,17 @@
       '④ 这份指令是给「深度续写 AI」直接消费的成品指令，不是给人看的过程存档。状态判定只有两档：确定要写的=【已定】；已被作者否决、或明确不采用、不列入正文的=【排除】。严禁出现【待定】【未定】两档；',
       '⑤ 第五段的每一条固定标【排除】，它记录的是「已经砍掉、不列入正文」的东西，只备查不执行；',
       '⑥ 绝不写正文、绝不代写段落；',
-      '⑦ 要点里「状态归并」区的状态是本地工具的初步判定，可能因同一句并列多个主题而误判——请你结合要点上下文重新裁定，不要照抄；',
-      '⑧ 要点里「矛盾提示」区的每一项都必须给出明确裁定，不得含糊、不得并列两个互相冲突的结论；',
-      '⑨ 【锁死铁律·最重要】这份指令严禁出现【未定】/【待定】。深度续写读到「没定」就会留白，然后编造「剥栗子、查图书、聊门锁质量」这类毫无张力的注水日常。对要点里【待决】【状态归并→待决】【矛盾提示】区里所有「还没拍板」的事项，你必须基于人物卡、前文上下文与已给定的事实，替作者做出最合理的具体决定（锁死成【已定】），并在该条里写明你锁死的依据；',
-      '⑩ 情感落点与细节设定以要点里【情感】【细节】【走向·已确定】分区为准；找不到依据的，基于人物卡和前文上下文做出最合理的具体决定（锁死），不得留白、不得编造与档案冲突的内容；',
-      '⑪ 必须给出本章的「核心物理锚点」：至少一个关键道具/动作/伤疤/体征，写明它的外观、气味、温度，以及至少一处与之相关的具体细节（如「带血的安神剂」「烧伤的疤痕」「手腕发烫的手链」）。物理锚点是情感的物理支撑——没有它，悬疑感会垮成「小情侣日常猜心思」；',
-      '⑫ 必须给出「人设红线」：每个关键反派/角色绝不可做的事（如「克劳奇绝不主动提供情报、绝不发善心」「詹姆斯绝不竹筒倒豆子全说」）。人设红线是防止 OOC 的硬约束，宁可明确锁死，也不可让 AI 自由发挥导致人设崩塌；',
-      '⑬ 第四段「必须保留的细节与设定」不得为空：要点【细节】区里每一条保留项（伏笔呼应、时间线、人物设定、具体动作、物理锚点）都要落进第四段，不要把它们混进第二段「结论」；',
-      '⑭ 第五段「已排除」必须完整列出要点【排除】区与「这章不碰」清单里的每一项，不得遗漏、不得合并、不得省略。',
+      '⑦ 【作者优先·最重要】讨论记录里「我：」开头的是作者本人的话，优先级最高：作者亲口说定的开头/结构/细节/情感/人设要求，必须逐条进入对应段落并标【已定】，一个都不许丢、不得改写其含义；参谋的建议若与作者要求冲突，一律以作者为准；',
+      '⑧ 讨论中相互冲突的决定必须裁定出唯一结论，不得并列两个互相冲突的结论；',
+      '⑨ 【锁死铁律】对讨论中所有「还没拍板」的事项，你必须基于人物卡、前文上下文与已给定的事实，替作者做出最合理的具体决定（锁死成【已定】），并在该条里写明你锁死的依据；严禁输出【未定】【待定】——深度续写读到「没定」就会留白、编造与本章无关的注水日常；',
+      '⑩ 情感落点与细节设定以讨论原文中作者的明确要求为准；找不到依据的，基于人物卡和前文上下文做出最合理的具体决定（锁死），不得留白、不得编造与档案冲突的内容；',
+      '⑪ 必须给出本章的「核心物理锚点」：至少一个关键道具/动作/伤疤/体征，写明它的外观、气味、温度，以及至少一处与之相关的具体细节。物理锚点必须取自讨论原文、人物卡或前文已有物件，不得凭空新造。物理锚点是情感的物理支撑——没有它，悬疑感会垮成日常流水账；',
+      '⑫ 必须给出「人设红线」：从下方作品信息里各人物卡的「行为禁区（绝不可做）」与核心特质逐条推导，写明本章每个出场关键角色绝不可做的事；人物卡未覆盖的角色，基于讨论与上下文谨慎推导并写明依据，不得凭印象编造；',
+      '⑬ 第四段「必须保留的细节与设定」不得为空：讨论中约定的伏笔呼应、时间线、人物设定、具体动作、物理锚点都要落进第四段，不要把它们混进第二段「结论」；',
+      '⑭ 第五段「已排除」必须完整列出已否决清单与讨论中明确砍掉、不列入正文的每一项，不得遗漏、不得合并、不得省略；',
       '⑮ 第三段「关键情感落点」只写「情感怎么呈现」，不写「角色如何想」——禁用「他觉得 / 她心想 / 感到」这类判断句，改用动作、表情、比喻、以及与之绑定的物理锚点来落点；',
-      '⑯ 第六段「锁死的补充决定」：把要点里所有原本「待决/未定」的软性点，逐条替作者锁死成【已定】的具体决定（写明依据），不留任何留白给深度续写。',
-      '⑰ 输入若附「作者已拍板采纳的走向」，一律判【已定】，不得降级为待决、不得质疑；输入若附「作者已否决的走向」，一律进第五段并标【排除】，不得以任何形式复活进决策段；',
+      '⑯ 第六段「锁死的补充决定」：把讨论中所有原本「待决/未定」的软性点，逐条替作者锁死成【已定】的具体决定（写明依据），不留任何留白给深度续写；',
+      '⑰ 输入若附「作者已拍板采纳的走向」，一律判【已定】，不得降级为待决、不得质疑；输入若附「作者已否决的走向」，一律进第五段并标【排除】，不得以任何形式复活进决策段；输入若附「已锁定的定稿指令」，其中已定内容延续有效，除非本轮讨论明确推翻；',
       '输出格式（六段的段名逐字照抄，每段下面若干条）：',
       '一、整体故事与剧情走向',
       '二、讨论达成的最终结论',
@@ -1523,19 +1556,32 @@
     ].join('\n');
   }
 
-  /* 收敛 user：喂本地要点 d（非原文），显式标注归并区需复核、矛盾区需裁定 */
-  function cpHybridUser(d) {
+  /* 收敛 user：v166 改喂讨论原文（P0）。
+     原实现只喂本地词典要点（≤1800 字）——实测会把作者亲口强调的开头要求整句丢弃、
+     只留下参谋自己的复述与建议（如「松饼落到肩上」），深度续写拿到的指令
+     从一开始就丢了作者要求。现与 v153 定稿出口同口径：整轮讨论原文
+     （按预算从后往前尽量多带）+ 采纳/否决清单 + 作品上下文（含人物卡、已锁定定稿）。 */
+  window.CP_HYBRID_INCHARS = 24000;  /* 喂给模型的讨论原文字符预算 */
+  function cpHybridUser() {
     var chNum = '', chTitle = '';
     try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e) {}
     try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e) {}
     var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
-    var s = '下面是作者与剧情参谋一整轮讨论的本地提炼要点（已按 走向/结论/方向/待决/排除/细节/情感 分类，'
-      + '并附「状态归并」与「矛盾提示」两个区）：\n\n' + String(d.text || '') + '\n\n';
-    s += '注意：\n'
-      + '· 「状态归并」区的状态是本地工具的初步判定，可能误判（例如同一句并列多个主题时），请结合要点上下文重新裁定；\n'
-      + '· 「矛盾提示」区的每一项都必须裁定出唯一结论，不得并列冲突结论。\n\n';
-    /* v165：模块 H 输入嫁妆——采纳/否决清单显式喂入 + 作品上下文在场，
-       状态判定更准、锁死决定更贴档案 */
+    var log = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
+    var turnMax = Number(window.CP_FINAL_TURNS) || 40;
+    var inMax = Number(window.CP_HYBRID_INCHARS) || 24000;
+    var src = log.slice(-turnMax);
+    /* 从后往前取，尽量多带：先保证最新的完整留下，超预算再丢最旧的 */
+    var used = 0, picked = [];
+    for (var k = src.length - 1; k >= 0; k--) {
+      var t = String((src[k] && src[k].text) || '');
+      if (picked.length && used + t.length > inMax) break;
+      picked.unshift(src[k]); used += t.length;
+    }
+    var hist = picked.map(function (m) {
+      return (m.role === 'me' ? '我' : '参谋') + '：' + String(m.text || '');
+    }).join('\n');
+    var s = '下面是作者与剧情参谋这一轮讨论的完整记录（按时间顺序，原文未删节；「我：」开头的是作者本人的话，优先级最高）：\n\n' + (hist || '（无）') + '\n\n';
     var adopted = [], vetoed = [];
     try { adopted = adoptGet() || []; } catch (e1) {}
     try { vetoed = vetoGet() || []; } catch (e2) {}
@@ -1546,10 +1592,10 @@
     var ctxText = '';
     try {
       var c = counselCtx();
-      ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 4000);
+      ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 8000);
     } catch (e3) {}
-    if (ctxText) s += '下面是当前作品的相关信息（分卷设定 / 人物卡 / 已有剧情摘要，锁死决定以此为档案依据）：\n' + ctxText + '\n\n';
-    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（六段，每条带状态标记【已定】或【排除】；这是给深度续写 AI 的成品指令，所有待决项都必须替作者锁死成【已定】，严禁出现【未定】【待定】，并务必给出核心物理锚点与人设红线）。';
+    if (ctxText) s += '下面是当前作品的相关信息（分卷设定 / 人物卡 / 已锁定的定稿 / 已有剧情摘要，锁死决定与人设红线以此为档案依据）：\n' + ctxText + '\n\n';
+    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（六段，每条带状态标记【已定】或【排除】；这是给深度续写 AI 的成品指令，作者亲口说定的要求一条都不许丢，所有待决项都必须替作者锁死成【已定】，严禁出现【未定】【待定】，并务必给出核心物理锚点与人设红线）。';
     return s;
   }
 
@@ -1569,38 +1615,33 @@
       var ta = document.getElementById('chBrief');
       if (!ta) return;
 
-      /* 讨论过短 → 原样写入（零 token，与 counselToBrief 一致） */
-      var rawTotal = 0;
-      try {
-        _counselLog.slice(-(Number(window.CP_DIGEST_TURN) || 12)).forEach(function (x) { rawTotal += String((x && x.text) || '').length; });
-      } catch (e2) {}
-      if (rawTotal <= 700) {
-        if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('讨论较短（' + rawTotal + ' 字），已原样写进「生成指令」');
-        return;
-      }
-
-      /* ① 本地提炼（0 token） */
+      /* v166：本地提炼降级为「备查存档」——只存 counselDigest 供面板/导出查看，
+         不再进模型输入（原实现把它当收敛 AI 的唯一讨论来源，实测丢作者原话）。 */
       var d = buildCounselDigest();
-      if (!d) {
-        /* 闸1：技术性失败（内容<6条/<80字）→ 零 token 落原文，不调 AI */
-        if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('本轮讨论过短，已按原样写入（未调用 AI，0 token）');
-        return;
-      }
+      if (d) { try { save('counselDigest', { text: d.text, kept: d.kept, chars: d.chars, at: Date.now() }); } catch (eSave) {} }
+
+      /* v166：讨论过短不再跳过收敛——收敛输入已是原文，短讨论=小输入，
+         统一走锁死版出口，避免「短讨论落无状态原文」的质量分叉。 */
 
       /* ② v164：原「闸2」（无矛盾无归并就跳过收敛、直接落本地要点块）已废除。
          原因：本地要点块含【待决】，深度续写读到「没定」就留白、然后编造
-         「剥栗子、查图书、聊门锁质量」一类注水日常——这与有没有矛盾无关，
+         与本章无关的注水日常——这与有没有矛盾无关，
          只要落的是本地点块就会中招。所以只要配置了 AI，一律走收敛产出锁死版。 */
 
-      /* 未配置 AI → 降级落本地要点块（清掉旧定稿块，防两套指令并存） */
+      /* 未配置 AI → 降级：有要点落要点块（清掉旧定稿块，防两套指令并存），
+         没有要点退回讨论原文。两条路径都明确警告「未收敛」。 */
       var ai = {};
       try { ai = load('ai', {}) || {}; } catch (e3) {}
       if (!ai.base || !String(ai.base).trim()) {
-        if (cpWriteBriefDegraded(d.text)) toast('未配置 AI——已按本地要点写入（未收敛，含待决项，深度续写可能留白；建议配置 AI 后收敛成锁死版）');
+        if (d) {
+          if (cpWriteBriefDegraded(d.text)) toast('未配置 AI——已按本地要点写入（未收敛，含待决项，深度续写可能留白；建议配置 AI 后收敛成锁死版）');
+        } else {
+          if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('未配置 AI 且本轮没提炼出要点，已按原样写入讨论原文（未收敛）');
+        }
         return;
       }
 
-      /* ③ DeepSeek 收敛（单次，吃 d 非原文） */
+      /* ③ DeepSeek 收敛（单次，吃讨论原文 + 采纳/否决清单 + 作品上下文） */
       try { trajTag('混合定稿'); } catch (e4) {}
       var _m = String(window.CP_HYBRID_MODEL || '').trim() || String(window.CP_FINAL_MODEL || '').trim() || ai.counselModel || 'deepseek-flash';
       var _t = Number(window.CP_HYBRID_TEMP);
@@ -1608,26 +1649,30 @@
       var _mt = Number(window.CP_HYBRID_MAXTOK) || 3000;
       var out = '';
       try {
-        out = await callAI({ sys: cpHybridSys(), user: cpHybridUser(d), temperature: _t, max_tokens: _mt, modelOverride: _m });
+        out = await callAI({ sys: cpHybridSys(), user: cpHybridUser(), temperature: _t, max_tokens: _mt, modelOverride: _m });
       } catch (e5) {
         /* 闸3：AI 异常 → 降级落本地要点块（清旧定稿），不重试 */
-        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 收敛失败（' + ((e5 && e5.message) || e5 || '未知错误') + '），已按本地要点写入（未重试；含待决项，深度续写可能留白）');
+        if (d) { if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 收敛失败（' + ((e5 && e5.message) || e5 || '未知错误') + '），已按本地要点写入（未重试；含待决项，深度续写可能留白）'); }
+        else { if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('DeepSeek 收敛失败，已按原样写入讨论原文（未重试）'); }
         return;
       }
       out = String(out || '').trim();
       if (!out) {
-        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 返回空内容，已按本地要点写入（未重试；含待决项，深度续写可能留白）');
+        if (d) { if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 返回空内容，已按本地要点写入（未重试；含待决项，深度续写可能留白）'); }
+        else { if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('DeepSeek 返回空内容，已按原样写入讨论原文（未重试）'); }
         return;
       }
       /* v164：锁死版只允许【已定】/【排除】——若模型仍输出【待定】【未定】，
          说明没有锁死，判为格式不符走降级（宁可降级也不让「未定」进深度续写指令） */
       if (!/【(已定|排除)】/.test(out) || /【(待定|未定)】/.test(out)) {
-        if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 未按锁死格式返回（缺状态标记或仍含【待定】【未定】），已按本地要点写入（未重试；含待决项，深度续写可能留白）');
+        if (d) { if (cpWriteBriefDegraded(d.text)) toast('DeepSeek 未按锁死格式返回（缺状态标记或仍含【待定】【未定】），已按本地要点写入（未重试；含待决项，深度续写可能留白）'); }
+        else { if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('DeepSeek 未按锁死格式返回，已按原样写入讨论原文（未重试）'); }
         return;
       }
       var lines = cpFinalLines(out);
       if (!lines.length) {
-        if (cpWriteBriefDegraded(d.text)) toast('定稿内容为空，已按本地要点写入（含待决项，深度续写可能留白）');
+        if (d) { if (cpWriteBriefDegraded(d.text)) toast('定稿内容为空，已按本地要点写入（含待决项，深度续写可能留白）'); }
+        else { if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('定稿内容为空，已按原样写入讨论原文'); }
         return;
       }
 
@@ -1659,10 +1704,10 @@
       var chLabel2 = '第' + (chNum2 || '?') + '章' + (chTitle2 ? ('《' + chTitle2 + '》') : '');
 
       /* ⑤ v164：本地点块（过程存档，含待决/矛盾）不再写进 #chBrief——它会被深度续写当成指令，
-         读到【待决】【未定】就留白、然后编造「剥栗子、查图书、聊门锁质量」这类毫无张力的注水日常。
-         本地点块改存备查（curBook.counselDigest，供参谋面板/导出查看）；#chBrief 只保留
-         「锁死版定稿块」（深度续写成品指令），并先移除旧要点块避免干扰。撤销恢复含旧要点块的状态。 */
-      try { save('counselDigest', { text: d.text, kept: d.kept, chars: d.chars, at: Date.now() }); } catch (eSave) {}
+         读到【待决】【未定】就留白、然后编造注水日常。
+         v166：备查存储已提前到收敛调用前（见上），此处只负责写锁死版定稿块；
+         #chBrief 只保留「锁死版定稿块」（深度续写成品指令），并先移除旧要点块避免干扰。
+         撤销恢复含旧要点块的状态。 */
       _cpBriefBak = String(ta.value || '');   /* 备份（含旧要点块+旧定稿块），供撤销恢复 */
       var v0 = String(ta.value || '');
       var b0 = v0.indexOf(CP_BEGIN);
@@ -1682,7 +1727,7 @@
       }
       ta.value = v0.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
       cpPersistBrief();
-      toast('混合提炼完成：锁死版定稿 ' + items + ' 条已写入「生成指令」供深度续写（含物理锚点与人设红线）；本地要点 ' + d.kept + ' 条已存入备查（不进指令，避免干扰）；可点「撤销」撤回');
+      toast('定稿完成：锁死版定稿 ' + items + ' 条已写入「生成指令」供深度续写（含物理锚点与人设红线；基于整轮讨论原文收敛）' + (d ? ('；本地要点 ' + d.kept + ' 条已存入备查（不进指令）') : '') + '；可点「撤销」撤回');
     } catch (e) {
       try { toast('混合提炼出错：' + ((e && e.message) || e) + '；已按普通要点写入'); } catch (e8) {}
       try { counselToBrief(); } catch (e9) {}
@@ -1792,6 +1837,55 @@
       alert('已采纳的走向（已写进生成指令）：\n\n' + a.map(function (t, i) { return (i + 1) + '. ' + t; }).join('\n'));
     } catch (e) {}
   };
+
+  /* ============================================================
+   * 模块 G2（v166）：散文拍板自动入册
+   *
+   * 根因：作者在讨论里用散文拍板（「结构就定死：……」「就按①来」）时，
+   * 这些决定从未进入「已采纳清单」——清单此前只收 parseRoutes 从最后一条
+   * AI 回复里抽出的候选按钮（≤3 条/轮）。于是「已定」状态只存在于聊天
+   * 窗口内，窗口一滑过去，参谋就把定过的事当待议项重问。
+   *
+   * 做法：包一层 counselSend，作者发言里含拍板语、且不是疑问/二选一句的
+   * 句子，自动 adoptAdd 入册（去重、8-160 字、单条消息最多 6 条）。
+   * 入册后同时进入：①参谋上下文 adoptBlock（不再重问）②收敛输入（一律【已定】）。
+   * 回滚：window.CP_AUTO_ADOPT = 0。
+   * ============================================================ */
+  window.CP_AUTO_ADOPT = 1;
+  var CP_ADOPT_RE = /(就按|按这[个条方案]|定死|定下来|就这么定|就这样定|拍板|锁死|不再问|别再问|不要再问|不再改|不再动|就采用|就保留|定了[：，。!！])/;
+  var CP_ADOPT_NOT = /(要不要|需不需要|还是说|二选一|待定|未定|还没想好|你觉得呢|取决于你|是不是该|行不行|可不可以)/;
+  window.cpAutoAdopt = function (q) {
+    if (!window.CP_AUTO_ADOPT) return 0;
+    var n = 0;
+    try {
+      String(q || '').split(/(?<=[。！？；\n])/).forEach(function (seg) {
+        var s = String(seg || '').trim();
+        if (n >= 6) return;
+        if (s.length < 8 || s.length > 160) return;
+        if (!CP_ADOPT_RE.test(s)) return;
+        if (CP_ADOPT_NOT.test(s)) return;
+        if (/[？?]$/.test(s)) return;
+        var a = adoptGet();
+        for (var i = 0; i < a.length; i++) { if (a[i] === s) return; }
+        adoptAdd(s); n++;
+      });
+    } catch (e) {}
+    return n;
+  };
+  var _origCounselSend = (typeof counselSend === 'function') ? counselSend : null;
+  if (_origCounselSend) {
+    counselSend = async function () {
+      try {
+        var el = document.getElementById('counselInput');
+        var q = String((el && el.value) || '').trim();
+        if (q) {
+          var n = window.cpAutoAdopt(q);
+          if (n > 0) { try { toast('已把 ' + n + ' 条拍板要点记入「已确定」（参谋不会再重问）'); } catch (eT) {} }
+        }
+      } catch (e) {}
+      return _origCounselSend.apply(this, arguments);
+    };
+  }
 
   /* ============================================================
    * 模块 H：生成侧注入否决走向
