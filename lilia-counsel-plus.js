@@ -1593,21 +1593,28 @@
       '⑧ 讨论中相互冲突的决定必须裁定出唯一结论，不得并列两个互相冲突的结论；',
       '⑨ 【锁死铁律】对讨论中所有「还没拍板」的事项，你必须基于人物卡、前文上下文与已给定的事实，替作者做出最合理的具体决定（锁死成【已定】），并在该条里写明你锁死的依据；严禁输出【未定】【待定】——深度续写读到「没定」就会留白、编造与本章无关的注水日常；',
       '⑩ 情感落点与细节设定以讨论原文中作者的明确要求为准；找不到依据的，基于人物卡和前文上下文做出最合理的具体决定（锁死），不得留白、不得编造与档案冲突的内容；',
-      '⑪ 必须给出本章的「核心物理锚点」：至少一个关键道具/动作/伤疤/体征，写明它的外观、气味、温度，以及至少一处与之相关的具体细节。物理锚点必须取自讨论原文、人物卡或前文已有物件，不得凭空新造。物理锚点是情感的物理支撑——没有它，悬疑感会垮成日常流水账；',
+      /* v172 升级：从「至少一个锚点」升级为「必须给出画面」。
+         实测：只写「核心物理锚点：手链」这类名字，AI 不会补画面，只会把它当气氛道具用过即弃。 */
+      '⑪ 必须给出【核心物理道具】：至少一件贯穿全章的实物（不是食物、不是日常随手物），写明它的外观、气味、温度、触感，以及至少一处与之绑定的身体细节（疤/烫伤/发烫/发麻）。道具必须取自讨论原文、人物卡或前文已有物件，不得凭空新造，也不得取自已被排除的项。它是情感的物理支撑——没有它，悬疑感会垮成日常流水账（实测：药/瓶/血命中数 缝合版 30 对 V169 的 3）；',
       '⑫ 必须给出「人设红线」：从下方作品信息里各人物卡的「行为禁区（绝不可做）」与核心特质逐条推导，写明本章每个出场关键角色绝不可做的事；人物卡未覆盖的角色，基于讨论与上下文谨慎推导并写明依据，不得凭印象编造；',
       '⑬ 第四段「必须保留的细节与设定」不得为空：讨论中约定的伏笔呼应、时间线、人物设定、具体动作、物理锚点都要落进第四段，不要把它们混进第二段「结论」；',
       '⑭ 第五段「已排除」必须完整列出已否决清单与讨论中明确砍掉、不列入正文的每一项，不得遗漏、不得合并、不得省略；',
       '⑮ 第三段「关键情感落点」只写「情感怎么呈现」，不写「角色如何想」——禁用「他觉得 / 她心想 / 感到」这类判断句，改用动作、表情、比喻、以及与之绑定的物理锚点来落点；',
       '⑯ 第六段「锁死的补充决定」：把讨论中所有原本「待决/未定」的软性点，逐条替作者锁死成【已定】的具体决定（写明依据），不留任何留白给深度续写；',
       '⑰ 输入若附「作者已拍板采纳的走向」，一律判【已定】，不得降级为待决、不得质疑；输入若附「作者已否决的走向」，一律进第五段并标【排除】，不得以任何形式复活进决策段；输入若附「已锁定的定稿指令」，其中已定内容延续有效，除非本轮讨论明确推翻；',
-      '输出格式（六段的段名逐字照抄，每段下面若干条）：',
-      '一、整体故事与剧情走向',
-      '二、讨论达成的最终结论',
-      '三、关键情感落点',
-      '四、必须保留的细节与设定',
-      '五、已排除（不列入正文，仅备查）',
-      '六、锁死的补充决定（原本待决的软性点，已替作者锁死）'
-    ].join('\n');
+      '输出格式（段名逐字照抄，每段下面若干条；一到七段是【叙事主清单】，八到九段是【降级附录】）：',
+      '【叙事主清单】',
+      '一、本章主轴',
+      '二、核心物理道具',
+      '三、开场接口',
+      '四、推理三段论',
+      '五、决定性结尾动作',
+      '六、角色行动红线',
+      '七、节拍',
+      '【降级附录】',
+      '八、排除项（每条必须带否决理由）',
+      '九、开放区'
+    ].concat(cpNarrativeSpec().sys).join('\n');
   }
 
   /* 收敛 user：v166 改喂讨论原文（P0）。
@@ -1649,7 +1656,7 @@
       ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 8000);
     } catch (e3) {}
     if (ctxText) s += '下面是当前作品的相关信息（分卷设定 / 人物卡 / 已锁定的定稿 / 已有剧情摘要，锁死决定与人设红线以此为档案依据）：\n' + ctxText + '\n\n';
-    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（六段，每条带状态标记【已定】或【排除】；这是给深度续写 AI 的成品指令，作者亲口说定的要求一条都不许丢，所有待决项都必须替作者锁死成【已定】，严禁出现【未定】【待定】，并务必给出核心物理锚点与人设红线）。';
+    s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（按【叙事主清单】一到七段 +【降级附录】八到九段输出，段名逐字照抄，每条带状态标记【已定】或【排除】。这是给深度续写 AI 的成品指令，不是给人看的过程存档：核心物理道具必须给出外观气味温度、推理三段论必须给满三步、决定性结尾动作必须是不可逆动作加时间锚、角色行动红线必须正负双向、排除项必须带否决理由。主清单不超过 17 条、附录不超过 8 条，严禁出现【未定】【待定】——写不出具体值时整条留空并在末尾输出「【缺口：字段名】」）。';
     return s;
   }
 
@@ -1730,25 +1737,73 @@
         return;
       }
 
-      /* ④ 截断：决策段（一/二/三）受 CP_FINAL_MAXLINES 条目配额约束；
-         备查段（四、细节与设定 / 五、已排除 / 六、待补给缺口）豁免配额，完整保留（v162 #3 → v163 扩到第六段）。
-         字符上限用混合出口专属 CP_HYBRID_MAXCHARS（4000），不占用纯定稿的 2600。 */
-      var maxLines = Number(window.CP_FINAL_MAXLINES) || 40;
-      var keptLines = [], items = 0, cut = 0, inTail = false;
+      /* ④ v172：截断优先级重写。
+         旧逻辑是「从前往后数到 40 条就砍」，而八段里【决定性结尾动作】排在主清单靠后位置
+         ——于是它总是第一个被砍掉。这正是 V169 把两条已锁死关键项（第18条伊格诺图斯悖论、
+         第22条请柬）在正文里执行成 0 处的机制：不是模型不听话，是那条约束根本没进指令框。
+         新逻辑：先全量保主清单 N1-N7，超配额时按「先砍 X2 开放区 → 再砍 X1 尾部 →
+         最后才砍 N7 末尾节拍」的顺序削。字符上限改用 CP_NARR_MAXCHARS（5200）。 */
+      var maxLines = Number(window.CP_NARR_MAXLINES) || 25;
+      var _prio = [
+        ['一、本章主轴', 'N1'], ['二、核心物理道具', 'N2'], ['三、开场接口', 'N3'],
+        ['四、推理三段论', 'N4'], ['五、决定性结尾动作', 'N5'], ['六、角色行动红线', 'N6'],
+        ['七、节拍', 'N7'], ['八、排除项', 'X1'], ['九、开放区', 'X2']
+      ];
+      var _bk = {}, _cur = null, _hasNarr = false, _pre = [];
       for (var li = 0; li < lines.length; li++) {
         var line = lines[li];
-        if (line.indexOf('四、') === 0 || line.indexOf('五、') === 0 || line.indexOf('六、') === 0) { inTail = true; }
-        var isItem = line.indexOf('· ') === 0;
-        if (isItem && !inTail) {
-          if (items >= maxLines) { cut++; continue; }
-          items++;
+        var _f = null;
+        for (var pi = 0; pi < _prio.length; pi++) { if (line.indexOf(_prio[pi][0]) === 0) { _f = _prio[pi][1]; break; } }
+        if (_f) { _hasNarr = true; _cur = _f; if (!_bk[_f]) _bk[_f] = []; continue; }
+        if (_cur && line.indexOf('· ') === 0) { _bk[_cur].push(line); continue; }
+        if (!_cur && line.indexOf('· ') !== 0) _pre.push(line);
+      }
+      var keptLines, cut = 0;
+      if (!_hasNarr) {
+        /* 兜底：模型未按八段返回（旧五段格式）时，沿用原「从前往后」配额，不做任何新假设 */
+        keptLines = []; var _it = 0;
+        for (var lj = 0; lj < lines.length; lj++) {
+          var l2 = lines[lj];
+          if (l2.indexOf('· ') === 0) { if (_it >= maxLines) { cut++; continue; } _it++; }
+          keptLines.push(l2);
         }
-        keptLines.push(line);
+      } else {
+        /* _pre：八段之前残留的内容（模型偶尔在段名前写一句说明），原样保留但不占配额 */
+        keptLines = ['【叙事主清单】'].concat(_pre);
+        var _main = [], _appx = [];
+        ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7'].forEach(function (f) {
+          if (_bk[f] && _bk[f].length) { _main.push({ f: f, a: _bk[f] }); }
+        });
+        ['X1', 'X2'].forEach(function (f) {
+          if (_bk[f] && _bk[f].length) { _appx.push({ f: f, a: _bk[f] }); }
+        });
+        var _nameOf = { N1: '一、本章主轴', N2: '二、核心物理道具', N3: '三、开场接口', N4: '四、推理三段论', N5: '五、决定性结尾动作', N6: '六、角色行动红线', N7: '七、节拍', X1: '八、排除项（每条必须带否决理由）', X2: '九、开放区' };
+        var _total = 0;
+        _main.forEach(function (g) { _total += g.a.length; });
+        _appx.forEach(function (g) { _total += g.a.length; });
+        cut = _total > maxLines ? (_total - maxLines) : 0;
+        var _used = 0;
+        _main.forEach(function (g) {
+          var put = [];
+          for (var m = 0; m < g.a.length; m++) { if (_used >= maxLines) break; put.push(g.a[m]); _used++; }
+          if (put.length) keptLines.push(_nameOf[g.f]);
+          for (var q = 0; q < put.length; q++) keptLines.push(put[q]);
+        });
+        if (_appx.length) {
+          var _appxOut = [];
+          keptLines.push('【降级附录】');
+          _appx.forEach(function (g) {
+            var put = [];
+            for (var m = 0; m < g.a.length; m++) { if (_used >= maxLines) break; put.push(g.a[m]); _used++; }
+            if (put.length) { _appxOut.push(_nameOf[g.f]); put.forEach(function (x) { _appxOut.push(x); }); }
+          });
+          _appxOut.forEach(function (x) { keptLines.push(x); });
+        }
       }
       if (cut > 0) lines = keptLines;
       var body = lines.join('\n');
-      if (cut > 0) body += '\n…（已截断 ' + cut + ' 条）';
-      var maxChars = Number(window.CP_HYBRID_MAXCHARS) || 4000;
+      if (cut > 0) body += '\n…（已按优先级截断 ' + cut + ' 条：优先保留主清单，先砍开放区与排除项尾部）';
+      var maxChars = Number(window.CP_NARR_MAXCHARS) || Number(window.CP_HYBRID_MAXCHARS) || 4000;
       if (body.length > maxChars) body = body.slice(0, maxChars) + '…';
 
       var chNum2 = '';
@@ -1781,7 +1836,19 @@
       }
       ta.value = v0.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
       cpPersistBrief();
-      toast('定稿完成：锁死版定稿 ' + items + ' 条已写入「生成指令」供深度续写（含物理锚点与人设红线；基于整轮讨论原文收敛）' + (d ? ('；本地要点 ' + d.kept + ' 条已存入备查（不进指令）') : '') + '；可点「撤销」撤回');
+      /* v172：写盘后立刻过叙事清单闸门。此前闸门只挂在已退役的 counselFinalizeBrief 上，
+         真正在用的这条路径一次都没跑过——这是「指令写了 43 条却漏执行 2 条」长期没被发现的原因。 */
+      var _nchk = [];
+      try { _nchk = cpInstrAuditV172(ta.value, {}) || []; } catch (eN) { _nchk = []; }
+      var _nBlock = [], _nWarn = [];
+      for (var ni = 0; ni < _nchk.length; ni++) { (_nchk[ni].level === 'block' ? _nBlock : _nWarn).push(_nchk[ni]); }
+      var _nMsg = '定稿完成：叙事清单 ' + _used + ' 条已写入（主清单优先保留，先砍附录）' + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
+      if (_nBlock.length) {
+        _nMsg = '定稿已写入，但有 ' + _nBlock.length + ' 项必须补齐（' + _nBlock.map(function (x) { return x.code; }).join('/') + '）。生成正文前会强制要求填具体值——留【未定】的话 AI 不会等你，它会自己发明烤栗子式的填充。';
+      } else if (_nWarn.length) {
+        _nMsg += '；' + _nWarn.length + ' 项提示（' + _nWarn.map(function (x) { return x.code; }).join('/') + '）';
+      }
+      toast(_nMsg + '；可点「撤销」撤回');
     } catch (e) {
       try { toast('混合提炼出错：' + ((e && e.message) || e) + '；已按普通要点写入'); } catch (e8) {}
       try { counselToBrief(); } catch (e9) {}
@@ -2323,16 +2390,23 @@
     for (i = 0; i < r.issues.length; i++) texts.push((r.issues[i].level === 'block' ? '⛔ ' : '⚠️ ') + r.issues[i].text);
     if (g.missProp.length) texts.push('⚠️ 源材料里有、但指令里没写的物证：' + g.missProp.join('、') + '。若其中有本章的核爆物证（要被喝下/被毁/被交出去的那件），补回指令，否则结尾无从结算。');
     if (g.missChar.length) texts.push('⚠️ 源材料里出现、指令未提及的人物：' + g.missChar.join('、') + '。');
-    if (typeof window.cpInstrAuditV171 === 'function') {
+    /* v172：A6-A8 与 A9-A15 统一在这里跑一次，宿主侧（index.html）不要再单独跑——
+       此前两边各跑一次，体检报告里 A6/A7/A8 会重复出现两遍。
+       同时修掉一个隐性缺陷：v171 的 block 不会提升 rp.level，阻断级提示在报告里被降级显示。 */
+    var level = r.level;
+    var _audits = [window.cpInstrAuditV171, window.cpInstrAuditV172];
+    for (var ai = 0; ai < _audits.length; ai++) {
+      if (typeof _audits[ai] !== 'function') continue;
       try {
-        (window.cpInstrAuditV171(instr) || []).forEach(function (x) {
+        (_audits[ai](instr) || []).forEach(function (x) {
           texts.push((x.level === 'block' ? '\u26d4 ' : '\u26a0\ufe0f ') + x.text);
+          if (x.level === 'block') level = 'block';
         });
       } catch (e) {}
     }
-    var level = r.level;
-    if (level !== 'block' && g.missProp.length >= 3) level = 'warn';
-    return { level: level, texts: texts, audit: r, gap: g };
+    var level2 = level;
+    if (level2 !== 'block' && g.missProp.length >= 3) level2 = 'warn';
+    return { level: level2, texts: texts, audit: r, gap: g };
   };
 
   /* 供宿主「🔍 指令体检」读取本轮参谋讨论原文（差集的源材料） */
@@ -2395,7 +2469,12 @@
     for (var j = 0; j < body.length; j++) {
       var ln = body[j];
       if (!/结尾|收束|收尾|章末/.test(ln)) continue;
-      if (CP_END_IRREV.test(ln) || /["“][^"”]{4,}["”]/.test(ln) || /该磨牙|记着这笔账|像在绕/.test(ln)) { deadEnd = ln; break; }
+      /* v172 修正边界：新指令【决定性结尾动作】字段本身就含「结尾」+不可逆动词
+         （例：「拧开瓶盖一口喝干」），旧的三选一 OR 会把它误判成"写死结尾"，
+         导致新格式指令 100% 误报。改为：态度句命中即报；或「引号原话 + 不可逆动作」同时命中才报。 */
+      var _quoted = /["“][^"”]{4,}["”]/.test(ln);
+      var _attitude = /该磨牙|记着这笔账|我明白|我懂了|算了|没关系|像在绕|只是有点|有点发凉/.test(ln);
+      if (_attitude || (_quoted && CP_END_IRREV.test(ln))) { deadEnd = ln; break; }
     }
     if (deadEnd) {
       out.push({ code: 'A6', level: 'block',
@@ -2422,6 +2501,245 @@
     return out;
   }
   window.cpInstrAuditV171 = cpInstrAuditV171;
+
+  /* ===================== v172 · 叙事清单（Narrative Spec） =====================
+     为什么要有这一段：五版实测证明，App 的指令是「约束清单」——通篇「绝不可 / 排除 / 不碰 / 待定」，
+     不写「具体是什么道具、什么疤、什么动作」。AI 在留白处只能选最安全的填充：
+     烤栗子、苹果挞、查图书、削魔杖。基准样本（究极缝合版）的指令则是「叙事剧本」——
+     「一瓶暗红色的、带有烧焦味和血腥味的安神剂 + 右手袖口一道烧伤疤」。
+     本段把八段叙事字段做成纯函数，供三处共用：参谋对话 sys、cpHybridSys 收敛 sys、aiDeepGen 消费侧。
+     ★ 关键：v171 的 ⑮⑯⑰ 只挂在参谋对话 sys 上，与真正产出定稿指令的 cpHybridSys 零共享，
+       这是它们对定稿指令完全不生效的根因。v172 改为两处都引用 cpNarrativeSpec()。 */
+  var CP_NARR_SECTIONS = [
+    '【叙事主清单】',
+    '一、本章主轴',
+    '二、核心物理道具',
+    '三、开场接口',
+    '四、推理三段论',
+    '五、决定性结尾动作',
+    '六、角色行动红线',
+    '七、节拍',
+    '【降级附录】',
+    '八、排除项（每条必须带否决理由）',
+    '九、开放区'
+  ];
+  /* 段名 -> 字段码。解析时按「出现即切段」，兼容段名前带编号或不带编号两种写法。 */
+  var CP_NARR_MAP = [
+    [/叙事主清单/, 'MAIN'],
+    [/本章主轴/, 'N1'],
+    [/核心物理道具|核心物理锚点/, 'N2'],
+    [/开场接口/, 'N3'],
+    [/推理三段论|推理链/, 'N4'],
+    [/决定性结尾动作|结尾设计|结尾动作/, 'N5'],
+    [/角色行动红线|人设红线|反派红线/, 'N6'],
+    [/节拍/, 'N7'],
+    [/降级附录/, 'APPX'],
+    [/排除项|已排除/, 'X1'],
+    [/开放区/, 'X2']
+  ];
+  /* A9 判定用：关键字段留白。注意只扫主清单，附录段（X1/X2）允许出现「待定」。 */
+  var CP_RE_UNSET = /【(未定|待定|待议|TBD)】|【缺口[:：]/;
+  /* A10 判定用：感官词。只有物证没有感官，等于没给画面——V167 就是这么丢掉那瓶药的。 */
+  var CP_RE_SENSE = /暗红|鲜红|发黑|发紫|温的|凉|烫|冰|冷|烧焦|腥|甜|苦|涩|潮|湿|粗糙|光滑|水汽|结晶|结痂|气味|闻到|摸上去|凑近|发亮|渗/;
+  /* A11 判定用：推理步骤与因果连接 */
+  var CP_RE_STEP = /[①②③④④]|^\s*[\d１-９]\s*[、.．]|第一步|第二步|第三步|其一|其二|其三/;
+  var CP_RE_LINK = /因为|所以|不是.{0,8}是|而|依据|说明|意味着|只会|只有|除非|于是|因此/;
+  /* A13 判定用：否决理由 */
+  var CP_RE_REASON = /否决理由|理由[:：]|因为|依据|不影响|功能已由|会挤|削弱|已由.{0,10}承担|降级为|留到下一章|留待/;
+
+  function cpNarrativeSpec() {
+    return {
+      sections: CP_NARR_SECTIONS.slice(),
+      sys: [
+        '⑱ 排除项纪律：每一条排除必须写明「否决理由：……」（为什么砍、砍掉它由谁承担功能）。写不出理由的宁可不列——没有理由的排除，会让 AI 换个形式把同一件事再写一遍（实测：指令排除「克劳奇主动告密」，AI 改成「克劳奇提醒薇拉手链在发光」）。排除项不超过 5 条。',
+        '⑲ 关键字段不得留白：本章主轴、核心物理道具、开场接口、推理三段论、决定性结尾动作这五项，写不出具体值时严禁标【未定】/【待定】。无档案依据时整条留空，并在末尾单独输出一行「【缺口：<字段名>】」交给作者现场填。实测：源头指令里「决心的产物具体是什么物件【未定】」，AI 不会停下来问，它会自己填一个最安全的选项——烤栗子、苹果挞、查图书。',
+        '⑳ 结尾动作只写死「动作类型 + 作用物件」（例：拧开瓶盖一口喝干），不得写死结尾的整句台词、比喻或态度句。写死句子的指令会把收束降级成随时可以反悔的态度陈述（实测 V169 收在「该磨牙了」，三件套 0/3）。',
+        '㉑ 角色行动红线必须双向：每个关键出场角色各写一条「本章必须做到的一件事」和一条「绝不可做的一件事」。只写「不能做什么」不够——实测只写「克劳奇不能露食死徒的边」，AI 就把他写成了送饲料、主动告密的热心学长。'
+      ]
+    };
+  }
+  window.cpNarrativeSpec = cpNarrativeSpec;
+
+  /* 把指令文本切成八段字段。纯函数，无 DOM 依赖，可在 node 里跑单测。 */
+  function cpNarrativeParse(text) {
+    var raw = String(text || '');
+    var out = {
+      raw: raw,
+      isFinal: /【剧情定稿指令/.test(raw),
+      degraded: false,
+      fields: { N1: [], N2: [], N3: [], N4: [], N5: [], N6: [], N7: [], X1: [], X2: [] },
+      counts: { main: 0, appx: 0, total: 0 },
+      gaps: []
+    };
+    if (!out.isFinal) { out.degraded = true; return out; }   /* 要点块/原文块不参与硬阻断 */
+    var lines = raw.split(/\r?\n/);
+    var cur = null, matchedAny = false, flatItems = [];
+    /* 条目行优先判定：V167/V169/V171 三代指令的条目都带序号前缀（「23 · …」），
+       而 V169 的排除项写成了条目行「· 已排除：…【排除】」而非独立段名——
+       若先做段名匹配，这些条目会被整条当成段名吞掉，附录读成 0 条（实测 A13 假阴性）。 */
+    var RE_ITEM = /^\s*(?:[\d０-９]{1,3}\s*[.、．]\s*)?[·•\-*]/;
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i];
+      if (!RE_ITEM.test(s)) {
+        var hit = null;
+        for (var k = 0; k < CP_NARR_MAP.length; k++) { if (CP_NARR_MAP[k][0].test(s)) { hit = CP_NARR_MAP[k][1]; break; } }
+        if (hit) { if (hit !== 'X1' && hit !== 'X2' && hit !== 'MAIN' && hit !== 'APPX') matchedAny = true; cur = hit; }
+        continue;
+      }
+      var item = s.replace(/^\s*(?:[\d０-９]{1,3}\s*[.、．]\s*)?[·•\-*]\s*/, '').trim();
+      if (!item) continue;
+      if (cur && out.fields[cur]) out.fields[cur].push(item);
+      else if (/【排除】/.test(item) && out.fields.X1) out.fields.X1.push(item);
+      else flatItems.push(item);
+    }
+    /* 扁平模式：定稿块里一个八段段名都没有（V167/V169/V171 的旧格式）。
+       此时无法逐字段校验——不做启发式猜测（猜错会误报或漏报），
+       只标记 flat 并提示作者重新生成定稿指令。 */
+    out.flat = out.isFinal && !matchedAny;
+    out.flatItems = flatItems;
+    out.counts.main = out.fields.N1.length + out.fields.N2.length + out.fields.N3.length +
+      out.fields.N4.length + out.fields.N5.length + out.fields.N6.length + out.fields.N7.length;
+    out.counts.appx = out.fields.X1.length + out.fields.X2.length;
+    out.counts.total = out.counts.main + out.counts.appx;
+    if (out.flat) { out.gaps = []; return out; }   /* 扁平指令不做逐字段阻断（会误伤存量旧指令），只由 A16 提示重新生成 */
+
+    /* 缺口判定：只判五个关键字段（N1-N5），N6/N7/X1/X2 只警告不阻断 */
+    if (!out.fields.N1.length) out.gaps.push('N1');
+    if (!out.fields.N2.length) out.gaps.push('N2');
+    if (!out.fields.N3.length) out.gaps.push('N3');
+    if (!out.fields.N4.length) out.gaps.push('N4');
+    if (!out.fields.N5.length) out.gaps.push('N5');
+    /* 主清单里还残留【未定】也计入缺口 */
+    var mainText = out.fields.N1.concat(out.fields.N2, out.fields.N3, out.fields.N4, out.fields.N5, out.fields.N6, out.fields.N7).join('\n');
+    if (CP_RE_UNSET.test(mainText)) {
+      ['N1', 'N2', 'N3', 'N4', 'N5'].forEach(function (f) {
+        if (CP_RE_UNSET.test(out.fields[f].join('\n')) && out.gaps.indexOf(f) < 0) out.gaps.push(f);
+      });
+    }
+    return out;
+  }
+  window.cpNarrativeParse = cpNarrativeParse;
+
+  /* 重排：主清单在前、附录在后；超条目时按「先砍附录 → 再砍开放区 → 最后砍末尾节拍」的顺序削。
+     ★ 旧逻辑是从前往后数到 40 条就截断，正好把最靠后的「结尾动作」砍掉——这是 V169 漏执行的机制。 */
+  function cpNarrativeReorder(lines, maxLines) {
+    var p = cpNarrativeParse(Array.isArray(lines) ? lines.join('\n') : String(lines || ''));
+    var cap = Number(maxLines) || 25;
+    var order = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7'];
+    var head = [], appx = [];
+    CP_NARR_SECTIONS.forEach(function (sec) {});
+    head.push('【叙事主清单】');
+    var names = { N1: '一、本章主轴', N2: '二、核心物理道具', N3: '三、开场接口', N4: '四、推理三段论', N5: '五、决定性结尾动作', N6: '六、角色行动红线', N7: '七、节拍' };
+    var used = 0;
+    order.forEach(function (f) {
+      var arr = p.fields[f] || [];
+      if (!arr.length) return;
+      head.push(names[f]);
+      arr.forEach(function (it) { if (used < cap) { head.push('· ' + it); used++; } });
+    });
+    appx.push('【降级附录】');
+    if (p.fields.X1.length) {
+      appx.push('八、排除项（每条必须带否决理由）');
+      p.fields.X1.slice(0, 5).forEach(function (it) { appx.push('· ' + it); });
+    }
+    if (p.fields.X2.length) {
+      appx.push('九、开放区');
+      p.fields.X2.slice(0, 3).forEach(function (it) { appx.push('· ' + it); });
+    }
+    return { main: head, appx: appx, all: head.concat(appx), counts: p.counts, gaps: p.gaps };
+  }
+  window.cpNarrativeReorder = cpNarrativeReorder;
+
+  /* v172 新增闸门 A9-A14。全部纯函数，每条都带反例约束（见 _test_v172.js）。 */
+  function cpInstrAuditV172(text, opt) {
+    opt = opt || {};
+    var out = [];
+    var p = cpNarrativeParse(text);
+    if (!p.isFinal) return out;                     /* 非定稿块不判，避免把要点块拦死 */
+    /* 扁平模式（旧六段/无段名指令）：无法逐字段校验，只提示重新生成，不阻断。
+       实测 V169 指令就是这种形态——它有 43 条约束，但一条八段字段都没有。 */
+    if (p.flat) {
+      out.push({ code: 'A16', level: 'warn',
+        text: '这份指令没有按叙事清单分段（未找到【核心物理道具】【推理三段论】【决定性结尾动作】等段名），无法逐字段校验。它是「约束清单」而非「叙事清单」——只写了不要写什么，没写具体是什么道具、什么动作。建议重跑一次「生成定稿指令」让它按八段输出。' });
+      return out;
+    }
+    var mainText = p.fields.N1.concat(p.fields.N2, p.fields.N3, p.fields.N4, p.fields.N5, p.fields.N6, p.fields.N7).join('\n');
+
+    /* A9 关键字段留白 → 阻断 */
+    if (CP_RE_UNSET.test(mainText)) {
+      var which = [];
+      ['N1', 'N2', 'N3', 'N4', 'N5'].forEach(function (f) { if (CP_RE_UNSET.test(p.fields[f].join('\n'))) which.push(f); });
+      out.push({ code: 'A9', level: 'block',
+        text: '指令主清单里仍有【未定】/【待定】（字段：' + (which.join('、') || '未定位') + '）。实测：AI 遇到「待定」不会停下来问，它会自己填一个最安全、最不引发后续剧情的选项——烤栗子、苹果挞、查图书。必须填具体值后才能生成正文。' });
+    }
+
+    /* A10 缺少核心物理道具，或有物证无感官 → 阻断 */
+    if (!p.fields.N2.length) {
+      out.push({ code: 'A10', level: 'block',
+        text: '指令缺少【核心物理道具】。实测：五版药/瓶/血命中数 缝合版 30 / DS版 6 / V167 3 / V169 3 / 143底稿 1，与总分完全同序。没有可结算的实物，悬疑会垮成日常流水账。' });
+    } else if (!CP_RE_SENSE.test(p.fields.N2.join('\n'))) {
+      out.push({ code: 'A10', level: 'block',
+        text: '【核心物理道具】只写了物件名，没有外观/气味/温度中的任一项。只有名字没有感官，等于没给画面——这正是 V167 丢掉那瓶药的形状。' });
+    }
+
+    /* A11 缺少推理三段论 → 阻断 */
+    if (!p.fields.N4.length) {
+      out.push({ code: 'A11', level: 'block',
+        text: '指令缺少【推理三段论】。只写「薇拉咯噔，落点：他在瞒我」，AI 只能写出「他最近老找借口先走」——那是观察，不是推理。观察可以无限拖，推理必须当场闭合。' });
+    } else {
+      var n4 = p.fields.N4.join('\n');
+      var steps = (n4.match(/[①②③]/g) || []).length + (n4.match(/(^|\n)\s*[·•]?\s*[\d１-９]\s*[、.．]/g) || []).length;
+      if (steps < 3 || !CP_RE_LINK.test(n4)) {
+        out.push({ code: 'A11', level: 'block',
+          text: '【推理三段论】不足三步或缺因果连接词（当前 ' + steps + ' 步）。必须写成：①他不会记错三兄弟传说的典故 → ②他用了「挡灾」这个词 → ③名单上有薇拉没有詹姆斯，隐形衣是他唯一能跟进去的东西。' });
+      }
+    }
+
+    /* A12 缺少决定性结尾动作 → 阻断 */
+    if (!p.fields.N5.length) {
+      out.push({ code: 'A12', level: 'block',
+        text: '指令缺少【决定性结尾动作】。可逆的「发现」可以拖，不可逆的「选择」不能拖。必须写明：谁做了什么不可撤回的事 + 付出/放弃什么 + 下一章失去哪条退路。' });
+    } else {
+      var n5 = p.fields.N5.join('\n');
+      if (!CP_END_IRREV.test(n5)) {
+        out.push({ code: 'A12', level: 'block', text: '【决定性结尾动作】里没有不可逆动作（喝下/撕掉/交出/拧开/走进去）。当前写法多半会收在态度句上——实测 V169 收在「该磨牙了」，三件套 0/3。' });
+      }
+      if (!CP_END_ANCHOR.test(n5)) {
+        out.push({ code: 'A12', level: 'block', text: '【决定性结尾动作】里没有时间锚（下周五/明天/今晚/三日后）。缺少时间锚，下一章就没有必须兑现的期限。' });
+      }
+    }
+
+    /* A13 排除项无否决理由 → 警告 */
+    if (p.fields.X1.length) {
+      var noReason = 0;
+      p.fields.X1.forEach(function (s) {
+        var t = s.replace(/【排除】/g, '').replace(/^排除/, '');
+        if (!CP_RE_REASON.test(t)) noReason++;
+      });
+      if (noReason > 0) {
+        out.push({ code: 'A13', level: 'warn',
+          text: '【排除项】里有 ' + noReason + ' 条没写否决理由。否决理由不传递，AI 会绕个弯犯同样的错（实测：排除「克劳奇主动告密」→ AI 改成「克劳奇提醒薇拉手链在发光」）。' });
+      }
+    }
+
+    /* A14 角色红线缺正向 → 警告 */
+    if (p.fields.N6.length) {
+      var pos = 0;
+      p.fields.N6.forEach(function (s) { if (/必须做到|必须做|一定要|本章要|得([^不])|负责|必须刺穿|必须给|必须问/.test(s)) pos++; });
+      if (pos === 0) {
+        out.push({ code: 'A14', level: 'warn',
+          text: '【角色行动红线】只有「不能做什么」，没有「必须做什么」。实测只写「克劳奇不能露食死徒的边」，他就被写成了送饲料、主动告密的热心学长。每个关键角色各补一条「本章必须做到的一件事」。' });
+      }
+    }
+
+    /* A15 条目超限 → 警告（沿用 A8 的 25 条口径，不升级为阻断） */
+    if (p.counts.total > 25) {
+      out.push({ code: 'A15', level: 'warn',
+        text: '叙事清单共 ' + p.counts.total + ' 条（主清单 ' + p.counts.main + ' + 附录 ' + p.counts.appx + '），超过 25 条。实测 43 条指令在正文里漏执行了两条已锁死的关键项。' });
+    }
+    return out;
+  }
+  window.cpInstrAuditV172 = cpInstrAuditV172;
 
   window.cpInstrAudit = cpInstrAudit;
   window.cpInstrGap = cpInstrGap;

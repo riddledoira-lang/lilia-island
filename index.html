@@ -1443,6 +1443,9 @@
       <textarea id="aiSys" style="min-height:100px;"></textarea>
       <label><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18v12H3z"/><path d="M8 6c0 3 8 3 8 6s-8 3-8 6"/></svg>文风样本（few-shot · 最高杠杆）— 粘贴 1–2 段你满意 / 想模仿的段落，生成时会作为范例注入，让 AI 对齐你的声音（深度续写 = 直接对标免费网页版「照这段写」的效果）</label>
       <textarea id="aiStyleSample" style="min-height:90px;" placeholder="例如：粘贴你写过、或想模仿的文风段落（第一人称语感 / 比喻系统 / 幽默节奏）"></textarea>
+      <!-- v172：剧情节奏与物证密度范本（few-shot）。与上面的文风样本分开：这里学的是节奏密度、道具用法与对话的刺穿性，不是语感。 -->
+      <label style="margin-top:10px;">节奏与物证密度范本（叙事 few-shot）— 粘贴 1–2 段你认可的紧凑章节</label>
+      <textarea id="aiPlotSample" style="min-height:90px;" placeholder="例如：粘贴「究极缝合版」这类紧凑章节。生成时只学它的节奏密度、道具用法与对话的刺穿性，不会抄袭情节与句子。"></textarea>
       <label style="margin-top:10px;"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v16M18 4v16M3 8h6M15 8h6M3 16h6M15 16h6"/><circle cx="6" cy="8" r="2"/><circle cx="18" cy="16" r="2"/></svg>采样参数（temperature / top_p 独立可调 · 正文生成）</label>
       <div class="smp-presets">
         <button type="button" class="smp-p" data-p="safe"     onclick="applySmpPreset('safe',this)">稳妥 <b>1.0/0.90</b></button>
@@ -8157,13 +8160,18 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v171";
+const APP_VERSION="v172";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
    0 = 恢复 v169 的参谋增强（16 条窗口 / ⑪-⑭ 角色升级 / 生成定稿指令 / 按章分桶）。
    ★ 只作用于「剧情参谋」：深度续写、声线卡、节拍卡章级化、预览口径、指令质量闸门等全部不受影响。 */
-window.CP_ROLLBACK_V143=1;
+/* v172 已退役：剧情参谋统一为单条链路（参谋对话 → 叙事清单定稿指令 → 深度续写）。
+   实测依据：V143 参谋的产物是讨论原文摘录，混入「第二个要你拍板的事」「代价是…」
+   「我不替你定死」这类对话残留，不是可执行约束；其正文（143 底稿）在五版比对里
+   总分 51 分，排名末位（V169 58 / V167 63 / DS版 79 / 缝合版 100）。
+   常量保留为 0 而非删除，仅为避免旧缓存脚本读到 undefined 时走错分支。 */
+window.CP_ROLLBACK_V143=0;
 /* v92 在线素材快捷入口（可自行增删，清空数组即可隐藏，不影响其它功能）
    用途：素材文件是在电脑上生成的，而写作是在手机上——两端隔着一个「传文件」的坑。
    把文件挂到网上后，手机端点一下这个按钮就直接装载，不必再用数据线/微信传文件。 */
@@ -8173,6 +8181,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v172","V172 叙事清单重构 + 待定项硬阻断 + V143 开关退役（依据五版实测比对）。\n· 【指令形态重构】定稿指令从「约束清单」改为「叙事主清单 + 降级附录」：本章主轴 / 核心物理道具 / 开场接口 / 推理三段论 / 决定性结尾动作 / 角色行动红线 / 节拍，加排除项（必须带否决理由）与开放区，条目上限 25。依据：App 版只写「不要写什么」、不写「写什么画面」，AI 在留白处自行发明烤栗子、苹果挞、查图书、削魔杖。\n· 【截断优先级重写】旧逻辑从前往后砍到 40 条，正好砍掉排在主清单靠后的【决定性结尾动作】——这正是 V169 把两条已锁死项（第18条伊格诺图斯悖论、第22条请柬）在正文里执行成 0 处的机制。新逻辑先全量保主清单，超配额先砍开放区与排除项尾部。\n· 【待定项硬阻断】五个关键字段留白或仍标【未定】时禁止生成，弹窗强制填具体值（可点「仍然生成」跳过）。依据：源头指令写「决心的产物具体是什么物件【未定】」，AI 不会停下来问，它自己填了烤栗子。\n· 【新闸门 A9-A15】A9 关键字段未定(阻断) / A10 缺核心物理道具或无感官描写(阻断) / A11 缺推理三段论(阻断) / A12 缺决定性结尾动作(阻断) / A13 排除项无否决理由(警告) / A14 角色红线缺正向要求(警告) / A15 条目超限(警告)。\n· 【A6 边界修正】旧正则会把新字段「拧开瓶盖一口喝干」误判成写死结尾，导致新格式指令 100% 误报；改为态度句命中、或引号原话加不可逆动作同时命中才报。\n· 【参考范文锚定】AI 设置内新增「节奏与物证密度范本」输入框，生成时注入范本（只学节奏密度、道具用法与对话的刺穿性），并禁止出现指令与范本中都不存在的日常食物与填充动作。\n· 【V143 开关退役】参谋统一为单条链路。实测 143 底稿总分 51 分，五版末位（V169 58 / V167 63 / DS版 79 / 缝合版 100）——回滚未提升质量，V143 不是解。生成定稿指令按钮恢复显示（此前静态隐藏但运行时被显示回来，属声明与实现不一致）。"],
   ["v171","V171 三处新闸门 + 结尾补救 + 参谋输出结构契约（依据四方实测比对）。\n· 【A6 结尾写死检测·阻断】指令若直接给出结尾动作句/台词/比喻即判阻断。实测：V169 指令写死「该磨牙了」→ 结尾三件套 0/3；V143 要点式不写死 → 1/3。只给验收标准，别给句子。\n· 【A7 排除连带检测·阻断】【排除】若切断时间锚或核爆物证即告警。实测：V169 排除沙菲克后，正文失去「下周五」这个时间锚，三件套直接少一项——而沙菲克正是缝合版结尾时间锚的来源。\n· 【A8 条目纪律】指令条目 >25 条告警。实测：43 条的定稿指令在最终正文里漏执行了两条已锁死的关键项（伊格诺图斯悖论 0 处、请柬 0 处命中）。\n· 【结尾三件套自动评分】深度续写完成后本地打分（物证结算 / 不可逆动作 / 未完成动作加时间锚），低于 2/3 时提示「✎ 只重写结尾」。\n· 【✎ 只重写结尾】新增按钮（体检台内）：只把最后 6 段与结尾验收标准交给模型，前文一字不动，成本约为整章重写的十分之一——结尾是四方比对里差距最大的一项（缝合版 3/3 对 V169 的 0/3），单点补救收益最高。\n· 【参谋输出结构契约】参谋凡给出方案须按七段输出：本章主轴 / 物证链（铺垫-复现-结算）/ 节拍 / 伏笔回收清单（带章节号）/ 排除 / 结尾验收标准 / 开放区；并新增结尾禁令与条目纪律。V143 与 v169 两种参谋模式下都生效。回滚：CP_COUNSEL_STRUCT=0。"],
   ["v170","定向回滚：剧情参谋恢复至 V143 状态（其余功能全部保持 v169 不变）。\n· 【为什么回滚】V169 产出与「究极缝合版」实测比对后确认仍未达标：正文物证 22 种 vs 缝合版 43 种；结尾三件套（物证结算 / 不可逆动作 / 未完成动作带时间锚）得 0/3——收在「该磨牙了」这类可逆的态度陈述上；指令相对缝合版仍缺 38 个物证，含核爆物证玻璃瓶/瓶/药。\n· 【回滚范围·仅参谋】① 对话窗口回到 V143 的 8 条（16 条是 v166 增强）；② 系统提示词只保留 V143 的 7 条铁律，v167 的 ⑪-⑭ 角色升级条款不注入；③ 指令出口回到 V143 的「写进本章指令」= counselToBrief 取参谋最后一轮回复前 1200 字，「生成定稿指令」按钮退役；④ 取消 v167 的章节作用域隔离（采纳/否决回到书级单桶）与 v166 的自动采纳。\n· 【明确不受影响】深度续写、全体角色声线卡、节拍卡章级化与重选、预览面板口径、指令质量闸门（🔍 指令体检）、分卷隔离、离线与部署链路——全部保持 v169。\n· 【开关】window.CP_ROLLBACK_V143：默认 1（V143 参谋）。设为 0 即恢复 v169 参谋增强，刷新生效；参谋面板顶部有状态提示条。\n· 【给作者的结论】回滚只改变「指令由谁产出」：V143 模式下参谋不代写指令，指令回到作者 / 外部模型手中。实测同一 APP 换用外部 DeepSeek 指令生成的第77章，结尾给出了行动意向与时间锚（我明天得去看看）、物证链完整，明显优于 APP 内部指令产出——瓶颈在指令内容本身，不在写作引擎。"],
   ["v169","修「两套都自称强制的骨架互相竞争」与「节拍卡无反悔机会」，并装上指令质量闸门（本地零token）：\n· 【A·消除双骨架】有【剧情定稿指令】时，定稿判定此前写在 else 分支里（@13451），而已挂载的旧节拍卡是先读 _ded 直接采用的（@13438），优先级反而更高——最终提示词里同时存在「【节拍卡（强制前置约束）】」与「【本章专属指令】」，模型只能各取一半，这是最近一次输出文不对题的直接成因。现定稿判定提到最前：有定稿指令时一律不使用节拍卡（含已挂载的旧卡）。\n· 【B·节拍卡章级化 + 流程内出口】挂载槽此前无章号、无时效，第N章选的一套会一直沿用到手动解除为止，且深度续写流程内没有任何换卡入口（唯一解除按钮藏在「一键灵感推演」面板）。现挂载时记录章号：跨章不再静默沿用，改为弹一次性三选一（重新推演3套 / 沿用 / 解除并不用）。\n· 【C·恢复态放弃】补弹的「上次未处理的节拍卡」点「关闭（不使用节拍卡）」时，此前只弹一句提示、不清已有挂载，作者以为关掉了、下次仍被沿用。现一并解除并明说。\n· 【D·声线补齐改为全体角色】上一版该块只写「补齐叙述者（薇拉·奎克）的声线」，而需求要的是全体出场角色的声线/语气/措辞都贴合各自人设并与前文一致。现两处（自动精修 + 整章精修）都改为全体角色；整章精修另外补一张与深度续写同源的「本章出场人物·声线卡」（此前该链路完全没有人物声线约束）。\n· 【E·指令质量闸门】新增本地体检（零 token，纯函数）：① 文本自检——物证槽位不足2种 / 排除条款与保留条款互相矛盾（阻断级）/ 短时与「一直」类时间互斥 / 引用了尚未发生的章号；② 与源材料（参谋讨论原文，取不到则退到上一章正文）的物证与人称差集——能抓到「讨论里有、指令里没写」的物证，正是上一版把核心物证线丢掉的那类缺口。生成定稿指令后自动跑一次（阻断级弹窗、提示级 toast）；也可随时点「🔍 指令体检」（在体检台「写入本章指令」旁）。回滚：CP_INSTR_AUDIT=0。"],
@@ -8683,6 +8692,7 @@ function renderAI(){
   document.getElementById("aiModel").value=ai.model||"";
   const gm=document.getElementById("aiGenModel"); if(gm) gm.value=ai.genModel||"";
   const ssEl=document.getElementById("aiStyleSample"); if(ssEl) ssEl.value=ai.styleSample||"";
+  const psEl=document.getElementById("aiPlotSample"); if(psEl) psEl.value=ai.plotSample||"";
   document.getElementById("aiKey").value=ai.key||"";
   document.getElementById("aiSys").value=ai.sys||buildSysPrompt();
   const mt=document.getElementById("aiMaxTokens"); if(mt) mt.value=String(ai.maxTokens||8000);
@@ -8718,6 +8728,7 @@ function saveAI(){
     key:document.getElementById("aiKey").value.trim(),
     sys:document.getElementById("aiSys").value.trim()||buildSysPrompt(),
     styleSample:document.getElementById("aiStyleSample").value.trim(),
+    plotSample:(document.getElementById("aiPlotSample")||{}).value!==undefined?document.getElementById("aiPlotSample").value.trim():"",
     maxTokens:mtEl?parseInt(mtEl.value)||8000:8000,
     eco:ecoEl?ecoEl.checked:true,
     /* v84 采样参数：temperature / top_p 独立存，不再走单一创造力滑杆 */
@@ -12748,7 +12759,6 @@ function cpInstrCheck(){
     }
     if(typeof window.cpInstrReport!=="function"){ toast("指令体检模块未加载（刷新页面后重试）"); return; }
     var rp=window.cpInstrReport(t, src, (nEl&&nEl.value)||"");
-    try{ if(window.cpInstrAuditV171) (window.cpInstrAuditV171(t)||[]).forEach(function(x){ rp.texts.push((x.level==="block"?"⛔ ":"⚠️ ")+x.text); if(x.level==="block") rp.level="block"; }); }catch(e){}
     var head="指令体检 · 本地计算，零 token\n\n源材料："+(String(src).trim()?(srcName+" "+src.length+" 字"):"未取到（仅做文本级自检）");
     var bodyTxt=rp.texts.length?("\n\n"+rp.texts.map(function(s,i){return (i+1)+". "+s;}).join("\n\n")):"\n\n✅ 未发现阻断级或提示级问题。";
     var full=head+bodyTxt;
@@ -12757,6 +12767,64 @@ function cpInstrCheck(){
     w.document.write('<meta name="viewport" content="width=device-width,initial-scale=1"><title>指令体检</title><pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;padding:16px;">'+esc(full)+'</pre>');
     w.document.close();
   }catch(e){ toast("指令体检失败："+((e&&e.message)||e)); }
+}
+/* v172 · 叙事清单补值（硬阻断的交互层）
+   关键字段留白或仍标【未定】时弹出，强制作者填具体值。
+   返回 {text, force}（force=true 表示作者选择不填仍要生成）或 null（取消生成）。
+   为什么必须硬拦：实测源头指令里「决心的产物具体是什么物件【未定】」，
+   AI 不会停下来问，它会自己填一个最安全、最不引发后续剧情的选项——
+   烤栗子、苹果挞、查图书、削魔杖。这些填充物的共同特征是：不会引发任何后续剧情。 */
+function cpNarrativeFillGaps(gaps, brief){
+  var _label={
+    N1:"本章主轴（一句话：谁在什么处境下、做了什么不可撤回的事）",
+    N2:"核心物理道具（写清外观/气味/温度，以及一处与之绑定的身体细节）",
+    N3:"开场接口（第一句 / 第一个动作 / 第一个在场者）",
+    N4:"推理三段论（三步，最后给出可被下一章验证或推翻的具体结论）",
+    N5:"决定性结尾动作（谁做了什么不可撤回的事 + 付出/放弃什么 + 下一章失去哪条退路）"
+  };
+  var _sec={N1:"一、本章主轴",N2:"二、核心物理道具",N3:"三、开场接口",N4:"四、推理三段论",N5:"五、决定性结尾动作"};
+  return new Promise(function(resolve){
+    var mask=document.createElement("div");
+    mask.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
+    var h='<div style="background:var(--bg,#fff);color:var(--fg,#222);border-radius:12px;max-width:680px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">';
+    h+='<h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">叙事清单缺 '+gaps.length+' 项</h3>';
+    h+='<p style="margin:0 0 14px;font-size:12px;line-height:1.7;opacity:.85;">留【未定】时 AI 不会等你——它会自己填一个最安全、最不引发后续剧情的选项（烤栗子、苹果挞、查图书、削魔杖）。填具体值再生成。</p>';
+    gaps.forEach(function(g,idx){
+      h+='<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:500;margin-bottom:4px;">'+(idx+1)+'. '+(_label[g]||g)+'</div>';
+      h+='<textarea id="narrGap_'+g+'" rows="3" style="width:100%;box-sizing:border-box;font-size:14px;padding:8px;border-radius:8px;" placeholder="例（N2）：一瓶暗红色的安神剂，带烧焦味和血腥味，摸上去还是温的；詹姆斯右手袖口有一道被火燎过的新疤"></textarea></div>';
+    });
+    h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">';
+    h+='<button type="button" id="narrOk" style="flex:1;min-width:130px;padding:10px;border-radius:8px;">写入指令并生成</button>';
+    h+='<button type="button" id="narrForce" style="padding:10px;border-radius:8px;">仍然生成（不填）</button>';
+    h+='<button type="button" id="narrCancel" style="padding:10px;border-radius:8px;">取消</button>';
+    h+='</div></div>';
+    mask.innerHTML=h;
+    document.body.appendChild(mask);
+    function close(){ try{ mask.parentNode.removeChild(mask); }catch(e){} }
+    function persist(txt){
+      try{ var ta=document.getElementById("chBrief"); if(ta) ta.value=txt; }catch(e){}
+      try{ if(typeof cpPersistBrief==="function") cpPersistBrief(); }catch(e){}
+      try{ if(typeof window.cpPersistBrief==="function") window.cpPersistBrief(); }catch(e){}
+    }
+    var okBtn=document.getElementById("narrOk");
+    var foBtn=document.getElementById("narrForce");
+    var caBtn=document.getElementById("narrCancel");
+    if(okBtn) okBtn.onclick=function(){
+      var add=[];
+      gaps.forEach(function(g){
+        var el=document.getElementById("narrGap_"+g);
+        var v=String((el&&el.value)||"").trim();
+        if(v) add.push((_sec[g]||g)+"\n· "+v+"【已定】");
+      });
+      close();
+      if(!add.length){ resolve({text:brief, force:true}); return; }
+      var txt=String(brief||"")+"\n"+add.join("\n");
+      persist(txt);
+      resolve({text:txt, force:false});
+    };
+    if(foBtn) foBtn.onclick=function(){ close(); resolve({text:brief, force:true}); };
+    if(caBtn) caBtn.onclick=function(){ close(); resolve(null); };
+  });
 }
 /* v169-B：跨章旧卡的一次性三选一（流程内出口）。
    此前深度续写遇到已挂载旧卡时静默沿用，界面上没有任何换卡入口——
@@ -13402,7 +13470,19 @@ async function aiDeepGen(){
   if(!document.getElementById("chTitle").value.trim()) document.getElementById("chTitle").value="第"+num+"章";
   const title=document.getElementById("chTitle").value||("第"+num+"章");
   const body=document.getElementById("chBody").value||"";
-  const brief=document.getElementById("chBrief").value.trim();
+  let brief=document.getElementById("chBrief").value.trim();
+  /* v172 硬阻断：五个关键叙事字段（主轴 / 核心物理道具 / 开场接口 / 推理三段论 / 决定性结尾动作）
+     任一留白或仍标【未定】时，先强制作者填具体值再生成。
+     依据：源头指令里「决心的产物具体是什么物件【未定】」，AI 不会停下来问，它会自己填一个
+     最安全、最不引发后续剧情的选项——烤栗子、苹果挞、查图书、削魔杖。 */
+  let _narr=(typeof window.cpNarrativeParse==="function")?window.cpNarrativeParse(brief):null;
+  let _narrForce=false;
+  if(_narr && !_narr.degraded && window.CP_NARR_BLOCK!==0 && _narr.gaps.length){
+    const _filled=await cpNarrativeFillGaps(_narr.gaps, brief);
+    if(_filled===null){ try{ toast("已取消生成：关键叙事字段补齐后再生成"); }catch(eT){} return; }
+    brief=_filled.text; _narrForce=!!_filled.force;
+    _narr=(typeof window.cpNarrativeParse==="function")?window.cpNarrativeParse(brief):null;
+  }
   /* 续写模式：续写当前分卷 vs 续写全书完整剧情（提前确定，供 collectPrior 分卷隔离使用） */
   const writeModeEl=document.querySelector('input[name="deepWriteMode"]:checked');
   const writeMode=writeModeEl?writeModeEl.value:"vol";
@@ -13683,11 +13763,37 @@ async function aiDeepGen(){
       if(_genArb) ctx+="\n\n"+_genArb;
       ctx+="\n\n"+_styleReq;
     }
+    /* v172【参考范文锚定】：AI 没有节奏感，只有模仿能力。不给它看「紧凑的一章长什么样」，
+       它就按训练数据的平均值写——平均值就是网文日常流（烤栗子、苹果挞、查图书）。
+       这里喂的是节奏与物证密度范本，不是文风范本（文风另有 ai.styleSample）。 */
+    try{
+      const _aiTmp=(typeof load==="function")?(load("ai",{})||{}):{};
+      const _ps=String(_aiTmp.plotSample||"").trim();
+      if(_ps){
+        ctx+="\n\n【本章节奏与物证密度范本（只学它的节奏密度、道具用法与对话的刺穿性；不得抄袭其情节、句子与比喻）】\n"+_ps.slice(0,3000)
+          +"\n【禁例】禁止出现本章指令与范本中都不存在的日常食物（烤栗子、苹果挞、司康、南瓜汁、太妃糖）与填充动作（查图书、整理书架、削魔杖、借书）。";
+      }
+    }catch(ePS){}
     /* 写指令放在最后一条：先给约束/上下文，再下令「现在写」 */
     let writeInstr;
     if(body.trim()) writeInstr=`请基于上面的【续写前必读分析】与【前文详读】，接着下面已有的开头/骨架续写、补全为正文：\n\n${body}`;
     else writeInstr=`请基于上面的【续写前必读分析】与【前文详读】，生成第${num}章《${title}》的完整正文。`;
-    if(brief) writeInstr+=`\n\n【本章专属指令】\n${brief}`;
+    /* v172：叙事主清单前置。旧写法把 brief 原样透传，而 brief 里主清单与附录混排、
+       且排除项往往占了一半篇幅——模型先读到的是「不要写什么」，画面仍然留白。
+       现在把 N1-N7 单独提到最前面，附录留在后面的 brief 里做备查。 */
+    if(brief){
+      let _nb="";
+      if(_narr && !_narr.degraded){
+        const _fn={N1:"一、本章主轴",N2:"二、核心物理道具",N3:"三、开场接口",N4:"四、推理三段论",N5:"五、决定性结尾动作",N6:"六、角色行动红线",N7:"七、节拍"};
+        const _parts=[];
+        ["N1","N2","N3","N4","N5","N6","N7"].forEach(function(k){
+          if(_narr.fields[k] && _narr.fields[k].length) _parts.push(_fn[k]+"\n"+_narr.fields[k].map(function(s){return "· "+s;}).join("\n"));
+        });
+        if(_parts.length) _nb="\n\n【本章叙事清单（以下每一条都必须落到正文里，不得自行替换成别的道具、别的动作或别的结尾）】\n"+_parts.join("\n");
+      }
+      if(_narrForce) _nb+="\n\n【作者裁量】下列字段由作者现场决定，未给出具体值：" + "" + "。该处不得凭空发明新道具、新人物或新设定，只能沿用本章指令与前文中已出现的东西。";
+      writeInstr+=_nb+`\n\n【本章专属指令】\n${brief}`;
+    }
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
     /* v143：正文生成取「续写模型」优先，与采样参数预览、模型候选链、流式参数三处保持一致。
@@ -16266,6 +16372,12 @@ window.CP_COUNSEL_ROLE=1;
    0=回到「做减法」的旧精修行为（回滚用） */
 window.CP_VOICE_ONLY=1;
 window.CP_COUNSEL_CONVERGE=1; /* 1=收敛型（⑤ 改条款 + ⑧⑨⑩ 生效）；0=逐字还原 v152 的 sys 数组（9 项：2 句开场 + ①-⑦） */
+/* v172：叙事清单开关。此前该变量从未赋值（undefined!==0 恒真），控制台无法回滚，故显式声明。
+   0=关闭八段叙事清单契约与 A9-A15 闸门；1=默认开启。 */
+window.CP_COUNSEL_STRUCT=1;
+window.CP_NARR_MAXLINES=25;    /* 叙事清单条目上限（主清单 17 + 附录 8） */
+window.CP_NARR_MAXCHARS=5200;  /* 定稿块字符上限（八段 + 否决理由比旧六段长） */
+window.CP_NARR_BLOCK=1;        /* 1=关键字段【未定】时禁止生成正文（硬阻断）；0=仅提示 */
 /* v153：参谋单条回复的字数上限（字）。控制台执行 window.CP_REPLY_MAXCHARS=800 即时生效——
    每次发送都在组装 sys 时现读 window 值，不缓存，也不在别处写回覆盖。 */
 window.CP_REPLY_MAXCHARS=600;
@@ -16306,7 +16418,7 @@ async function counselSend(){
     _counselLog.push({role:"me", text:q, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
     inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
-    const hist=_counselLog.slice(window.CP_ROLLBACK_V143===1?-8:-16).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
+    const hist=_counselLog.slice(-16).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
     /* v153：收敛改造总开关。CP_COUNSEL_CONVERGE=0 时只保留 v152 原版的 7 条（⑤ 用回原文，
        ⑧⑨⑩ 一条都不追加），sys 字符串与 v152 逐字相同——可灰度、可单条回滚。 */
     const _conv=(window.CP_COUNSEL_CONVERGE!==0);
@@ -16333,7 +16445,7 @@ async function counselSend(){
     /* v167 · 剧情参谋角色升级（作者核心诉求：反复追问已定项 / 敲定细节丢失 / 凭空生造 / 稀释删改既有内容）
        只加 4 条，且都写成「可机检的输出契约」而不是散装禁令——上一轮实测证明：
        条款堆得越多，有效约束密度越低，模型反而更容易丢东西。 */
-    if(_conv && window.CP_COUNSEL_ROLE!==0 && window.CP_ROLLBACK_V143!==1){
+    if(_conv && window.CP_COUNSEL_ROLE!==0){
       _sysArr.push(
         "⑪ 职责优先级：线索与伏笔分析 ＞ 情节点的合理生成 ＞ 内容精彩度提升。三者冲突时按此顺序取舍，并在回复第一行标明【本轮主轴：线索/情节点/精彩度】；",
         "⑫ 线性梳理契约（凡涉及本章结构，必须遵守）：严格按 开头 → 中段 → 结尾 推进；当前区段未收敛前不得跳到下一区段，也不得回头重开上一区段；每轮回复必须含三行——【区段：开头/中段/结尾】【本段已定：逐条列出，并注明每条落在本段的哪个位置】【本段未决：逐条列出】；",
@@ -16347,11 +16459,20 @@ async function counselSend(){
        ② 43 条定稿指令 → 正文漏执行 2 条关键项
        ③ 排除项切断沙菲克 → 失去「下周五」时间锚 */
     if(_conv && window.CP_COUNSEL_STRUCT!==0){
+      /* v172：段名表与新增条款改为从 cpNarrativeSpec() 读，与 cpHybridSys 共用同一份。
+         ★ 这是 v171 的关键缺陷：⑮⑯⑰ 只写在这里，而真正产出定稿指令的是另一套
+           cpHybridSys（lilia-counsel-plus.js），两者零共享，所以它们对定稿指令完全不生效。 */
+      var _narrSpec=(typeof window.cpNarrativeSpec==="function")?window.cpNarrativeSpec():null;
       _sysArr.push(
-        "⑮ 输出结构契约（凡给出本章方案，必须按以下七段输出；缺哪一段就写明「本段不涉及」及原因）：\n【本章主轴】一句话：谁在什么处境下、做了什么不可撤回的事。\n【物证链】开场铺垫物 / 中段复现物 / 结尾结算物，各给 1-2 件，并说明它们如何闭环。\n【节拍】5-7 条，只写「发生了什么」，不写「怎么表达」。\n【伏笔回收清单】本章必须回收的旧线，每条带上它出现的章节号。\n【排除】明确不写什么；写下每一条前先自问：这条排除会不会顺带砍掉本章的核心物证或时间锚。\n【结尾验收标准】只给三条硬性要求（物证结算 / 不可逆动作 / 未完成动作加时间锚），不得给出结尾的具体句子、台词或比喻。\n【开放区】明确列出留给作者与写作环节自由发挥的部分。",
+        "⑮ 输出结构契约（凡给出本章方案，必须按以下段输出；缺哪一段就写明「本段不涉及」及原因）：\n【本章主轴】一句话：谁在什么处境下、做了什么不可撤回的事。\n【核心物理道具】至少一件贯穿全章的实物，写明外观、气味、温度、触感，以及一处与之绑定的身体细节。\n【开场接口】第一句 / 第一个动作 / 第一个在场者。\n【推理三段论】三步，每步钉在具体台词或物证上，最后给出一个可被下一章验证或推翻的结论。\n【决定性结尾动作】只写动作类型与作用物件（谁做了什么不可撤回的事），不写结尾整句、比喻或态度句。\n【角色行动红线】每个关键出场角色各一条「本章必须做到的一件事」和「绝不可做的一件事」。\n【节拍】5-7 条，只写「发生了什么」，不写「怎么表达」。\n【排除】明确不写什么；写下每一条前先自问：这条排除会不会顺带砍掉本章的核心物证或时间锚。\n【开放区】明确列出留给作者与写作环节自由发挥的部分；开放区不得引入本章指令、讨论、前文中未出现过的人名/道具/地点。",
         "⑯ 结尾禁令：不得以任何形式写死结尾——包括结尾动作句、结尾台词、结尾比喻（例如「结尾落在『该磨牙了』」「结尾写『我记着这笔账』」）。实测：把结尾写死的指令，收束会降级成可以随时反悔的态度陈述，三件套得 0/3；只给验收标准、不写死句子，得 1/3 以上。",
         "⑰ 条目纪律：单轮关键约束不超过 25 条，超出部分移入「备查」并标注。实测：一份 43 条的定稿指令，在最终正文里漏执行了两条已锁死的关键项（伊格诺图斯悖论、请柬各 0 处命中）。条目越多，越靠后的越容易被漏掉。"
       );
+      /* 追加 ⑱⑲⑳㉑：与 cpHybridSys 共用同一份条款（排除项否决理由 / 关键字段不留未定 /
+         结尾只写死动作不写死句子 / 角色红线双向）。此前这些只存在于定稿侧，参谋讨论侧没有。 */
+      if(_narrSpec && _narrSpec.sys){
+        for(var _si=0;_si<_narrSpec.sys.length;_si++) _sysArr.push(_narrSpec.sys[_si]);
+      }
     }
     const sys=_sysArr.join("\n");
     /* v139 第 2 级：参谋同样同时拿到「正文」与「档案」两份不同时间的材料。
@@ -16514,7 +16635,7 @@ function migrateStatuses(){
     if(changed) save("chapters", ch);
   }catch(e){ console.warn("状态迁移失败(非致命):", e.message); }
 }
-window.addEventListener('load', function(){ migrateStatuses(); try{ var _rb=document.getElementById('cpRollbackBar'); if(_rb) _rb.style.display=(window.CP_ROLLBACK_V143===1)?'':'none'; }catch(e){} });
+window.addEventListener('load', function(){ migrateStatuses(); });
 
 /* 注册 Service Worker：让工作台可离线、可「装成 APP」，且自动同步新版本 */
 if('serviceWorker' in navigator){
@@ -17099,16 +17220,16 @@ window.addEventListener('load',function(){
     <h3>剧情参谋（只讨论，不动正文）</h3>
     <div class="meta" id="counselMeta"></div>
     <!-- v112：常驻错误条。原先报错只走 2.4 秒的 toast，一闪就没，用户无法判断原因 -->
-    <div id="cpRollbackBar" style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--warn,rgba(220,150,0,.45));font-size:12px;line-height:1.6;">⏪ <b>剧情参谋已回滚至 V143 模式</b>：参谋只讨论、只给选项，指令出口为「写进本章指令」（取参谋最后一轮回复前 1200 字）。深度续写、声线卡、节拍卡章级化、指令体检等其余功能保持 v169 不变。切回 v169 参谋增强：控制台执行 CP_ROLLBACK_V143=0 后刷新。</div>
     <div id="counselErr" style="display:none;margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--danger);"></div>
     <div id="counselLog" style="max-height:46vh;overflow:auto;margin-top:10px;"></div>
     <textarea id="counselInput" style="min-height:80px;margin-top:10px;" placeholder="问参谋：这一章之后有哪几种走向？这个决定符合薇拉的人设吗？第 12 章的伏笔怎么接才不生硬？"></textarea>
     <div class="mbtn" style="margin-top:10px;flex-wrap:wrap;">
       <button type="button" id="counselSendBtn" class="primary" onclick="counselSend()">发送</button>
       <!-- v165：「写进本章指令」按钮退役（其【待决】块会干扰深度续写；零 token 兜底已内化进生成定稿指令的降级路径）。函数 counselToBrief 保留未删，去掉本行 style 即回滚。 -->
-      <button type="button" onclick="counselToBrief()">写进本章指令</button>
+      <!-- v172：counselToBrief 产出的是讨论原文摘录，实测会让 AI 在留白处自行发明日常填充。按钮退役，函数保留（回滚只需去掉这行 style）。 -->
+      <button type="button" onclick="counselToBrief()" style="display:none;">写进本章指令</button>
       <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
-      <button type="button" id="counselHybridBtn" style="display:none;" data-v170-retired="1" onclick="counselHybridBrief()" title="把整轮讨论收敛成「锁死版」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
+      <button type="button" id="counselHybridBtn" onclick="counselHybridBrief()" title="把整轮讨论收敛成「叙事清单」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
       <button type="button" onclick="counselExport()" title="把本轮参谋讨论（含已采纳/已否决走向）完整导出为 Markdown 文件下载，便于留存与查阅">导出讨论记录</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>
       <button type="button" onclick="counselClear()">清空讨论</button>
