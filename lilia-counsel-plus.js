@@ -1783,9 +1783,14 @@
         _appx.forEach(function (g) { _total += g.a.length; });
         cut = _total > maxLines ? (_total - maxLines) : 0;
         var _used = 0;
+        /* v173 P0：主清单必须有自己的上限。旧逻辑让主清单独占全部 25 条配额——
+           实测 V172 主清单正好 25 条、附录 0 条，排除项与开放区被整段砍光，
+           连带砍掉的是核爆线本身（指令里「隐形衣/伊格诺图斯」0 处，而 V171 有 14 处）。
+           现在主清单最多 mainCap 条，剩下的配额留给附录。 */
+        var mainCap = Math.min(maxLines, (Number(window.CP_NARR_MAXMAIN) || 17));
         _main.forEach(function (g) {
           var put = [];
-          for (var m = 0; m < g.a.length; m++) { if (_used >= maxLines) break; put.push(g.a[m]); _used++; }
+          for (var m = 0; m < g.a.length; m++) { if (_used >= mainCap) break; put.push(g.a[m]); _used++; }
           if (put.length) keptLines.push(_nameOf[g.f]);
           for (var q = 0; q < put.length; q++) keptLines.push(put[q]);
         });
@@ -2625,6 +2630,8 @@
   function cpNarrativeReorder(lines, maxLines) {
     var p = cpNarrativeParse(Array.isArray(lines) ? lines.join('\n') : String(lines || ''));
     var cap = Number(maxLines) || 25;
+    /* v173 P0：同上——主清单独占配额会把附录挤成 0 条，排除项（防注水填充的护栏）整段消失。 */
+    var mainCap2 = Math.min(cap, (typeof window !== 'undefined' ? (Number(window.CP_NARR_MAXMAIN) || 17) : 17));
     var order = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7'];
     var head = [], appx = [];
     CP_NARR_SECTIONS.forEach(function (sec) {});
@@ -2635,7 +2642,7 @@
       var arr = p.fields[f] || [];
       if (!arr.length) return;
       head.push(names[f]);
-      arr.forEach(function (it) { if (used < cap) { head.push('· ' + it); used++; } });
+      arr.forEach(function (it) { if (used < mainCap2) { head.push('· ' + it); used++; } });
     });
     appx.push('【降级附录】');
     if (p.fields.X1.length) {
@@ -2740,6 +2747,151 @@
     return out;
   }
   window.cpInstrAuditV172 = cpInstrAuditV172;
+
+  /* ============================================================
+   * v173 · 补值弹窗：对话提取 / 决策沉淀 / 显式抑制
+   *
+   * 三件事，都是作者实测反馈倒逼出来的：
+   *
+   * ①「提取」按钮：补值框此前只有硬编码的 N2 示例（安神剂），
+   *    查 N4/N5 缺口时也显示同一段道具示例，作者照着填就填错字段。
+   *    现在按字段从参谋对话里捞真实句子，填的是自己说过的话。
+   *
+   * ② 决策沉淀：把整轮讨论里的「结论 / 取舍 / 约定 / 待办」四分类抽出来，
+   *    供参谋在关键节点主动提示作者落盘，不再靠最后手动整理。
+   *
+   * ③ 显式抑制：旧实现里「不再提示」与「误关闭」是同一个出口——
+   *    作者点叉、点遮罩、按返回键，都被当成「我不想再看到」。
+   *    现在只有显式勾选才落盘，且按章号存：换章自动失效。
+   * ============================================================ */
+
+  /* 字段 → 对话里对应的说法。关键词取自真实参谋讨论的用词，不是凭空造的。 */
+  var CP_NARR_EXTRACT = {
+    N1: { name: '本章主轴', kw: /主轴|主线|本章写|这一章写|核心事件|情感终点|落点|要写的是|整章|主线任务|心理位移|位移/ },
+    N2: { name: '核心物理道具', kw: /道具|物件|手链|珠子|银雾|瓶子|药|疤|气味|温度|摸上去|暗红|凉|烫|外观|实物|锚点|触感|指尖|腕/ },
+    N3: { name: '开场接口', kw: /开场|开头|第一句|第一个动作|起笔|开篇|上来就|一上来|开章|第一幕/ },
+    N4: { name: '推理三段论', kw: /推理|推断|三段论|因为|所以|判断|意识到|反应过来|咯噔|说明|意味着|第一步|第二步|第三步|[①②③]/ },
+    N5: { name: '决定性结尾动作', kw: /结尾|收束|收尾|最后|不可逆|退路|下一章|结尾动作|结尾一拍|收在|落在|压轴/ }
+  };
+
+  /* 决策四分类。用在「关键节点主动提示录入」上。 */
+  var CP_DECISION_KINDS = [
+    { k: '结论', kw: /就这么定|定死|拍板|决定了|确认|按这个来|采用|采纳|就按|已定|锁定|不再改|敲定|定下来/ },
+    { k: '取舍', kw: /排除|不写|砍掉|否决|不要|改为|换成|剔除|删掉|否决理由|放弃|不采用|去掉/ },
+    { k: '约定', kw: /以后|统一|一律|始终|记住|规则|铁律|每次都|默认|通用|贯穿/ },
+    { k: '待办', kw: /待定|待办|下一步|下一章|留到|后面再|之后再说|还没定|TBD|待议|留待/ }
+  ];
+
+  /* 按句切开对话。太短的碎句（「好」「嗯」）不参与提取。 */
+  function cpNarrSplitSents(t) {
+    return String(t || '')
+      .split(/[\n。！？；;]+/)
+      .map(function (s) { return s.replace(/^[\s·・\-*0-9.、]+/, '').trim(); })
+      .filter(function (s) { return s.length >= 8 && s.length <= 220; });
+  }
+
+  /* 从参谋对话里捞某个叙事字段的候选句子。纯函数，可在 node 里单测。
+     返回 [{text, score, role}]，按命中词数降序。 */
+  function cpNarrExtract(field, log, limit) {
+    limit = limit || 6;
+    var cfg = CP_NARR_EXTRACT[field];
+    if (!cfg) return [];
+    var msgs = Array.isArray(log) ? log : [];
+    var hits = [], seen = {};
+    /* 从最近一轮往回找：作者刚说的比三轮前说的更算数 */
+    for (var i = msgs.length - 1; i >= 0; i--) {
+      var m = msgs[i]; if (!m) continue;
+      var role = (m.role === 'user' || m.role === 'me') ? '作者' : '参谋';
+      var sents = cpNarrSplitSents(m.text != null ? m.text : (m.content || ''));
+      for (var j = 0; j < sents.length; j++) {
+        var s = sents[j];
+        var mm = s.match(new RegExp(cfg.kw.source, 'g'));
+        if (!mm || !mm.length) continue;
+        var key = s.slice(0, 40);
+        if (seen[key]) continue;
+        seen[key] = 1;
+        hits.push({ text: s, score: mm.length, role: role });
+      }
+    }
+    hits.sort(function (a, b) { return b.score - a.score; });
+    return hits.slice(0, limit);
+  }
+
+  /* 整轮讨论的设计决策摘要：结论 / 取舍 / 约定 / 待办。
+     log 缺省时回落到当前章作用域的参谋日志。 */
+  function cpNarrDecisionDigest(log, limit) {
+    limit = limit || 5;
+    if (!Array.isArray(log)) { try { log = cpLogScoped(); } catch (e) { log = []; } }
+    var out = { 结论: [], 取舍: [], 约定: [], 待办: [] };
+    var seen = {};
+    for (var i = log.length - 1; i >= 0; i--) {
+      var m = log[i]; if (!m) continue;
+      var sents = cpNarrSplitSents(m.text != null ? m.text : (m.content || ''));
+      for (var j = 0; j < sents.length; j++) {
+        var s = sents[j];
+        for (var k = 0; k < CP_DECISION_KINDS.length; k++) {
+          var kind = CP_DECISION_KINDS[k];
+          if (!kind.kw.test(s)) continue;
+          var bucket = out[kind.k];
+          if (bucket.length >= limit) continue;
+          var key = kind.k + '|' + s.slice(0, 40);
+          if (seen[key]) continue;
+          seen[key] = 1;
+          bucket.push(s);
+        }
+      }
+    }
+    return out;
+  }
+
+  /* 把决策摘要渲染成可粘贴进指令框的文本块 */
+  function cpNarrDecisionText(d) {
+    d = d || {};
+    var order = ['结论', '取舍', '约定', '待办'];
+    var lines = [];
+    order.forEach(function (k) {
+      var arr = d[k] || [];
+      if (!arr.length) return;
+      lines.push('【' + k + '】');
+      arr.forEach(function (s) { lines.push('· ' + s); });
+    });
+    return lines.join('\n');
+  }
+
+  /* ---- 显式抑制状态：按章号存，只有作者显式点「不再提示」才写 ---- */
+  function cpNarrSuppKey(chNum) { return 'cpNarrSupp:' + String(chNum == null ? '-' : chNum); }
+  function cpNarrIsSuppressed(chNum) { try { return !!get1(cpNarrSuppKey(chNum)); } catch (e) { return false; } }
+  function cpNarrSetSuppress(chNum, on) {
+    try {
+      if (on) put(cpNarrSuppKey(chNum), { at: now ? now() : Date.now() });
+      else { try { save(cpNarrSuppKey(chNum), null); } catch (e2) {} try { localStorage.removeItem(cpNarrSuppKey(chNum)); } catch (e3) {} }
+      return true;
+    } catch (e) { return false; }
+  }
+  /* 一次性清掉所有章的抑制标记（「恢复补值提示」入口） */
+  function cpNarrClearSuppress() {
+    var n = 0;
+    try {
+      var keys = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && (k.indexOf('cpNarrSupp:') === 0 || k.indexOf('cpBak:cpNarrSupp:') >= 0)) keys.push(k);
+      }
+      keys.forEach(function (k) { try { localStorage.removeItem(k); n++; } catch (e) {} });
+    } catch (e) {}
+    return n;
+  }
+
+  window.cpNarrExtract = cpNarrExtract;
+  window.cpNarrDecisionDigest = cpNarrDecisionDigest;
+  window.cpNarrDecisionText = cpNarrDecisionText;
+  window.cpNarrIsSuppressed = cpNarrIsSuppressed;
+  window.cpNarrSetSuppress = cpNarrSetSuppress;
+  window.cpNarrClearSuppress = cpNarrClearSuppress;
+  /* v173 修复：index.html 的补值落盘两行一直在找 cpPersistBrief / window.cpPersistBrief，
+     两者此前都不可见（模块私有，从未挂 window）——补值只改了 DOM、没进存档，切章即蒸发。 */
+  window.cpPersistBrief = cpPersistBrief;
+  window.cpLogScoped = cpLogScoped;
 
   window.cpInstrAudit = cpInstrAudit;
   window.cpInstrGap = cpInstrGap;

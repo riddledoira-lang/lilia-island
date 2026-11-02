@@ -1446,6 +1446,11 @@
       <!-- v172：剧情节奏与物证密度范本（few-shot）。与上面的文风样本分开：这里学的是节奏密度、道具用法与对话的刺穿性，不是语感。 -->
       <label style="margin-top:10px;">节奏与物证密度范本（叙事 few-shot）— 粘贴 1–2 段你认可的紧凑章节</label>
       <textarea id="aiPlotSample" style="min-height:90px;" placeholder="例如：粘贴「究极缝合版」这类紧凑章节。生成时只学它的节奏密度、道具用法与对话的刺穿性，不会抄袭情节与句子。"></textarea>
+      <!-- v173：补值弹窗抑制的复位入口。误关闭不会落盘，只有勾选过「不再提示」才需要来这儿撤销。 -->
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button type="button" class="btn" onclick="cpNarrUnmuteAll()" style="font-size:12px;padding:6px 10px;">恢复补值提示</button>
+        <span class="meta" style="font-size:11px;">撤销所有章上「不再提示补值」的勾选（误关闭不会记录，正常无需点）</span>
+      </div>
       <label style="margin-top:10px;"><svg class="btn-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v16M18 4v16M3 8h6M15 8h6M3 16h6M15 16h6"/><circle cx="6" cy="8" r="2"/><circle cx="18" cy="16" r="2"/></svg>采样参数（temperature / top_p 独立可调 · 正文生成）</label>
       <div class="smp-presets">
         <button type="button" class="smp-p" data-p="safe"     onclick="applySmpPreset('safe',this)">稳妥 <b>1.0/0.90</b></button>
@@ -8160,7 +8165,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v172";
+const APP_VERSION="v173";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8181,6 +8186,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v173","V173 补值弹窗可重现 + 对话提取 + 决策自动沉淀（依据作者实测反馈）。\n· 【弹窗只出现一次】误关闭与「不再提示」此前共用一个出口：点叉 / 点遮罩 / Esc 都被当成不想再看。现改为——关弹窗只是这次不填，每次生成都重新校验指令；只有显式勾选「第 N 章不再提示」才落盘抑制，且按章号存、换章自动失效；AI 生成设置新增「恢复补值提示」一键撤销。\n· 【补值不落盘的真 bug】补值弹窗的落盘两行一直在找 cpPersistBrief / window.cpPersistBrief，而它是 plus.js 的模块私有函数、从未挂 window——两行都是死代码，补的值只改了 DOM、切章即蒸发。现已挂出，并在写回失败时回落到 autoSaveChapter。\n· 【补值插错位置】旧实现把补的条目无脑追加到末尾，掉到【定稿完】之外，下次解析段落归属错乱。现插到【定稿完】之前。\n· 【示例与字段错配】五个缺口的文本框此前共用同一段 N2「安神剂」示例，查推理三段论 / 决定性结尾动作时也显示道具示例，作者照着填就把推理链写成了物件描写。现每个字段给自己的示例与填写要点。\n· 【从对话提取】每个补值框新增「🔍 从对话提取」：按字段从参谋讨论里捞原话（按命中词排序、从最近一轮往回找），点一条即可填入、可再改。\n· 【决策自动沉淀】参谋每次回复后，自动把讨论里的结论 / 取舍 / 约定 / 待办四分类录进「本章专属指令」的【本轮决策沉淀】块（同名块替换而非越堆越长），不再靠最后手动整理；开关 window.CP_DIGEST_AUTO=0 可关。\n· 【空填不再静默放行】一个字都没填却点「写入指令并生成」时，明确提示已按「不填」处理，不再假装写完。"],
   ["v172","V172 叙事清单重构 + 待定项硬阻断 + V143 开关退役（依据五版实测比对）。\n· 【指令形态重构】定稿指令从「约束清单」改为「叙事主清单 + 降级附录」：本章主轴 / 核心物理道具 / 开场接口 / 推理三段论 / 决定性结尾动作 / 角色行动红线 / 节拍，加排除项（必须带否决理由）与开放区，条目上限 25。依据：App 版只写「不要写什么」、不写「写什么画面」，AI 在留白处自行发明烤栗子、苹果挞、查图书、削魔杖。\n· 【截断优先级重写】旧逻辑从前往后砍到 40 条，正好砍掉排在主清单靠后的【决定性结尾动作】——这正是 V169 把两条已锁死项（第18条伊格诺图斯悖论、第22条请柬）在正文里执行成 0 处的机制。新逻辑先全量保主清单，超配额先砍开放区与排除项尾部。\n· 【待定项硬阻断】五个关键字段留白或仍标【未定】时禁止生成，弹窗强制填具体值（可点「仍然生成」跳过）。依据：源头指令写「决心的产物具体是什么物件【未定】」，AI 不会停下来问，它自己填了烤栗子。\n· 【新闸门 A9-A15】A9 关键字段未定(阻断) / A10 缺核心物理道具或无感官描写(阻断) / A11 缺推理三段论(阻断) / A12 缺决定性结尾动作(阻断) / A13 排除项无否决理由(警告) / A14 角色红线缺正向要求(警告) / A15 条目超限(警告)。\n· 【A6 边界修正】旧正则会把新字段「拧开瓶盖一口喝干」误判成写死结尾，导致新格式指令 100% 误报；改为态度句命中、或引号原话加不可逆动作同时命中才报。\n· 【参考范文锚定】AI 设置内新增「节奏与物证密度范本」输入框，生成时注入范本（只学节奏密度、道具用法与对话的刺穿性），并禁止出现指令与范本中都不存在的日常食物与填充动作。\n· 【V143 开关退役】参谋统一为单条链路。实测 143 底稿总分 51 分，五版末位（V169 58 / V167 63 / DS版 79 / 缝合版 100）——回滚未提升质量，V143 不是解。生成定稿指令按钮恢复显示（此前静态隐藏但运行时被显示回来，属声明与实现不一致）。"],
   ["v171","V171 三处新闸门 + 结尾补救 + 参谋输出结构契约（依据四方实测比对）。\n· 【A6 结尾写死检测·阻断】指令若直接给出结尾动作句/台词/比喻即判阻断。实测：V169 指令写死「该磨牙了」→ 结尾三件套 0/3；V143 要点式不写死 → 1/3。只给验收标准，别给句子。\n· 【A7 排除连带检测·阻断】【排除】若切断时间锚或核爆物证即告警。实测：V169 排除沙菲克后，正文失去「下周五」这个时间锚，三件套直接少一项——而沙菲克正是缝合版结尾时间锚的来源。\n· 【A8 条目纪律】指令条目 >25 条告警。实测：43 条的定稿指令在最终正文里漏执行了两条已锁死的关键项（伊格诺图斯悖论 0 处、请柬 0 处命中）。\n· 【结尾三件套自动评分】深度续写完成后本地打分（物证结算 / 不可逆动作 / 未完成动作加时间锚），低于 2/3 时提示「✎ 只重写结尾」。\n· 【✎ 只重写结尾】新增按钮（体检台内）：只把最后 6 段与结尾验收标准交给模型，前文一字不动，成本约为整章重写的十分之一——结尾是四方比对里差距最大的一项（缝合版 3/3 对 V169 的 0/3），单点补救收益最高。\n· 【参谋输出结构契约】参谋凡给出方案须按七段输出：本章主轴 / 物证链（铺垫-复现-结算）/ 节拍 / 伏笔回收清单（带章节号）/ 排除 / 结尾验收标准 / 开放区；并新增结尾禁令与条目纪律。V143 与 v169 两种参谋模式下都生效。回滚：CP_COUNSEL_STRUCT=0。"],
   ["v170","定向回滚：剧情参谋恢复至 V143 状态（其余功能全部保持 v169 不变）。\n· 【为什么回滚】V169 产出与「究极缝合版」实测比对后确认仍未达标：正文物证 22 种 vs 缝合版 43 种；结尾三件套（物证结算 / 不可逆动作 / 未完成动作带时间锚）得 0/3——收在「该磨牙了」这类可逆的态度陈述上；指令相对缝合版仍缺 38 个物证，含核爆物证玻璃瓶/瓶/药。\n· 【回滚范围·仅参谋】① 对话窗口回到 V143 的 8 条（16 条是 v166 增强）；② 系统提示词只保留 V143 的 7 条铁律，v167 的 ⑪-⑭ 角色升级条款不注入；③ 指令出口回到 V143 的「写进本章指令」= counselToBrief 取参谋最后一轮回复前 1200 字，「生成定稿指令」按钮退役；④ 取消 v167 的章节作用域隔离（采纳/否决回到书级单桶）与 v166 的自动采纳。\n· 【明确不受影响】深度续写、全体角色声线卡、节拍卡章级化与重选、预览面板口径、指令质量闸门（🔍 指令体检）、分卷隔离、离线与部署链路——全部保持 v169。\n· 【开关】window.CP_ROLLBACK_V143：默认 1（V143 参谋）。设为 0 即恢复 v169 参谋增强，刷新生效；参谋面板顶部有状态提示条。\n· 【给作者的结论】回滚只改变「指令由谁产出」：V143 模式下参谋不代写指令，指令回到作者 / 外部模型手中。实测同一 APP 换用外部 DeepSeek 指令生成的第77章，结尾给出了行动意向与时间锚（我明天得去看看）、物证链完整，明显优于 APP 内部指令产出——瓶颈在指令内容本身，不在写作引擎。"],
@@ -12783,28 +12789,85 @@ function cpNarrativeFillGaps(gaps, brief){
     N5:"决定性结尾动作（谁做了什么不可撤回的事 + 付出/放弃什么 + 下一章失去哪条退路）"
   };
   var _sec={N1:"一、本章主轴",N2:"二、核心物理道具",N3:"三、开场接口",N4:"四、推理三段论",N5:"五、决定性结尾动作"};
+  /* v173：示例此前对所有缺口都硬编码成同一段 N2「安神剂」例子——查 N4/N5 时也显示道具示例，
+     作者照着填就把推理链写成了物件描写。现在每个字段给自己的示例与填写要点。 */
+  var _example={
+    N1:"例：薇拉接过请柬后的两天里，从「压下去相信」走到「咯噔落地」——她确认詹姆斯在绕，却没揭穿。",
+    N2:"例：一瓶暗红色的安神剂，带烧焦味和血腥味，摸上去还是温的；詹姆斯右手袖口有一道被火燎过的新疤",
+    N3:"例：第一句「詹姆斯有事瞒着我」；第一个动作是他从走廊那头回来，手里攥着东西，经过拐角时先看了一眼沙菲克。",
+    N4:"例：①他不会记错伊格诺图斯的名字；②他用的是「挡灾」不是「帮忙」；③那张纸上有我的名字没有他的——所以他要穿隐形衣替我挡灾。",
+    N5:"例：回到寝室拧开瓶盖一口喝完，把空瓶搁在窗台上；下一章失去的退路是「还能假装不知道」。"
+  };
+  var _hint={
+    N1:"一句话说清「谁 + 什么处境 + 做了什么不可撤回的事」，别写成主题概括。",
+    N2:"必须给外观 / 气味 / 温度中的至少两项，并绑定一处身体细节（疤、印子、手感）。",
+    N3:"给「第一句 + 第一个动作 + 第一个在场者」中的两项。",
+    N4:"三步递进，第三步要给出可被下一章验证或推翻的具体结论，不能停在「她起了疑心」。",
+    N5:"动作 + 作用物件 + 下一章因此失去哪条退路，三者缺一不可。"
+  };
   return new Promise(function(resolve){
     var mask=document.createElement("div");
     mask.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;";
     var h='<div style="background:var(--bg,#fff);color:var(--fg,#222);border-radius:12px;max-width:680px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">';
     h+='<h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">叙事清单缺 '+gaps.length+' 项</h3>';
+    var _chNum=(document.getElementById("chNum")&&document.getElementById("chNum").value)||"?";
     h+='<p style="margin:0 0 14px;font-size:12px;line-height:1.7;opacity:.85;">留【未定】时 AI 不会等你——它会自己填一个最安全、最不引发后续剧情的选项（烤栗子、苹果挞、查图书、削魔杖）。填具体值再生成。</p>';
     gaps.forEach(function(g,idx){
-      h+='<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:500;margin-bottom:4px;">'+(idx+1)+'. '+(_label[g]||g)+'</div>';
-      h+='<textarea id="narrGap_'+g+'" rows="3" style="width:100%;box-sizing:border-box;font-size:14px;padding:8px;border-radius:8px;" placeholder="例（N2）：一瓶暗红色的安神剂，带烧焦味和血腥味，摸上去还是温的；詹姆斯右手袖口有一道被火燎过的新疤"></textarea></div>';
+      h+='<div style="margin-bottom:14px;">';
+      h+='<div style="font-size:13px;font-weight:500;margin-bottom:2px;">'+(idx+1)+'. '+(_label[g]||g)+'</div>';
+      if(_hint[g]) h+='<div style="font-size:11px;opacity:.7;margin-bottom:4px;line-height:1.6;">'+_hint[g]+'</div>';
+      h+='<textarea id="narrGap_'+g+'" rows="3" style="width:100%;box-sizing:border-box;font-size:14px;padding:8px;border-radius:8px;" placeholder="'+(_example[g]||"")+'"></textarea>';
+      h+='<div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap;">';
+      h+='<button type="button" class="narrPick" data-f="'+g+'" style="font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd,rgba(0,0,0,.15));background:transparent;cursor:pointer;">🔍 从对话提取</button>';
+      h+='<span style="font-size:11px;opacity:.6;">点开后从参谋讨论里捞这一项的原话，点一条即可填入</span>';
+      h+='</div>';
+      h+='<div id="narrCand_'+g+'" style="display:none;margin-top:6px;"></div>';
+      h+='</div>';
     });
     h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">';
     h+='<button type="button" id="narrOk" style="flex:1;min-width:130px;padding:10px;border-radius:8px;">写入指令并生成</button>';
     h+='<button type="button" id="narrForce" style="padding:10px;border-radius:8px;">仍然生成（不填）</button>';
     h+='<button type="button" id="narrCancel" style="padding:10px;border-radius:8px;">取消</button>';
-    h+='</div></div>';
+    h+='</div>';
+    /* v173：区分「误关闭」与「主动不再提示」。
+       默认不勾 → 关掉弹窗只是这次不填，下次照常弹；
+       勾上再关 → 才落盘抑制，且只抑制当前章号，换章自动恢复。 */
+    h+='<label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;opacity:.8;cursor:pointer;">';
+    h+='<input type="checkbox" id="narrMute" style="width:15px;height:15px;">';
+    h+='<span>第 '+_chNum+' 章不再提示我补这些项（勾上后关闭弹窗才生效，换章自动恢复）</span>';
+    h+='</label>';
+    h+='<div style="font-size:11px;opacity:.55;margin-top:4px;line-height:1.6;">关弹窗＝只是这次不填，下次仍会提示。想彻底恢复：AI 生成设置 →「恢复补值提示」。</div>';
+    h+='</div>';
     mask.innerHTML=h;
     document.body.appendChild(mask);
-    function close(){ try{ mask.parentNode.removeChild(mask); }catch(e){} }
+    /* v173：误关闭（点叉 / 点遮罩 / Esc）一律不写抑制；只有勾选「不再提示」才落盘。 */
+    function close(){
+      try{
+        var cb=document.getElementById("narrMute");
+        if(cb&&cb.checked&&typeof window.cpNarrSetSuppress==="function") window.cpNarrSetSuppress(_chNum,true);
+      }catch(e){}
+      try{ mask.parentNode.removeChild(mask); }catch(e){}
+      try{ document.removeEventListener("keydown",onEsc); }catch(e){}
+    }
+    function onEsc(e){ if(e&&(e.key==="Escape"||e.keyCode===27)){ close(); resolve(null); } }
+    document.addEventListener("keydown",onEsc);
+    /* 点遮罩空白处＝误关闭，不抑制 */
+    mask.addEventListener("click",function(e){ if(e.target===mask){ close(); resolve(null); } });
+    /* v173：补值插到【定稿完】之前。旧实现无脑追加到末尾，补的内容掉到定稿块外面，
+       下次再解析时段落归属错乱，也让「定稿完」这个收尾标记失去意义。 */
+    function insertAdd(base,add){
+      var b=String(base||"");
+      var i=b.indexOf("【定稿完】");
+      if(i>=0) return b.slice(0,i)+add.join("\n")+"\n"+b.slice(i);
+      return b+(b?"\n":"")+add.join("\n");
+    }
     function persist(txt){
       try{ var ta=document.getElementById("chBrief"); if(ta) ta.value=txt; }catch(e){}
-      try{ if(typeof cpPersistBrief==="function") cpPersistBrief(); }catch(e){}
-      try{ if(typeof window.cpPersistBrief==="function") window.cpPersistBrief(); }catch(e){}
+      /* v173：cpPersistBrief 此前是 plus.js 的模块私有函数，两行调用都取不到——
+         补值只改了 DOM、没进存档，切章即蒸发。现在已挂到 window。 */
+      var done=false;
+      try{ if(typeof window.cpPersistBrief==="function") done=window.cpPersistBrief(); }catch(e){}
+      if(!done){ try{ if(typeof autoSaveChapter==="function") autoSaveChapter(); }catch(e2){} }
     }
     var okBtn=document.getElementById("narrOk");
     var foBtn=document.getElementById("narrForce");
@@ -12817,14 +12880,106 @@ function cpNarrativeFillGaps(gaps, brief){
         if(v) add.push((_sec[g]||g)+"\n· "+v+"【已定】");
       });
       close();
-      if(!add.length){ resolve({text:brief, force:true}); return; }
-      var txt=String(brief||"")+"\n"+add.join("\n");
+      if(!add.length){
+        /* 一个字都没填却点了「写入指令」：不能假装写完放行——明确告诉作者发生了什么。 */
+        try{ toast("没有填写任何内容，已按「不填」处理：AI 会自行补一个最安全的选项"); }catch(eT){}
+        resolve({text:brief, force:true}); return;
+      }
+      var txt=insertAdd(brief,add);
       persist(txt);
       resolve({text:txt, force:false});
     };
     if(foBtn) foBtn.onclick=function(){ close(); resolve({text:brief, force:true}); };
     if(caBtn) caBtn.onclick=function(){ close(); resolve(null); };
+    /* v173：「从对话提取」——按字段从参谋讨论里捞原话，填的是作者自己说过的话，
+       不再是那句对所有缺口通用的 N2 安神剂示例。 */
+    try{
+      var picks=mask.querySelectorAll(".narrPick");
+      for(var pi=0;pi<picks.length;pi++){
+        (function(btn){
+          btn.onclick=function(){
+            var f=btn.getAttribute("data-f")||"";
+            var box=document.getElementById("narrCand_"+f);
+            var ta=document.getElementById("narrGap_"+f);
+            if(!box||!ta) return;
+            if(box.style.display!=="none"&&box.innerHTML){ box.style.display="none"; return; }
+            var log=[];
+            try{ if(typeof window.cpLogScoped==="function") log=window.cpLogScoped()||[]; }catch(e){ log=[]; }
+            var cands=[];
+            try{ if(typeof window.cpNarrExtract==="function") cands=window.cpNarrExtract(f,log,6)||[]; }catch(e2){ cands=[]; }
+            if(!cands.length){
+              box.innerHTML='<div style="font-size:12px;opacity:.65;padding:6px 2px;">参谋讨论里没找到与「'+(_label[f]||f)+'」相关的句子，请手动填写。</div>';
+              box.style.display="block"; return;
+            }
+            var ch2='<div style="font-size:11px;opacity:.6;margin-bottom:4px;">点一条填入（会追加到框里，可再改）</div>';
+            cands.forEach(function(c,i){
+              var t=String(c.text||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+              ch2+='<div class="narrCandItem" data-i="'+i+'" style="font-size:12px;line-height:1.6;padding:7px 9px;border:1px solid var(--bd,rgba(0,0,0,.12));border-radius:7px;margin-bottom:5px;cursor:pointer;">'
+                 +'<span style="opacity:.55;">［'+(c.role||"")+'］</span>'+t+'</div>';
+            });
+            box.innerHTML=ch2; box.style.display="block";
+            var items=box.querySelectorAll(".narrCandItem");
+            for(var ii=0;ii<items.length;ii++){
+              (function(el,i2){
+                el.onclick=function(){
+                  var v=String((cands[i2]&&cands[i2].text)||"").trim();
+                  if(!v) return;
+                  ta.value=ta.value&&ta.value.trim()? (ta.value.replace(/\s+$/,"")+"\n"+v) : v;
+                  try{ toast("已填入，可直接修改后再生成"); }catch(eT){}
+                };
+              })(items[ii],ii);
+            }
+          };
+        })(picks[pi]);
+      }
+    }catch(eP){}
   });
+}
+/* v173：撤销所有章上的「不再提示补值」勾选。
+   误关闭（点叉 / 点遮罩 / Esc）从来不落盘，所以正常情况下不需要点这里——
+   这是给「当初确实勾过、现在改主意了」留的出口。 */
+function cpNarrUnmuteAll(){
+  var n=0;
+  try{ if(typeof window.cpNarrClearSuppress==="function") n=window.cpNarrClearSuppress(); }catch(e){ n=-1; }
+  try{ toast(n>0? ("已恢复 "+n+" 处补值提示，下次生成会重新校验指令") : (n===0?"没有需要恢复的补值提示":"恢复失败，请刷新页面后重试")); }catch(eT){}
+}
+/* v173：把参谋讨论里的设计决策（结论/取舍/约定/待办）自动落进「本章专属指令」。
+   旧流程全靠作者最后手动整理——讨论里拍板的东西散在几十条消息里，写指令时只记得最后三句。
+   现在每次参谋回复后自动刷新同一块【本轮决策沉淀】：同名的块会被替换而不是越堆越长。 */
+var CP_DIGEST_MARK="【本轮决策沉淀】";
+function cpStripDigest(t){
+  t=String(t||"");
+  var i=t.indexOf(CP_DIGEST_MARK);
+  if(i<0) return t;
+  var rest=t.slice(i+CP_DIGEST_MARK.length);
+  var m=rest.search(/\n【/);
+  var end=(m>=0)?(i+CP_DIGEST_MARK.length+m+1):t.length;
+  return (t.slice(0,i)+t.slice(end)).replace(/\n{3,}/g,"\n\n").replace(/\s+$/,"");
+}
+function cpAutoDigestWrite(opt){
+  try{
+    if(window.CP_DIGEST_AUTO===0) return 0;
+    if(typeof window.cpNarrDecisionDigest!=="function") return 0;
+    var d=window.cpNarrDecisionDigest(null,5);
+    var body=(typeof window.cpNarrDecisionText==="function")?window.cpNarrDecisionText(d):"";
+    var el=document.getElementById("chBrief");
+    if(!el) return 0;
+    var cnt=(body.match(/^· /gm)||[]).length;
+    var base=cpStripDigest(el.value);
+    var next=(base?base.replace(/\s+$/,"")+"\n\n":"")+CP_DIGEST_MARK+"\n"+body;
+    if(!cnt){
+      /* 这一轮没有新的决策要点：如果之前写进过，就把过期块清掉，避免拿旧决策当现行指令 */
+      if(String(el.value||"").indexOf(CP_DIGEST_MARK)>=0){
+        el.value=base;
+        try{ if(typeof window.cpPersistBrief==="function") window.cpPersistBrief(); }catch(e){}
+      }
+      return 0;
+    }
+    el.value=next;
+    try{ if(typeof window.cpPersistBrief==="function") window.cpPersistBrief(); }catch(e2){}
+    if(!(opt&&opt.silent)){ try{ toast("已自动录入 "+cnt+" 条决策要点（结论/取舍/约定/待办），可在「本章专属指令」里改"); }catch(eT){} }
+    return cnt;
+  }catch(e){ return 0; }
 }
 /* v169-B：跨章旧卡的一次性三选一（流程内出口）。
    此前深度续写遇到已挂载旧卡时静默沿用，界面上没有任何换卡入口——
@@ -13477,11 +13632,19 @@ async function aiDeepGen(){
      最安全、最不引发后续剧情的选项——烤栗子、苹果挞、查图书、削魔杖。 */
   let _narr=(typeof window.cpNarrativeParse==="function")?window.cpNarrativeParse(brief):null;
   let _narrForce=false;
+  let _narrMuted=false;
+  try{ if(typeof window.cpNarrIsSuppressed==="function") _narrMuted=window.cpNarrIsSuppressed(num); }catch(eM){}
+  /* v173：关闭弹窗（误关闭）不写任何标记，所以这里每次都会重新校验；
+     只有作者显式勾选「第 N 章不再提示」才会命中 _narrMuted，且换章即失效。 */
   if(_narr && !_narr.degraded && window.CP_NARR_BLOCK!==0 && _narr.gaps.length){
+    if(_narrMuted){
+      try{ toast("第"+num+"章已设为不再提示补值（AI 生成设置 →「恢复补值提示」可撤销）"); }catch(eT){}
+    }else{
     const _filled=await cpNarrativeFillGaps(_narr.gaps, brief);
     if(_filled===null){ try{ toast("已取消生成：关键叙事字段补齐后再生成"); }catch(eT){} return; }
     brief=_filled.text; _narrForce=!!_filled.force;
     _narr=(typeof window.cpNarrativeParse==="function")?window.cpNarrativeParse(brief):null;
+    }
   }
   /* 续写模式：续写当前分卷 vs 续写全书完整剧情（提前确定，供 collectPrior 分卷隔离使用） */
   const writeModeEl=document.querySelector('input[name="deepWriteMode"]:checked');
@@ -16375,9 +16538,12 @@ window.CP_COUNSEL_CONVERGE=1; /* 1=收敛型（⑤ 改条款 + ⑧⑨⑩ 生效�
 /* v172：叙事清单开关。此前该变量从未赋值（undefined!==0 恒真），控制台无法回滚，故显式声明。
    0=关闭八段叙事清单契约与 A9-A15 闸门；1=默认开启。 */
 window.CP_COUNSEL_STRUCT=1;
-window.CP_NARR_MAXLINES=25;    /* 叙事清单条目上限（主清单 17 + 附录 8） */
+window.CP_NARR_MAXLINES=25;       /* 叙事清单总条目上限（主清单 + 附录） */
+window.CP_NARR_MAXMAIN=17;        /* v173 P0：主清单独立上限。旧逻辑主清单独占 25 条配额 → 附录 0 条，
+                                    排除项（防注水填充的护栏）与核爆线被整段砍光（实测 V172 指令「隐形衣/伊格诺图斯」0 处，V171 有 14 处） */    /* 叙事清单条目上限（主清单 17 + 附录 8） */
 window.CP_NARR_MAXCHARS=5200;  /* 定稿块字符上限（八段 + 否决理由比旧六段长） */
 window.CP_NARR_BLOCK=1;        /* 1=关键字段【未定】时禁止生成正文（硬阻断）；0=仅提示 */
+window.CP_DIGEST_AUTO=1;       /* v173：1=参谋回复后自动把决策要点（结论/取舍/约定/待办）录进「本章专属指令」；0=关闭自动录入 */
 /* v153：参谋单条回复的字数上限（字）。控制台执行 window.CP_REPLY_MAXCHARS=800 即时生效——
    每次发送都在组装 sys 时现读 window 值，不缓存，也不在别处写回覆盖。 */
 window.CP_REPLY_MAXCHARS=600;
@@ -16517,6 +16683,9 @@ async function counselSend(){
     _counselLog.push({role:"ai", text:out, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
     counselSave();
     counselRender();
+    /* v173：关键节点自动录入。参谋刚给完答复＝刚产生决策，趁热把结论/取舍/约定/待办
+       落进「本章专属指令」，不再等作者最后手动整理（实测整理时只记得最后三句）。 */
+    try{ cpAutoDigestWrite(); }catch(eD){ console.error("[剧情参谋] 决策沉淀失败：",eD); }
   }catch(e){
     /* 外层兜底：非 AI 环节（读配置、渲染）出的错也要让人看见 */
     const ex=counselExplain(e);
