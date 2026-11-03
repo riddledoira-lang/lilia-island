@@ -1627,16 +1627,29 @@
      抬到 32、并给主清单加了第 8 段（七、生理与感官锚点），但 17 一直没跟着动——
      实测 V176 与 V177 的主清单都正好卡在 17 条（两版都是 5+7+5、6+8+3 块被削平），
      块3 的四/五/六/七/八段整段消失。所以「配额上调对主清单无效」的根因就是这里。 */
+  /* v182：提示词目标量与配额彻底解耦。这是本轮最关键的一处。
+     实测发现一个正反馈：提示词里写「主清单不超过 X 条」，模型就按 X 写；v181 把 X 从 22 抬到 45，
+     模型这次实际写了约 54 条主清单 + 16 条附录 = 70 条，比上一轮 60 条更多——
+     配额抬一档，模型就多写一档，永远差几条。所以：
+       · 提示词里的数字 = 目标量（稳定不变，模型以它为锚）；
+       · 代码里的配额 = 目标量 + 余量（只用于兜底，模型偶尔超写时兜住、不告诉模型）。
+     这样模型不会被越抬越大的数字牵着走，配额也不会再被追着涨。 */
+  function cpNarrTargetMain() { return 45; }   /* 提示词里告诉模型的「主清单不超过 N 条」 */
+  function cpNarrTargetAppx() { return 19; }   /* 提示词里告诉模型的「附录不超过 N 条」 */
+  window.cpNarrTargetMain = cpNarrTargetMain;
+  window.cpNarrTargetAppx = cpNarrTargetAppx;
+
   /* v181：主清单上限改为「按总配额的比例算」，不再是固定的 22。
      v179 的公式是「8 段 × 2.5 + 2 = 22」，它把主清单钉死在 22 条——于是当模型一次写出
      60 条（主清单约 40、附录约 20）时，总配额 32 与主清单 22 两道闸同时削，实测砍掉 28 条。
-     现在总配额抬到 64，主清单按 70% 取：64 → 45 条，剩下的留给附录三段。
+     v182：总配额抬到 80、比例 0.75 → 60 条，给主清单留出足够余量（实测模型写约 54 条）；
+     附表仍有 20 条空间，且下面有「闲置配额回填」，两边都不会白占。
      window.CP_NARR_MAXMAIN 保留为手动覆盖：>0 时优先用它（并夹到总配额内）。 */
   function cpNarrMaxMain() {
-    var lines = Number(window.CP_NARR_MAXLINES) || 64;
+    var lines = Number(window.CP_NARR_MAXLINES) || 80;
     var ov = Number(window.CP_NARR_MAXMAIN) || 0;
     if (ov > 0) return Math.min(ov, lines);
-    var v = Math.round(lines * 0.7);               /* 64 × 0.7 = 45；主清单是承重墙，占大头 */
+    var v = Math.round(lines * 0.75);              /* 80 × 0.75 = 60；主清单是承重墙，占大头 */
     return Math.min(v, Math.max(6, lines - 8));    /* 至少给附录三段留 8 条（每段保底 2 条 + 余量） */
   }
   window.cpNarrMaxMain = cpNarrMaxMain;
@@ -2265,10 +2278,9 @@
       + '· 七、生理与感官锚点必须给出每个关键出场角色的身体痕迹（疤/伤/温度/不受控肌肉反应），这是本章画面的来源；\n'
       + '· 六、角色行动红线必须正负双向；九、排除项必须带否决理由；\n'
       + '· 十一、微表情替换表必须列出本章禁用的情绪词及其替换动作。\n'
-      /* v181：条数上限不再写死 22/10，改为从配额常量实时算。
-         此前提示词写 22/10、代码给 17/15、v179 后代码给 22/10，三处口径长期对不上；
-         现在只有一个源：CP_NARR_MAXLINES 与 cpNarrMaxMain()，改配额时提示词自动跟着变。 */
-      + '主清单不超过 ' + cpNarrMaxMain() + ' 条、附录不超过 ' + Math.max(0, (Number(window.CP_NARR_MAXLINES) || 64) - cpNarrMaxMain()) + ' 条，'
+      /* v182：这里用「目标量」而不是配额——告诉模型一个稳定的数，它才不会每轮越写越多。
+         配额（CP_NARR_MAXLINES / cpNarrMaxMain）只用于兜底，不出现在提示词里。 */
+      + '主清单不超过 ' + cpNarrTargetMain() + ' 条、附录不超过 ' + cpNarrTargetAppx() + ' 条，'
       + '严禁出现【未定】【待定】——写不出具体值时整条留空并在末尾输出「【缺口：字段名】」）。';
     return s;
   }
@@ -2451,6 +2463,62 @@
             if (_idxOf[g2.f] < g2.a.length) { _seq.push({ f: g2.f, item: g2.a[_idxOf[g2.f]] }); _idxOf[g2.f]++; _used++; _more = true; }
           }
         }
+        /* v182：改成「先选附录 → 闲置配额回填主清单 → 最后统一按段序输出」。
+           旧顺序是「主清单选完（封顶 mainCap）→ 立刻输出 → 附录再选」，后果是：
+           主清单撞上 mainCap 后，剩余配额只能给附录，附录条目不够用时这些配额就白闲置。
+           实测 v181：总产出 70、保留 60、截断说明写「6 条」——但实际丢掉 10 条，
+           差的 4 条正是闲置配额（64 − 60）。配额一位都不能浪费，否则报出的数字也是错的。 */
+        var _appxOut = [], _appxCnt = [], _appxN = 0;
+        var _aIdx = {}, _aPut = {};
+        /* 附录先拿「属于自己的份额」= 总配额 − 主清单上限；不先跑满整份配额，
+           否则会把下面回填给主清单的名额吃光（主清单是承重墙，优先级高于附录）。 */
+        var _aBound = Math.min(maxLines, _used + Math.max(0, maxLines - mainCap));
+        if (_appx.length) {
+          _appx.forEach(function (g) { _aIdx[g.f] = 0; _aPut[g.f] = []; });
+          /* v179：附录「每段先保底 2 条，剩余配额再按序轮询」。
+             旧实现按 X1→X2→X3 顺序灌满，实测 V177 里 X1 拿满 5 条、X2 拿 8 条，
+             排在最末的 X3（十一、微表情替换表）只剩 2 条——新增段永远第一个被牺牲。 */
+          var _AGUAR = 2;
+          _appx.forEach(function (g) {
+            for (var m0 = 0; m0 < _AGUAR && _aIdx[g.f] < g.a.length; m0++) {
+              if (_used >= _aBound) break;
+              _aPut[g.f].push(g.a[_aIdx[g.f]]); _aIdx[g.f]++; _used++;
+            }
+          });
+          var _aMore = true;
+          while (_used < _aBound && _aMore) {
+            _aMore = false;
+            for (var ai = 0; ai < _appx.length; ai++) {
+              var ag = _appx[ai];
+              if (_used >= _aBound) break;
+              if (_aIdx[ag.f] < ag.a.length) { _aPut[ag.f].push(ag.a[_aIdx[ag.f]]); _aIdx[ag.f]++; _used++; _aMore = true; }
+            }
+          }
+        }
+        /* v182：把仍然空着的配额全部回补给主清单（主清单撞 cap 后的余量 + 附录吃不完的余量）。
+           回填同样走「按段轮询」，不让排在前面的段独占。 */
+        var _topMore = true;
+        while (_used < maxLines && _topMore) {
+          _topMore = false;
+          for (var i3 = 0; i3 < _main.length; i3++) {
+            if (_used >= maxLines) break;
+            var g3 = _main[i3];
+            if (_idxOf[g3.f] < g3.a.length) { _seq.push({ f: g3.f, item: g3.a[_idxOf[g3.f]] }); _idxOf[g3.f]++; _used++; _topMore = true; }
+          }
+        }
+        /* v182：主清单回填完若仍有空位（主清单已被榨干），再把余量还给附录——
+           两头都满了才是真截断，否则就是白白浪费配额。 */
+        if (_appx.length) {
+          var _aMore2 = true;
+          while (_used < maxLines && _aMore2) {
+            _aMore2 = false;
+            for (var a2 = 0; a2 < _appx.length; a2++) {
+              var ag2 = _appx[a2];
+              if (_used >= maxLines) break;
+              if (_aIdx[ag2.f] < ag2.a.length) { _aPut[ag2.f].push(ag2.a[_aIdx[ag2.f]]); _aIdx[ag2.f]++; _used++; _aMore2 = true; }
+            }
+          }
+        }
         /* v180：按段分组输出。选中哪些条一条不改，只改「吐出的顺序」。
            旧实现直接按 _seq 的轮询顺序吐（保底 6 段 → 轮询第 1 轮 8 段 → 轮询第 2 轮 8 段），
            而段名只在「段变了」时才补一次 → 每一轮都把 8 个段名重新发一遍，
@@ -2469,35 +2537,15 @@
           keptLines.push(x.item); _segCnt[_segCnt.length - 1]++; _mainN++;
         });
         if (_appx.length) {
-          var _appxOut = [], _appxCnt = [], _appxN = 0;   /* v180：逐段条数 */
           keptLines.push('【降级附录】');
-          /* v179：附录改为「每段先保底 2 条，剩余配额再按序轮询」。
-             旧实现按 X1→X2→X3 顺序灌满，实测 V177 里 X1 拿满 5 条、X2 拿 8 条，
-             排在最末的 X3（十一、微表情替换表）只剩 2 条——新增段永远第一个被牺牲。
-             这与主清单「按序灌满会让前面的字段吃掉全部余额」是同一个缺陷，修法也照抄主清单那套。 */
-          var _aIdx = {}, _aPut = {};
-          _appx.forEach(function (g) { _aIdx[g.f] = 0; _aPut[g.f] = []; });
-          var _AGUAR = 2;
-          _appx.forEach(function (g) {
-            for (var m0 = 0; m0 < _AGUAR && _aIdx[g.f] < g.a.length; m0++) {
-              if (_used >= maxLines) break;
-              _aPut[g.f].push(g.a[_aIdx[g.f]]); _aIdx[g.f]++; _used++;
-            }
-          });
-          var _aMore = true;
-          while (_used < maxLines && _aMore) {
-            _aMore = false;
-            for (var ai = 0; ai < _appx.length; ai++) {
-              var ag = _appx[ai];
-              if (_used >= maxLines) break;
-              if (_aIdx[ag.f] < ag.a.length) { _aPut[ag.f].push(ag.a[_aIdx[ag.f]]); _aIdx[ag.f]++; _used++; _aMore = true; }
-            }
-          }
           _appx.forEach(function (g) {
             if (_aPut[g.f].length) { _appxOut.push(_nameOf[g.f]); _appxCnt.push(_aPut[g.f].length); _appxN += _aPut[g.f].length; _aPut[g.f].forEach(function (x) { _appxOut.push(x); }); }
           });
           _appxOut.forEach(function (x) { keptLines.push(x); });
         }
+        /* v182：截断数按「实际丢掉多少条」算，不再用「总产出 − 配额」估算。
+           旧算法在有闲置配额时会少报（v181 报 6、实丢 10），用户看到的数字与真实损失不符。 */
+        cut = Math.max(0, _total - (_mainN + _appxN));
       }
       if (cut > 0) lines = keptLines;
       var body = lines.join('\n');
