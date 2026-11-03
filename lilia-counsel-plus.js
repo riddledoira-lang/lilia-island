@@ -2435,6 +2435,22 @@
         _main.forEach(function (g) { _total += g.a.length; });
         _appx.forEach(function (g) { _total += g.a.length; });
         cut = _total > maxLines ? (_total - maxLines) : 0;
+        /* v184：九、排除项的状态标记规范化。
+           实测 v183 指令：5 条排除项里有 3 条被模型打成【已定】（排除三件套→【已定】、
+           排除「第二天中午看台」→【已定】、排除克劳奇额外登场→【已定】）。
+           深度续写把【已定】读成「这条要用」，等于把刚刚排掉的东西重新写回正文——
+           状态标记反了，排除项就从护栏变成了许可。这里做确定性纠正：
+           「九、排除项」里凡以「排除」开头的条目，行尾状态一律改成【排除】；没有标记的补一个。
+           主清单与开放区不动。 */
+        var _exclFixed = 0;
+        var _fixExcl = function (line) {
+          var s = String(line || '');
+          if (s.indexOf('· 排除') !== 0) return s;
+          if (/【排除】\s*$/.test(s)) return s;
+          if (/【(已定|未定|待定|待议)】\s*$/.test(s)) { _exclFixed++; return s.replace(/【(已定|未定|待定|待议)】\s*$/, '【排除】'); }
+          _exclFixed++;
+          return s.replace(/\s+$/, '') + '【排除】';
+        };
         var _used = 0;
         /* v173 P0：主清单必须有自己的上限。旧逻辑让主清单独占全部 25 条配额——
            实测 V172 主清单正好 25 条、附录 0 条，排除项与开放区被整段砍光，
@@ -2539,7 +2555,10 @@
         if (_appx.length) {
           keptLines.push('【降级附录】');
           _appx.forEach(function (g) {
-            if (_aPut[g.f].length) { _appxOut.push(_nameOf[g.f]); _appxCnt.push(_aPut[g.f].length); _appxN += _aPut[g.f].length; _aPut[g.f].forEach(function (x) { _appxOut.push(x); }); }
+            if (_aPut[g.f].length) {
+              _appxOut.push(_nameOf[g.f]); _appxCnt.push(_aPut[g.f].length); _appxN += _aPut[g.f].length;
+              _aPut[g.f].forEach(function (x) { _appxOut.push(g.f === 'X1' ? _fixExcl(x) : x); });  /* v184：排除项状态标记规范化 */
+            }
           });
           _appxOut.forEach(function (x) { keptLines.push(x); });
         }
@@ -2600,6 +2619,8 @@
         _segTxt = '；主清单 ' + _mainN + ' 条（逐段 ' + _segCnt.join('-') + '）';
         if (typeof _appxN === 'number' && _appxN > 0) _segTxt += '，附录 ' + _appxN + ' 条（逐段 ' + _appxCnt.join('-') + '）';
       }
+      /* v184：排除项状态标记被纠正过就明确报出来——这是「刚排掉的东西会不会被重新写回正文」的事，必须可见。 */
+      if (typeof _exclFixed === 'number' && _exclFixed > 0) _segTxt += '；已把 ' + _exclFixed + ' 条排除项的状态标记由【已定】纠正为【排除】';
       var _nMsg = '定稿完成：叙事清单 ' + _usedN + ' 条已写入' + _segTxt + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
       if (_nBlock.length) {
         _nMsg = '定稿已写入，但有 ' + _nBlock.length + ' 项必须补齐（' + _nBlock.map(function (x) { return x.code; }).join('/') + '）。生成正文前会强制要求填具体值——留【未定】的话 AI 不会等你，它会自己发明烤栗子式的填充。';
