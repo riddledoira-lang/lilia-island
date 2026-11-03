@@ -1401,14 +1401,39 @@
       var log = cpLogScoped();
       var turnMax = Number(window.CP_FINAL_TURNS) || 40;
       var inMax = Number(window.CP_FINAL_INCHARS) || 24000;
-      var src = log.slice(-turnMax);
-      /* 从后往前取，尽量多带：先保证最新的完整留下，超预算再丢最旧的 */
-      var used = 0, picked = [];
-      for (var k = src.length - 1; k >= 0; k--) {
-        var t = String((src[k] && src[k].text) || '');
-        if (picked.length && used + t.length > inMax) break;
-        picked.unshift(src[k]); used += t.length;
+      /* v175 P0：首尾双保。
+         旧逻辑两步都在丢最早的：① slice(-turnMax) 先把超出轮数的早期讨论整段切掉；
+         ② 再从后往前取、超预算 break，丢的还是最旧的。
+         实测 60 轮讨论：开场设计、克劳奇人设（腹黑/羽毛绑定）、詹姆斯被球队打趣的回忆
+         三条全部被切掉，只有最后讨论的「结尾詹姆斯悬念设计」存活——
+         作者明确过的早期情节被静默吞掉，指令因此文不对题、只剩最后一拍。
+         现在保住最早的 headKeep 条（开场定调与人设都在这里），中间才允许丢。 */
+      var headKeep = Number(window.CP_FINAL_HEADKEEP);
+      if (isNaN(headKeep)) headKeep = 3;
+      if (headKeep < 0) headKeep = 0;
+      if (headKeep > log.length) headKeep = log.length;
+      var head = log.slice(0, headKeep);
+      var rest = log.slice(headKeep);
+      var tailSrc = rest.slice(-(Math.max(1, turnMax - headKeep)));
+      var used = 0, i2;
+      for (i2 = 0; i2 < head.length; i2++) used += String((head[i2] && head[i2].text) || '').length;
+      /* 头部本身过大时按比例让位，避免它把预算吃光导致尾部一条都进不来 */
+      if (head.length && used > inMax * 0.5) {
+        var trimmed = [], tu = 0;
+        for (i2 = 0; i2 < head.length; i2++) {
+          var hl = String((head[i2] && head[i2].text) || '').length;
+          if (trimmed.length && tu + hl > inMax * 0.5) break;
+          trimmed.push(head[i2]); tu += hl;
+        }
+        head = trimmed; used = tu;
       }
+      var tailPicked = [];
+      for (var k = tailSrc.length - 1; k >= 0; k--) {
+        var t = String((tailSrc[k] && tailSrc[k].text) || '');
+        if (tailPicked.length && used + t.length > inMax) break;
+        tailPicked.unshift(tailSrc[k]); used += t.length;
+      }
+      var picked = head.concat(tailPicked);
       var hist = picked.map(function (m) {
         return (m.role === 'me' ? '我' : '参谋') + '：' + String(m.text || '');
       }).join('\n');
@@ -1531,7 +1556,45 @@
               console.warn('[指令质量闸门] ' + _rp.level + '\n· ' + _rp.texts.join('\n· '));
               try {
                 if (_rp.level === 'block') {
-                  alert('指令质量闸门（阻断级）\n\n' + _rp.texts.join('\n\n') + '\n\n建议改完再生成；仍要继续可直接生成。');
+                  /* v175：旧版只弹 alert()——一个确定按钮，没有任何修复入口，
+                     作者只能自己回指令框里摸索。实测反馈："只给了一个弹窗提醒，并没有给我选项"。
+                     现在换成可交互面板：列出问题 + 「立即补缺失字段」直接拉起补值弹窗。 */
+                  var _g = [];
+                  try {
+                    var _p = (typeof window.cpNarrativeParse === 'function') ? window.cpNarrativeParse(body) : null;
+                    if (_p && _p.gaps) _g = _p.gaps;
+                  } catch (eG) {}
+                  var _mk = document.createElement('div');
+                  _mk.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+                  var _h = '<div style="background:var(--bg,#fff);color:var(--fg,#222);border-radius:12px;max-width:680px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">';
+                  _h += '<h3 style="margin:0 0 8px;font-size:16px;font-weight:600;">指令质量闸门（阻断级 ' + _rp.texts.length + ' 条）</h3>';
+                  _h += '<div style="font-size:13px;line-height:1.8;opacity:.9;">' + _rp.texts.map(function(t){ return '· ' + String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }).join('<br>') + '</div>';
+                  if (_g.length) {
+                    _h += '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">';
+                    _h += '<button type="button" id="cpFixGo" style="flex:1;min-width:180px;padding:11px;border-radius:8px;font-size:14px;">立即补缺失字段（' + _g.length + ' 项，可从对话提取）</button>';
+                    _h += '<button type="button" id="cpFixNo" style="padding:11px;border-radius:8px;font-size:14px;">稍后我自己改</button>';
+                    _h += '</div>';
+                  } else {
+                    _h += '<div style="margin-top:14px;"><button type="button" id="cpFixNo" style="padding:11px;border-radius:8px;font-size:14px;">知道了，我去指令框里改</button></div>';
+                  }
+                  _h += '</div>';
+                  _mk.innerHTML = _h;
+                  document.body.appendChild(_mk);
+                  var _btnNo = _mk.querySelector('#cpFixNo');
+                  if (_btnNo) _btnNo.onclick = function(){ try{ _mk.parentNode.removeChild(_mk); }catch(eR){} };
+                  var _btnGo = _mk.querySelector('#cpFixGo');
+                  if (_btnGo) _btnGo.onclick = function(){
+                    try{ _mk.parentNode.removeChild(_mk); }catch(eR){}
+                    try {
+                      var _ta = document.getElementById('chBrief');
+                      var _cur = _ta ? String(_ta.value || '') : body;
+                      if (typeof cpNarrativeFillGaps === 'function') {
+                        cpNarrativeFillGaps(_g, _cur).then(function(_r){
+                          if (_r && _r.text && _r.text !== _cur && _ta) { _ta.value = _r.text; }
+                        });
+                      }
+                    } catch (eGo) {}
+                  };
                 } else {
                   toast('⚠️ 指令质量闸门：' + _rp.texts.length + ' 条提示（详见控制台 / 点「🔍 指令体检」可复看）');
                 }
