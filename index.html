@@ -8165,7 +8165,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v175";
+const APP_VERSION="v176";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8186,6 +8186,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v176","V176 剧情参谋长期记忆重构：三段式骨架 + 长线伏笔账本 + 自主规划 + 收敛闸门（依据作者实测指控与后端复现）。\n· 【P0·v175 漏修的主链路】定稿有两条出口：counselFinalizeBrief 与 cpHybridUser。v175 只改了前者，而作者每天点的「生成定稿指令」按钮走的是后者——那里仍是旧的 slice(-40) + 从后往前丢最旧，中段讨论（克劳奇人设/羽毛绑定/菲比衔接）照样被整段吞掉，v175 对主链路实际无效。现两条出口共用同一个组装器 cpAssembleContext，从此同口径。\n· 【三段式上下文骨架】不再按条数切一刀，改为先按「前段/中段/后段」分桶，三段独立预算（前 30% / 中 45% / 后 25%）、互不挤占——中段拿最大份额，克劳奇那类内容就在这一带。段内按关键度打分取：伏笔长线词 +4、人设词 +3、情节节点 +3、绑定物（羽毛/手链/隐形衣/请柬）+2，命中者全文保留、不参与字数截断。分桶依据优先用参谋已有的【区段：开头/中段/结尾】标记，没有标记时按条数比例兜底。\n· 【长线伏笔账本·IndexedDB】会引发后续几十轮、几十章的剧情与战后故事线伏笔，单独进跨章账本：存在独立 IndexedDB 库 lilia-vault，不占 localStorage 配额（localStorage 5MB 是浏览器硬限制、代码无法扩容，百万字规模必撞墙），读不到时回落 localStorage，可随时回滚。面板新增「🔗 长线伏笔」查看与标记回收。本版只新增一个库，不动现有章节/人物卡/指令数据。\n· 【自主规划·本章设计框架】新增「📐 生成本章设计框架」按钮（手动触发，不自动烧 token）：按「线索处理 / 叙事处理 / 走向处理」三套逻辑，一次性产出本章完整框架——含开头·中段·结尾三段的情节任务、张力点、情感走向、核心物理道具，以及「待作者拍板」项。后续每轮参谋必须对照框架推进，不再零散抓细节反复确认。\n· 【收敛与禁问闸门】现有 ⑧⑨ 只写了「已拍板的不得再问」这条原则，却没把「哪些已定」交给模型——模型看不见清单，原则就是空口号，于是开篇詹姆斯被换个说法问第三遍。现在每轮硬注入：⑮ 已拍板原话清单（扫全量讨论，不是最近 N 条）⑯ 问过两次以上的主题列为禁问 ⑰ 本章框架原文 ⑱ 未回收长线伏笔 ⑲ 收敛令（框架已定率≥80% 或作者发言≥30 轮时禁止新选项与追问，只输出本轮结论）。面板实时显示「框架 N 条 · 已定 X（%）· 讨论 M 轮」与已禁问主题。\n· 【拍板即沉淀】此前决策只在最后定稿时回捞原文，中段一旦被容量挤出就永久丢失。现在每轮参谋回复后当场把拍板原话写入持久化决策清单（cpDecisions），定稿时全量进输入，不再依赖回捞原文。\n· 【容量条改三段式显示】原「N/40 轮 · X/24000 字」改为「前段·中段·后段各多少条 + 入模字数」，并明确报出「共 N 条讨论，M 条未能进入收敛」，让丢失可见。\n· 【回滚】控制台 CP_SEG_ON=0 回到 v175 首尾双保；CP_VAULT_ON=0 伏笔账本回落 localStorage；CP_PLAN_ON=0 关闭框架按钮；CP_STOP_RATE / CP_STOP_TURNS / CP_ASK_MAXTIMES 可调收敛与禁问阈值。"],
   ["v175","V175 参谋记忆首尾双保 + 容量可视化 + 闸门可交互修复（依据作者实测反馈与后端复现）。\n· 【P0·首尾双保】收敛输入的旧逻辑两步都在丢最早的：slice(-40) 先切掉超出轮数的早期讨论，再从后往前取超预算丢最旧。实测 60 轮讨论：开场设计、克劳奇人设（腹黑/羽毛绑定）、詹姆斯被球队打趣的回忆三条全部被切掉，只有最后讨论的结尾设计存活——作者明确过的早期情节被静默吞掉，指令只剩最后一拍，文不对题。现保住最早的 3 条（CP_FINAL_HEADKEEP，开场定调与人设都在这里），中间才允许丢；头部过大时按 50% 预算让位，保证尾部仍能进入。\n· 【容量可视化】参谋面板新增实时容量条：N/40 轮 · X/24000 字（百分比）· 开头 3 条永久保留；超限或接近上限（70%）时明确告警并给出处置建议（导出讨论记录 / 先定稿再继续）。此前作者无从知道参谋记住了多少。\n· 【闸门可交互修复】阻断级闸门此前只弹 alert()——一个确定按钮、没有任何修复入口，实测反馈是只给了一个弹窗提醒并没有给我选项。现换成可交互面板：列出全部问题 + 「立即补缺失字段」直接拉起补值弹窗（可从对话提取），不再让作者回指令框里摸索。"],
   ["v174","V174 主清单保底修复 + 章号污染闸门（依据 V173 实测诊断）。\n· 【P0 回归修复】v173 把主清单压到 17 条后按 N1→N7 顺序灌满，结果 17 条被 N1-N3 吃光——实测 V173 指令 N5 决定性结尾动作 0 条、N6 角色红线 0 条，gaps=[N5]。现改为两遍分配：先给五个关键字段（主轴/道具/开场/推理/结尾动作）各保底 1 条，再轮询补足余额，不再按序灌满。\n· 【A17 章号锚点污染】主清单里出现裸章号（如「接詹姆斯篇第76章成稿」）时告警。实测 V173 指令写「开场接口接詹姆斯篇第76章成稿」，AI 把它当叙事时间状语照抄，正文开场直接写出「第76章那晚他明明被我推开了」——读者眼里这不是伏笔是排版事故。要求改用情节锚点表述（「接过请柬那晚」「他被打发走之后」）。\n· 【v173 有效项保留】附录从 0 条恢复到 8 条、排除项 5 条（防注水填充的护栏回来了）。\n· 【硬阻断出口加固】「仍然生成（不填）」此前是一键跳过，实测 V173 指令 gaps=[N5]（决定性结尾动作整段缺失）时作者照样点它生成，硬阻断形同虚设。现跳过核心字段（主轴/道具/结尾动作）须二次确认，并把代价摆明：AI 不留白，它会自己填烤栗子、苹果挞、查图书。"],
   ["v173","V173 补值弹窗可重现 + 对话提取 + 决策自动沉淀（依据作者实测反馈）。\n· 【弹窗只出现一次】误关闭与「不再提示」此前共用一个出口：点叉 / 点遮罩 / Esc 都被当成不想再看。现改为——关弹窗只是这次不填，每次生成都重新校验指令；只有显式勾选「第 N 章不再提示」才落盘抑制，且按章号存、换章自动失效；AI 生成设置新增「恢复补值提示」一键撤销。\n· 【补值不落盘的真 bug】补值弹窗的落盘两行一直在找 cpPersistBrief / window.cpPersistBrief，而它是 plus.js 的模块私有函数、从未挂 window——两行都是死代码，补的值只改了 DOM、切章即蒸发。现已挂出，并在写回失败时回落到 autoSaveChapter。\n· 【补值插错位置】旧实现把补的条目无脑追加到末尾，掉到【定稿完】之外，下次解析段落归属错乱。现插到【定稿完】之前。\n· 【示例与字段错配】五个缺口的文本框此前共用同一段 N2「安神剂」示例，查推理三段论 / 决定性结尾动作时也显示道具示例，作者照着填就把推理链写成了物件描写。现每个字段给自己的示例与填写要点。\n· 【从对话提取】每个补值框新增「🔍 从对话提取」：按字段从参谋讨论里捞原话（按命中词排序、从最近一轮往回找），点一条即可填入、可再改。\n· 【决策自动沉淀】参谋每次回复后，自动把讨论里的结论 / 取舍 / 约定 / 待办四分类录进「本章专属指令」的【本轮决策沉淀】块（同名块替换而非越堆越长），不再靠最后手动整理；开关 window.CP_DIGEST_AUTO=0 可关。\n· 【空填不再静默放行】一个字都没填却点「写入指令并生成」时，明确提示已按「不填」处理，不再假装写完。"],
@@ -16271,24 +16272,103 @@ function cpCapacity(){
   try{ log=(typeof cpLogScoped==="function")?cpLogScoped():[]; }catch(e){ log=[]; }
   try{ if((!log||!log.length)&&typeof _counselLog!=="undefined") log=_counselLog; }catch(e2){}
   log=log||[];
-  var turns=Number(window.CP_FINAL_TURNS)||40;
   var chars=Number(window.CP_FINAL_INCHARS)||24000;
-  var headKeep=Number(window.CP_FINAL_HEADKEEP); if(isNaN(headKeep)) headKeep=3;
-  var usedC=0; log.forEach(function(m){ usedC+=String((m&&m.text)||"").length; });
-  var n=log.length;
-  var over=(n>turns)||(usedC>chars);
-  var pct=Math.round(usedC/chars*100);
+  var rawC=0; log.forEach(function(m){ rawC+=String((m&&m.text)||"").length; });
   var el=document.getElementById("cpCapBar");
   if(!el) return;
-  var txt="参谋记忆上限：<b>"+n+" / "+turns+"</b> 轮 · <b>"+usedC+" / "+chars+"</b> 字（"+pct+"%）"
-        +" · 开头 <b>"+Math.min(headKeep,n)+"</b> 条永久保留";
-  if(over){
-    txt+="<br><span style='opacity:.9;'>⚠ 已超出上限：轮数或字数超出后，<b>中间最早超出的部分会被丢弃</b>（不是最新的）。"
-       +"开场情节与人设已锁在开头保留区；中段的细节若要保住，请点「导出讨论记录」留存，或把关键结论写进「本章专属指令」。</span>";
-  }else if(pct>=70){
-    txt+="<br><span style='opacity:.9;'>接近上限（"+pct+"%）。继续发散后中间部分会被丢弃，建议先定稿一次再继续讨论。</span>";
+  var segOn=(window.CP_SEG_ON!==0);
+  var stat=null, usedC=rawC;
+  try{
+    if(segOn&&typeof window.cpAssembleContext==="function"){
+      var a=window.cpAssembleContext(log,chars); stat=a.stat||null; usedC=a.chars||0;
+    }
+  }catch(e3){}
+  var pct=Math.round(usedC/chars*100);
+  var bud=window.CP_SEG_BUDGET||{head:.30,mid:.45,tail:.25};
+  var txt;
+  if(segOn&&stat){
+    txt="参谋记忆（三段式）：前段 <b>"+(stat.head||0)+"</b> · 中段 <b>"+(stat.mid||0)+"</b> · 后段 <b>"+(stat.tail||0)+"</b> 条"
+      +" ｜ 入模 <b>"+usedC+" / "+chars+"</b> 字（"+pct+"%）";
+    txt+="<br><span style='opacity:.85;'>三段独立预算：前 "+Math.round((bud.head||.3)*100)+"% / 中 <b>"+Math.round((bud.mid||.45)*100)+"%</b> / 后 "+Math.round((bud.tail||.25)*100)
+      +"%，互不挤占。命中人设·情节节点·伏笔·绑定物的内容全文保留，不参与截断。</span>";
+    var dropped=log.length-((stat.head||0)+(stat.mid||0)+(stat.tail||0));
+    if(dropped>0){
+      txt+="<br><span style='opacity:.9;'>⚠ 共 "+log.length+" 条讨论，<b>"+dropped+" 条未能进入收敛</b>（未命中关键信号且超出该段预算）。"
+        +"其中若有必须保住的情节，请直接写进「本章专属指令」，或点「📐 生成本章设计框架」让它进框架。</span>";
+    }else if(pct>=70){
+      txt+="<br><span style='opacity:.9;'>接近预算上限（"+pct+"%）。继续发散后未命中关键信号的内容会被丢，建议先定稿一次再继续。</span>";
+    }
+  }else{
+    var turns=Number(window.CP_FINAL_TURNS)||40;
+    var headKeep=Number(window.CP_FINAL_HEADKEEP); if(isNaN(headKeep)) headKeep=3;
+    var n=log.length, over=(n>turns)||(rawC>chars), pct2=Math.round(rawC/chars*100);
+    txt="参谋记忆上限：<b>"+n+" / "+turns+"</b> 轮 · <b>"+rawC+" / "+chars+"</b> 字（"+pct2+"%）"
+      +" · 开头 <b>"+Math.min(headKeep,n)+"</b> 条永久保留（v175 模式）";
+    if(over||pct2>=70){
+      txt+="<br><span style='opacity:.9;'>⚠ 已接近或超出上限，<b>中段与早期内容会被丢弃</b>。控制台执行 CP_SEG_ON=1 即切到三段式。</span>";
+    }
   }
   el.innerHTML=txt;
+  try{ cpRenderPlanPanel(); }catch(e4){}
+}
+/* v176：讨论进度 + 长线伏笔计数 + 禁问主题 */
+function cpRenderPlanPanel(){
+  var el=document.getElementById("cpPlanBar");
+  if(!el) return;
+  var t="";
+  try{ t+="<b>"+((typeof window.cpProgressText==="function")?window.cpProgressText():"未生成框架")+"</b>"; }
+  catch(e){ t+="进度不可用"; }
+  var fsN=0;
+  try{ if(typeof window.cpForeshadowOpen==="function") fsN=(window.cpForeshadowOpen()||[]).length; }catch(e2){}
+  t+=" ｜ 长线伏笔 <b>"+fsN+"</b> 条（跨章保留，不占本章容量）";
+  var noAsk=[];
+  try{
+    if(typeof window.cpNoAskList==="function"){
+      noAsk=window.cpNoAskList((typeof cpLogScoped==="function")?cpLogScoped():[]);
+    }
+  }catch(e3){}
+  if(noAsk.length){
+    t+="<br><span style='opacity:.85;'>已禁问："+noAsk.join("、")+"（本轮参谋不会再追问这些）</span>";
+  }
+  el.innerHTML=t;
+}
+/* v176：长线伏笔账本面板 */
+function cpShowVault(){
+  var arr=[];
+  try{ arr=(typeof window.cpForeshadowOpen==="function")?(window.cpForeshadowOpen()||[]):[]; }catch(e){}
+  var body;
+  if(!arr.length){
+    body="<div style='padding:14px;opacity:.8;'>还没有长线伏笔记录。<br><br>在参谋讨论里提到「伏笔 / 战后 / 后续几十章 / 到时候回收 / 对应上」这类内容时，会自动收进这里，跨章保留。</div>";
+  }else{
+    body="<div style='max-height:52vh;overflow:auto;padding:10px 12px;'>"
+      +arr.map(function(x,i){
+        var ri=(x&&typeof x._i==="number")?x._i:i;
+        return "<div style='padding:7px 0;border-bottom:1px solid var(--bd,rgba(0,0,0,.12));'>"
+          +"<div style='font-size:13px;line-height:1.6;'>"+String((x&&x.text)||"").replace(/</g,"&lt;")+"</div>"
+          +"<div style='font-size:11px;opacity:.65;margin-top:3px;'>来源："+String((x&&x.from)||"-")+"</div>"
+          +"<button type='button' style='font-size:11px;margin-top:5px;' onclick='cpVaultRecycleWrap("+ri+")'>标记已回收</button>"
+          +"</div>";
+      }).join("")
+      +"</div>";
+  }
+  var m=document.createElement("div");
+  m.className="modal-mask on";
+  m.innerHTML="<div class='modal' style='max-width:680px;'><h3>长线伏笔账本</h3>"
+    +"<div class='meta' style='font-size:11px;opacity:.75;'>存在 IndexedDB 独立库 lilia-vault：跨章保留、不占 localStorage 配额。共 "+arr.length+" 条未回收。</div>"
+    +body
+    +"<div class='mbtn' style='margin-top:10px;'><button type='button' onclick='this.closest(\".modal-mask\").remove()'>关闭</button></div></div>";
+  m.addEventListener("click",function(ev){ if(ev.target===m) m.remove(); });
+  document.body.appendChild(m);
+}
+function cpVaultRecycleWrap(i){
+  var okRec=false;
+  try{ if(typeof window.cpForeshadowRecycle==="function") okRec=!!window.cpForeshadowRecycle(i); }catch(e){}
+  try{ toast(okRec?"已标记为回收":"标记失败"); }catch(e2){}
+  var masks=document.querySelectorAll(".modal-mask.on");
+  for(var mi=0;mi<masks.length;mi++){
+    if(/长线伏笔账本/.test(masks[mi].textContent||"")){ masks[mi].remove(); break; }
+  }
+  try{ cpRenderPlanPanel(); }catch(e3){}
 }
 function counselExport(){
   try{
@@ -16589,6 +16669,19 @@ window.CP_FINAL_HEADKEEP=3;     /* v175：收敛输入保住最早的 N 条讨�
 /* v153：参谋单条回复的字数上限（字）。控制台执行 window.CP_REPLY_MAXCHARS=800 即时生效——
    每次发送都在组装 sys 时现读 window 值，不缓存，也不在别处写回覆盖。 */
 window.CP_REPLY_MAXCHARS=600;
+/* v176：三段式记忆 / 长线伏笔 / 收敛闸门的开关（控制台直接改，刷新生效） */
+window.CP_SEG_ON=1;         /* 1=三段式（前30%/中45%/后25% 独立预算）；0=回到 v175 的首尾双保 */
+window.CP_VAULT_ON=1;       /* 1=伏笔账本走 IndexedDB 独立库；0=回落 localStorage */
+window.CP_PLAN_ON=1;        /* 1=「📐 生成本章设计框架」可用（手动触发，不自动调用 AI） */
+window.CP_STOP_RATE=0.8;    /* 框架已定率达到 → 参谋强制收敛、停止提问 */
+window.CP_STOP_TURNS=30;    /* 作者发言轮数达到 → 强制收敛 */
+window.CP_ASK_MAXTIMES=2;   /* 同一主题被问到这个次数 → 列入禁问清单 */
+/* v176：启动时预载长线伏笔账本并申请持久化存储。
+   plus.js 是外部脚本、可能晚于本段执行，故延迟挂载，避免取不到函数。 */
+setTimeout(function(){
+  try{ if(typeof window.cpVaultLoad==="function") window.cpVaultLoad(); }catch(e){}
+  try{ if(typeof window.cpVaultPersist==="function") window.cpVaultPersist(); }catch(e2){}
+},300);
 async function counselSend(){
   /* v112：重入锁——同一时刻只允许一次在途请求，防连点重复计费 */
   if(_counselBusy){ toast("参谋正在思考，等这一轮回来再发"); return; }
@@ -16661,6 +16754,38 @@ async function counselSend(){
         "⑭ 两条禁律：禁律一（不生造）——本章指令、讨论记录、前文正文中未出现过的人名、道具、地点、设定、台词，一律不得进入建议；确实需要新信息时向作者索取，不得自行补齐。禁律二（不删改）——不得建议删除、压缩、合并作者已写定的段落与细节；认为冗余只标注「建议保留 / 可后置」并说明理由，由作者决定。允许围绕本段最重要的问题发散，但发散内容必须整合回「开头—中段—结尾」主链后按链上顺序输出，不得留散点。"
       );
     }
+    /* v176 · 已定清单与禁问清单硬注入（作者核心诉求：讨论永不结束 / 开篇詹姆斯被反复询问 / 记忆反复丢失）
+       现有 ⑧⑨ 只写了「已拍板的不得再问」这条原则，却没有把「哪些已定」交给模型——
+       模型看不见清单，原则就只是口号，于是同一件事被换个说法问第三遍。
+       这里注入的是实际清单；「问过 N 次的主题」显式列为禁问项。 */
+    var _decided=[], _noAsk=[], _planTxt="", _fsTxt="";
+    try{ if(typeof window.cpDecidedList==="function") _decided=window.cpDecidedList(_counselLog,10)||[]; }catch(eD){}
+    try{ if(typeof window.cpNoAskList==="function") _noAsk=window.cpNoAskList(_counselLog)||[]; }catch(eN){}
+    try{ if(typeof window.cpPlanGet==="function") _planTxt=String(window.cpPlanGet()||""); }catch(eP){}
+    try{ if(typeof window.cpForeshadowText==="function") _fsTxt=String(window.cpForeshadowText(15)||""); }catch(eF){}
+    if(_decided.length){
+      _sysArr.push("⑮ 下列事项作者已经拍板，属既定事实：①"+_decided.join("；①")
+        +"。本轮严禁再次询问、严禁换说法重提、严禁当作待议项、严禁要求作者确认。");
+    }
+    if(_noAsk.length){
+      _sysArr.push("⑯ 下列主题你已经问过作者两次以上："+_noAsk.join("、")
+        +"。本轮禁止再次询问这些主题；若它们确实仍未定，直接按最合理的方案写进「本段已定」并注明「此条为参谋默认、作者可推翻」，不要再问。");
+    }
+    if(_planTxt){
+      _sysArr.push("⑰ 本章已有一份设计框架（线索处理 / 叙事处理 / 走向处理三套逻辑），本轮必须对照它推进："
+        +"先说明框架里哪几条本轮已敲定、哪几条仍悬空，只围绕仍悬空的条目讨论，不要另起话题。框架原文：\n"+_planTxt);
+    }
+    if(_fsTxt){
+      _sysArr.push("⑱ 下面是此前埋下、尚未回收的长线伏笔（会跨几十章）：与本章相关的请在建议里点名如何推进或回收；"
+        +"与本章无关的不要强行塞入。\n"+_fsTxt);
+    }
+    var _prog=null;
+    try{ if(typeof window.cpProgressState==="function") _prog=window.cpProgressState(_counselLog); }catch(eG){}
+    if(_prog&&_prog.stopAsking){
+      _sysArr.push("⑲ 收敛令（本轮触发）：本章讨论已达收敛线（框架已定率 "+Math.round(_prog.rate*100)
+        +"%，或作者已发言 "+_prog.myTurns+" 轮）。本轮禁止提出任何新选项、禁止任何追问，"
+        +"只输出「本轮结论」：已定事项逐条列出 + 依据 + 下一步作者该做什么，然后结束本轮讨论。");
+    }
     /* v171 · 参谋输出结构契约（与是否回滚 V143 无关，两种模式下都生效）。
        三条纪律全部来自 v170/V169/DeepSeek版/缝合版的四方实测：
        ① 结尾写死 → V169 三件套 0/3；不写死 → 143 底稿 1/3
@@ -16729,6 +16854,11 @@ async function counselSend(){
     /* v173：关键节点自动录入。参谋刚给完答复＝刚产生决策，趁热把结论/取舍/约定/待办
        落进「本章专属指令」，不再等作者最后手动整理（实测整理时只记得最后三句）。 */
     try{ cpAutoDigestWrite(); }catch(eD){ console.error("[剧情参谋] 决策沉淀失败：",eD); }
+    /* v176：拍板即沉淀 + 伏笔入账。此前决策只在最后定稿时回捞原文，
+       中段讨论一旦被容量挤出就永久丢失；现在每轮当场写入持久化清单（决策）与账本（伏笔）。 */
+    try{ if(typeof window.cpDecisionsAppend==="function") window.cpDecisionsAppend(_counselLog); }catch(eDec){ console.error("[v176] 决策入册失败：",eDec); }
+    try{ if(typeof window.cpForeshadowMerge==="function") window.cpForeshadowMerge(_counselLog); }catch(eFs){ console.error("[v176] 伏笔入账失败：",eFs); }
+    try{ cpCapacity(); }catch(eC2){}
   }catch(e){
     /* 外层兜底：非 AI 环节（读配置、渲染）出的错也要让人看见 */
     const ex=counselExplain(e);
@@ -17443,6 +17573,11 @@ window.addEventListener('load',function(){
       <button type="button" id="counselFinalBtn" style="display:none;" onclick="counselFinalizeBrief()" title="让参谋把整轮讨论收束成一份带状态标注的定稿指令（已定 / 待定 / 未定 / 排除），一键写进本章生成指令">定稿指令</button>
       <!-- v175：容量可视化。作者问「参谋能记住多少」，答案是两条硬上限，此前完全不可见。 -->
       <div id="cpCapBar" style="font-size:11px;line-height:1.7;opacity:.75;margin:6px 0;padding:6px 8px;border:1px dashed var(--bd,rgba(0,0,0,.18));border-radius:7px;"></div>
+      <!-- v176：本章设计框架（自主规划）+ 长线伏笔账本入口 -->
+      <div id="cpPlanBar" style="font-size:11px;line-height:1.7;opacity:.8;margin:6px 0;padding:6px 8px;border:1px dashed var(--bd,rgba(0,0,0,.18));border-radius:7px;"></div>
+      <button type="button" onclick="cpChapterPlan()" title="按「线索处理 / 叙事处理 / 走向处理」三套逻辑，一次性产出本章完整设计框架（含开头·中段·结尾三段的情节任务、张力点与情感走向，以及待你拍板项）。手动触发，不自动调用 AI">📐 生成本章设计框架</button>
+      <button type="button" onclick="cpPlanClearWrap()" title="清除本章设计框架，讨论进度指示一并归零">清除框架</button>
+      <button type="button" onclick="cpShowVault()" title="查看跨章保留的长线伏笔账本（存在 IndexedDB，不占 localStorage 配额）">🔗 长线伏笔</button>
       <button type="button" id="counselHybridBtn" onclick="counselHybridBrief()" title="把整轮讨论收敛成「叙事清单」定稿指令：本地零 token 提炼 + 采纳/否决清单 + 作品上下文，交 DeepSeek 单次收敛（省约 4~18 倍输入）。只产出【已定】/【排除】，带核心物理锚点与人设红线，一键写进本章生成指令供深度续写">生成定稿指令</button>
       <button type="button" onclick="counselExport()" title="把本轮参谋讨论（含已采纳/已否决走向）完整导出为 Markdown 文件下载，便于留存与查阅">导出讨论记录</button>
       <button type="button" onclick="counselToPlot()">存为剧情线索</button>

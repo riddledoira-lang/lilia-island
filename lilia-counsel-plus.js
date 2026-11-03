@@ -906,8 +906,11 @@
   function buildCounselDigest() {
     try {
       var log = cpLogScoped();
-      var turnMax = Number(window.CP_DIGEST_TURN) || 12;
-      var src = log.slice(-turnMax);
+      /* v176：备查存档此前同样只取最近 12 轮（CP_DIGEST_TURN），早期与中段讨论静默丢失——
+         而这是作者自己回看的存档，比喂模型的输入更不该丢。改为与定稿同口径的三段式组装。 */
+      var src;
+      if (window.CP_SEG_ON === 0) src = log.slice(-(Number(window.CP_DIGEST_TURN) || 12));
+      else src = cpAssembleContext(log, Number(window.CP_DIGEST_INCHARS) || 24000).items;
       if (!src.length) return null;
       var names = dlCharNames();
       var vetoed = vetoGet(), adopted = adoptGet();
@@ -1399,44 +1402,12 @@
     try {
       /* ---- 组装输入 ---- */
       var log = cpLogScoped();
-      var turnMax = Number(window.CP_FINAL_TURNS) || 40;
       var inMax = Number(window.CP_FINAL_INCHARS) || 24000;
-      /* v175 P0：首尾双保。
-         旧逻辑两步都在丢最早的：① slice(-turnMax) 先把超出轮数的早期讨论整段切掉；
-         ② 再从后往前取、超预算 break，丢的还是最旧的。
-         实测 60 轮讨论：开场设计、克劳奇人设（腹黑/羽毛绑定）、詹姆斯被球队打趣的回忆
-         三条全部被切掉，只有最后讨论的「结尾詹姆斯悬念设计」存活——
-         作者明确过的早期情节被静默吞掉，指令因此文不对题、只剩最后一拍。
-         现在保住最早的 headKeep 条（开场定调与人设都在这里），中间才允许丢。 */
-      var headKeep = Number(window.CP_FINAL_HEADKEEP);
-      if (isNaN(headKeep)) headKeep = 3;
-      if (headKeep < 0) headKeep = 0;
-      if (headKeep > log.length) headKeep = log.length;
-      var head = log.slice(0, headKeep);
-      var rest = log.slice(headKeep);
-      var tailSrc = rest.slice(-(Math.max(1, turnMax - headKeep)));
-      var used = 0, i2;
-      for (i2 = 0; i2 < head.length; i2++) used += String((head[i2] && head[i2].text) || '').length;
-      /* 头部本身过大时按比例让位，避免它把预算吃光导致尾部一条都进不来 */
-      if (head.length && used > inMax * 0.5) {
-        var trimmed = [], tu = 0;
-        for (i2 = 0; i2 < head.length; i2++) {
-          var hl = String((head[i2] && head[i2].text) || '').length;
-          if (trimmed.length && tu + hl > inMax * 0.5) break;
-          trimmed.push(head[i2]); tu += hl;
-        }
-        head = trimmed; used = tu;
-      }
-      var tailPicked = [];
-      for (var k = tailSrc.length - 1; k >= 0; k--) {
-        var t = String((tailSrc[k] && tailSrc[k].text) || '');
-        if (tailPicked.length && used + t.length > inMax) break;
-        tailPicked.unshift(tailSrc[k]); used += t.length;
-      }
-      var picked = head.concat(tailPicked);
-      var hist = picked.map(function (m) {
-        return (m.role === 'me' ? '我' : '参谋') + '：' + String(m.text || '');
-      }).join('\n');
+      /* v176：与 cpHybridUser 共用同一个组装器，两个出口从此同口径——
+         v175 的教训正是「只改了一个出口，作者实际点的是另一个」。
+         v175 那套内联的首尾双保已抽成 cpAssembleLegacy，CP_SEG_ON=0 可逐字回滚。 */
+      var _asm = cpAssembleContext(log, inMax);
+      var hist = cpCtxHist(_asm.items);
 
       var adopted = adoptGet(), vetoed = vetoGet();
       var ctxText = '';
@@ -1641,6 +1612,521 @@
      ② 去第77章硬编码示例（注水日常举例/物理锚点举例/人设红线举例全部移除），
         人设红线改为从人物卡「行为禁区」推导；
      ③ 原⑦⑧⑬⑭对「要点分区」的引用改为对讨论原文的引用。 */
+  /* ==================================================================
+     v176 · 剧情参谋长期记忆重构
+     起因（作者实测指控，已由后端复现证实）：
+       旧收敛输入两步都在丢最早的——log.slice(-turnMax) 先切掉超出轮数的早期讨论，
+       再从后往前取、超预算 break，丢的还是最旧的。实测 60 轮讨论下，
+       开场设计 / 克劳奇人设（腹黑·羽毛绑定）/ 詹姆斯被球队打趣三条全部被切掉，
+       只有最后讨论的「结尾詹姆斯悬念设计」存活。
+     v175 修的是「保最早 3 条」，但有两条硬伤：
+       ① 只覆盖了 counselFinalizeBrief 一条出口——作者真正点的「生成定稿指令」
+          走 cpHybridUser()，那里仍是旧逻辑，等于 v175 对主链路无效；
+       ② 保最早 3 条解决不了中段（第 4~N 轮）的丢失——克劳奇恰在中段。
+     v176 改为：先分桶（前段/中段/后段，各自独立预算、互不挤占）→
+       段内按关键度打分取（命中人设/情节/伏笔/绑定物信号者全文保留）→
+       长线伏笔进独立账本（跨章持久、不参与本章容量）。
+     ================================================================== */
+
+  /* ---- 1a. 三段式预算（作者拍板：前 30% / 中 45% / 后 25%） ---- */
+  window.CP_SEG_BUDGET = { head: 0.30, mid: 0.45, tail: 0.25 };
+  /* 讨论里没有【区段】标记时，按条数比例兜底 */
+  window.CP_SEG_FALLBACK = { head: 0.25, mid: 0.50, tail: 0.25 };
+  /* 命中关键信号者的软上限：允许超出本段预算这么多倍，防单段吃光总预算 */
+  window.CP_SEG_MUST_FACTOR = 1.8;
+  /* 总开关：置 0 回到 v175 的首尾双保行为 */
+  window.CP_SEG_ON = 1;
+
+  /* 关键度打分：伏笔长线 > 人设 = 情节节点 > 绑定物。
+     分数>0 者视为「作者明确过的关键内容」，全文保留、不参与字数截断——
+     克劳奇的腹黑点（人设词）与羽毛绑定（绑定物词）会同时命中，必然存活。 */
+  var CP_KEY_RULES = [
+    { w: 4, kw: /伏笔|钩子|战后|后续|几十章|回收|对应上|埋下|长线|留口子/ },
+    { w: 3, kw: /腹黑|心态|红线|人设|性格|说话方式|行为禁区|动机|底线/ },
+    { w: 3, kw: /偶遇|对峙|道歉|牺牲|决策|回忆|打趣|摊牌|试探|让步|反常/ },
+    { w: 2, kw: /羽毛|手链|隐形衣|请柬|药瓶|磨牙|沙菲克|特拉弗斯|菲比|克劳奇/ }
+  ];
+  function cpKeyScore(text) {
+    var t = String(text == null ? '' : text);
+    if (!t) return 0;
+    var s = 0, i, m;
+    for (i = 0; i < CP_KEY_RULES.length; i++) {
+      m = t.match(CP_KEY_RULES[i].kw);
+      if (m) s += CP_KEY_RULES[i].w * Math.min(m.length, 3);
+    }
+    return s;
+  }
+
+  /* 把整轮讨论切成 前段/中段/后段。
+     分桶依据优先级：① 参谋回复里的【区段：开头/中段/结尾】标记（v167 ⑫ 已强制输出）；
+     ② 作者发言里的转段语；③ 都没有 → 按条数比例兜底。 */
+  function cpSegSplit(log) {
+    var out = { head: [], mid: [], tail: [] };
+    if (!Array.isArray(log) || !log.length) return out;
+    var marks = [], i, t, m;
+    for (i = 0; i < log.length; i++) {
+      t = String((log[i] && log[i].text) || '');
+      m = t.match(/【\s*区段\s*[:：]\s*(开头|前段|中段|中间|结尾|后段)\s*】/);
+      if (m) {
+        marks.push({ i: i, seg: (m[1] === '中段' || m[1] === '中间') ? 'mid' : ((m[1] === '结尾' || m[1] === '后段') ? 'tail' : 'head') });
+        continue;
+      }
+      if (log[i] && log[i].role !== 'ai' && /^(接下来|然后|中段|中间部分|后半段|结尾|最后)/.test(t.replace(/\s+/g, ''))) {
+        marks.push({ i: i, seg: /中段|中间部分/.test(t) ? 'mid' : (/结尾|最后|后半段/.test(t) ? 'tail' : 'head') });
+      }
+    }
+    if (!marks.length) {
+      var fb = window.CP_SEG_FALLBACK || { head: 0.25, mid: 0.50, tail: 0.25 };
+      var hEnd = Math.max(1, Math.round(log.length * (Number(fb.head) || 0.25)));
+      var mEnd = Math.max(hEnd + 1, Math.round(log.length * ((Number(fb.head) || 0.25) + (Number(fb.mid) || 0.5))));
+      if (mEnd > log.length) mEnd = log.length;
+      for (i = 0; i < log.length; i++) {
+        if (i < hEnd) out.head.push({ i: i, m: log[i] });
+        else if (i < mEnd) out.mid.push({ i: i, m: log[i] });
+        else out.tail.push({ i: i, m: log[i] });
+      }
+      return out;
+    }
+    var cur = 'head', mi = 0;
+    for (i = 0; i < log.length; i++) {
+      while (mi < marks.length && marks[mi].i <= i) { cur = marks[mi].seg; mi++; }
+      out[cur].push({ i: i, m: log[i] });
+    }
+    return out;
+  }
+
+  function cpMsgLen(m) { return String((m && m.text) || '').length; }
+
+  /* v175 的首尾双保行为，保留为回滚路径（CP_SEG_ON=0 时走这里） */
+  function cpAssembleLegacy(log, inMax) {
+    var headKeep = Number(window.CP_FINAL_HEADKEEP);
+    if (isNaN(headKeep)) headKeep = 3;
+    if (headKeep < 0) headKeep = 0;
+    if (headKeep > log.length) headKeep = log.length;
+    var head = log.slice(0, headKeep), rest = log.slice(headKeep), i2;
+    var used = 0;
+    for (i2 = 0; i2 < head.length; i2++) used += cpMsgLen(head[i2]);
+    if (head.length && used > inMax * 0.5) {
+      var trimmed = [], tu = 0;
+      for (i2 = 0; i2 < head.length; i2++) {
+        var hl = cpMsgLen(head[i2]);
+        if (trimmed.length && tu + hl > inMax * 0.5) break;
+        trimmed.push(head[i2]); tu += hl;
+      }
+      head = trimmed; used = tu;
+    }
+    var tailPicked = [];
+    for (var k = rest.length - 1; k >= 0; k--) {
+      var t = cpMsgLen(rest[k]);
+      if (tailPicked.length && used + t > inMax) break;
+      tailPicked.unshift(rest[k]); used += t;
+    }
+    var items = head.concat(tailPicked);
+    return { items: items, chars: used, stat: { head: head.length, mid: 0, tail: tailPicked.length } };
+  }
+
+  /* ★ 三段式上下文组装：counselFinalizeBrief 与 cpHybridUser 共用同一口径。
+     这是 v176 的核心——两个出口此前各写一套，v175 只改了其一，导致主链路漏修。 */
+  function cpAssembleContext(log, inMax) {
+    inMax = Number(inMax) || 24000;
+    if (!Array.isArray(log)) log = [];
+    if (window.CP_SEG_ON === 0) return cpAssembleLegacy(log, inMax);
+    if (!log.length) return { items: [], chars: 0, stat: { head: 0, mid: 0, tail: 0 } };
+    var segs = cpSegSplit(log);
+    var bud = window.CP_SEG_BUDGET || { head: 0.30, mid: 0.45, tail: 0.25 };
+    var factor = Number(window.CP_SEG_MUST_FACTOR) || 1.8;
+    var picked = [], stat = { head: 0, mid: 0, tail: 0 };
+    ['head', 'mid', 'tail'].forEach(function (n) {
+      var arr = segs[n] || [];
+      if (!arr.length) return;
+      var cap = inMax * (Number(bud[n]) || 0.3);
+      var scored = arr.map(function (it) { return { i: it.i, m: it.m, s: cpKeyScore(it.m && it.m.text) }; });
+      var must = scored.filter(function (x) { return x.s > 0; })
+        .sort(function (a, b) { return (b.s - a.s) || (b.i - a.i); });
+      var rest = scored.filter(function (x) { return x.s === 0; });
+      var keep = [], used = 0, j;
+      for (j = 0; j < must.length; j++) {
+        var L = cpMsgLen(must[j].m);
+        if (keep.length && used + L > cap * factor) continue;
+        keep.push(must[j]); used += L;
+      }
+      for (j = rest.length - 1; j >= 0; j--) {
+        var L2 = cpMsgLen(rest[j].m);
+        if (keep.length && used + L2 > cap) break;
+        keep.push(rest[j]); used += L2;
+      }
+      stat[n] = keep.length;
+      picked = picked.concat(keep);
+    });
+    picked.sort(function (a, b) { return a.i - b.i; });
+    var items = picked.map(function (x) { return x.m; });
+    var chars = 0;
+    items.forEach(function (m) { chars += cpMsgLen(m); });
+    return { items: items, chars: chars, stat: stat, segs: segs };
+  }
+
+  function cpCtxHist(items) {
+    return (items || []).map(function (m) {
+      return (m && m.role === 'me' ? '我' : '参谋') + '：' + String((m && m.text) || '');
+    }).join('\n');
+  }
+
+  /* ---- 1b. 长线伏笔账本（IndexedDB 独立库 lilia-vault） ----
+     作者要求：会引发后续几十轮、几十章的剧情与战后故事线伏笔必须完整保留。
+     localStorage 5MB 是浏览器硬限制、代码无法扩容（百万字规模必撞墙），
+     所以账本走独立 IndexedDB 库；读不到时回落 localStorage，可随时回滚。
+     这里只新增一个库，不动现有 localStorage 里的任何章节/人物卡/指令数据。 */
+  var CP_VAULT_DB = 'lilia-vault', CP_VAULT_STORE = 'kv', _vaultDb = null;
+  window.CP_VAULT_ON = 1;   /* 0=只用 localStorage 回落 */
+  var _vaultCache = null;
+
+  function cpBookId() {
+    var b = 'default';
+    try {
+      var c = load('curBook');
+      if (c && typeof c === 'object') b = String(c.id || 'default');
+      else if (typeof c === 'string' && c) b = c;
+    } catch (e) {}
+    return b;
+  }
+  function cpChapterTag() {
+    var ch = '';
+    try { ch = String((document.getElementById('chId') || {}).value || (document.getElementById('chNum') || {}).value || ''); } catch (e) {}
+    return ch || '-';
+  }
+  function cpVaultKey() { return 'fs:' + cpBookId(); }
+
+  function cpVaultOpen() {
+    return new Promise(function (res, rej) {
+      if (_vaultDb) { res(_vaultDb); return; }
+      if (typeof indexedDB === 'undefined' || !indexedDB) { rej(new Error('no-idb')); return; }
+      var req;
+      try { req = indexedDB.open(CP_VAULT_DB, 1); } catch (e) { rej(e); return; }
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains(CP_VAULT_STORE)) db.createObjectStore(CP_VAULT_STORE);
+      };
+      req.onsuccess = function () { _vaultDb = req.result; res(_vaultDb); };
+      req.onerror = function () { rej(req.error || new Error('idb-open-fail')); };
+    });
+  }
+  function cpVaultIdbGet(key) {
+    return cpVaultOpen().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(CP_VAULT_STORE, 'readonly');
+        var r = tx.objectStore(CP_VAULT_STORE).get(key);
+        r.onsuccess = function () { res(r.result); };
+        r.onerror = function () { rej(r.error || new Error('idb-get-fail')); };
+      });
+    });
+  }
+  function cpVaultIdbSet(key, val) {
+    return cpVaultOpen().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(CP_VAULT_STORE, 'readwrite');
+        tx.objectStore(CP_VAULT_STORE).put(val, key);
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { rej(tx.error || new Error('idb-set-fail')); };
+      });
+    });
+  }
+  /* 启动时异步预载到内存缓存——定稿是同步流程，账本必须先在内存里 */
+  function cpVaultLoad() {
+    var key = cpVaultKey(), fb = null;
+    try { var raw = localStorage.getItem('cpVault:' + key); if (raw) fb = JSON.parse(raw); } catch (e) {}
+    if (window.CP_VAULT_ON === 0) { _vaultCache = fb || { items: [] }; return Promise.resolve(_vaultCache); }
+    return cpVaultIdbGet(key).then(function (v) {
+      _vaultCache = (v && v.items) ? v : (fb || { items: [] });
+      return _vaultCache;
+    })['catch'](function () {
+      _vaultCache = fb || { items: [] };
+      return _vaultCache;
+    });
+  }
+  /* 必须保证拿到的是同一个对象引用：cpVaultLoad 尚未跑完时 _vaultCache 还是 null，
+     若这里每次返回新的临时对象，cpForeshadowMerge 的 push 会写进临时对象、
+     账本永远存不下东西（入账静默失败）。 */
+  function cpVaultGet() { if (!_vaultCache) { _vaultCache = { items: [] }; } return _vaultCache; }
+  function cpVaultSave() {
+    var v = _vaultCache || { items: [] }, key = cpVaultKey();
+    try { localStorage.setItem('cpVault:' + key, JSON.stringify(v)); } catch (e) {}
+    if (window.CP_VAULT_ON === 0) return;
+    try { cpVaultIdbSet(key, v)['catch'](function () {}); } catch (e2) {}
+  }
+  /* 请求持久化存储，防止手机空间紧张时浏览器自动清掉这个库 */
+  function cpVaultPersist() {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist()['catch'](function () {});
+      }
+    } catch (e) {}
+  }
+
+  var CP_FS_SIG = /伏笔|钩子|战后|后续|几十章|回收|对应上|埋下|留口子|长线|下一卷|下一章|到时候|以后再说|早晚要/;
+  function cpForeshadowScan(log) {
+    var out = [];
+    if (!Array.isArray(log)) return out;
+    var seen = {};
+    for (var i = 0; i < log.length; i++) {
+      var m = log[i]; if (!m) continue;
+      var sents = [];
+      try { sents = cpNarrSplitSents(String(m.text || '')); } catch (e) { sents = String(m.text || '').split(/[。！？\n]/); }
+      for (var j = 0; j < sents.length; j++) {
+        var s = String(sents[j] || '').trim();
+        if (s.length < 8 || s.length > 120) continue;
+        if (!CP_FS_SIG.test(s)) continue;
+        var key = s.slice(0, 30);
+        if (seen[key]) continue;
+        seen[key] = 1;
+        out.push({ text: s, at: Date.now(), from: (m.role === 'me' ? '作者' : '参谋'), state: '未回收' });
+      }
+    }
+    return out;
+  }
+  function cpForeshadowMerge(log) {
+    var v = cpVaultGet();
+    if (!v.items) v.items = [];
+    var have = {};
+    v.items.forEach(function (x) { have[String(x.text || '').slice(0, 30)] = 1; });
+    var added = 0;
+    cpForeshadowScan(log || []).forEach(function (x) {
+      if (have[x.text.slice(0, 30)]) return;
+      v.items.push(x); have[x.text.slice(0, 30)] = 1; added++;
+    });
+    if (added) cpVaultSave();
+    return added;
+  }
+  /* 返回的是未回收项；每项带 _i（在 items 里的真实下标）——
+     面板上的「标记已回收」按 _i 定位，否则过滤后的下标会错位、回收错条目。 */
+  function cpForeshadowOpen() {
+    var v = cpVaultGet(), out = [];
+    (v.items || []).forEach(function (x, i) {
+      if (x && x.state !== '已回收') {
+        out.push({ _i: i, text: x.text, at: x.at, from: x.from, state: x.state });
+      }
+    });
+    return out;
+  }
+  function cpForeshadowRecycle(idx) {
+    var v = cpVaultGet();
+    if (v.items && v.items[idx]) { v.items[idx].state = '已回收'; v.items[idx].recycledAt = Date.now(); cpVaultSave(); return true; }
+    return false;
+  }
+  function cpForeshadowText(limit) {
+    limit = limit || 20;
+    var arr = cpForeshadowOpen();
+    if (!arr.length) return '';
+    return arr.slice(-limit).map(function (x) { return '· ' + x.text; }).join('\n');
+  }
+
+  /* ---- 1c. 本章设计框架（自主规划：先出框架再对照填空，不零散抓细节） ----
+     作者拍板：手动触发按钮，不自动烧 token。 */
+  window.CP_PLAN_ON = 1;
+  function cpPlanKey() { return 'cpPlan:' + cpBookId() + ':' + cpChapterTag(); }
+  function cpPlanSave(text) { try { put(cpPlanKey(), { text: String(text || ''), at: Date.now() }); return true; } catch (e) { return false; } }
+  function cpPlanGet() {
+    try {
+      var v = get1(cpPlanKey());
+      if (v && v.text) return String(v.text);
+      var raw = localStorage.getItem(cpPlanKey());
+      if (raw) { var o = JSON.parse(raw); if (o && o.text) return String(o.text); }
+    } catch (e) {}
+    return '';
+  }
+  function cpPlanClear() { try { save(cpPlanKey(), null); } catch (e) {} try { localStorage.removeItem(cpPlanKey()); } catch (e2) {} }
+
+  window.cpChapterPlan = async function () {
+    if (window.CP_PLAN_ON === 0) { try { toast('本章设计框架已关闭（控制台 CP_PLAN_ON=1 可开）'); } catch (e) {} return; }
+    var ai = {}; try { ai = load('ai', {}) || {}; } catch (e0) {}
+    if (!ai.base || !String(ai.base).trim()) { try { toast('还没配置 AI：生成框架需要模型参与'); } catch (e1) {} return; }
+    var ctxText = '';
+    try { var c = counselCtx(); ctxText = String((c && c.text) || '').slice(0, Number(window.CP_PLAN_CTXCHARS) || 8000); } catch (e2) {}
+    var chNum = '', chTitle = '';
+    try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e3) {}
+    try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e4) {}
+    var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
+    var sys = [
+      '你是一位长篇小说的「本章结构设计师」。任务：为作者即将写的这一章，一次性产出一份完整的设计框架，供后续逐条敲定。',
+      '铁律：① 只给框架与待定项，绝不写正文、绝不代写段落；',
+      '② 一切内容必须以分卷设定、人物卡与已发生剧情为准，不得凭空新增设定；缺信息就列为「待作者拍板」，不要编造；',
+      '③ 不输出 Markdown 标题符号与加粗星号（作者在手机上看），用「一、二、三」与「· 」即可；',
+      '④ 严格按下面三套逻辑组织，缺哪套就写「本套不涉及」并说明原因，不得省略。'
+    ].join('\n');
+    var user = '待设计的章节是' + chLabel + '。\n\n';
+    user += '下面是当前作品的相关信息：\n' + (ctxText || '（无）') + '\n\n';
+    var fsTxt = cpForeshadowText(20);
+    if (fsTxt) user += '下面是此前埋下、尚未回收的长线伏笔（本章能回收或推进的请在框架里点名）：\n' + fsTxt + '\n\n';
+    var log = [];
+    try { log = cpLogScoped(); } catch (e5) {}
+    if (log.length) user += '下面是本章已有的讨论记录（供参考，不要重复已定的内容）：\n' + cpCtxHist(cpAssembleContext(log, 12000).items) + '\n\n';
+    user += '请按以下三套逻辑输出本章设计框架：\n'
+      + '一、线索处理：本章要推进的线索 / 要回收的线索 / 要新埋的线索（含跨章长线与战后故事线），每条注明「埋在哪一拍」。\n'
+      + '二、叙事处理：按 开头 / 中段 / 结尾 三段分别给出——每段的情节任务、张力点、情感走向、核心物理道具或动作。\n'
+      + '三、走向处理：人物伏笔（谁在哪一刻露出什么）、情节发展顺序、故事张力来源、情感走向（起—承—转—落）。\n'
+      + '最后列一小节「待作者拍板」：框架里必须由作者决定的项，逐条列出，不要替他决定。';
+    var _m = String(window.CP_PLAN_MODEL || '').trim() || ai.counselModel || 'deepseek-flash';
+    try { trajTag('本章设计框架'); } catch (e6) {}
+    var out = '';
+    try {
+      out = await callAI({ sys: sys, user: user, temperature: 0.6, max_tokens: Number(window.CP_PLAN_MAXTOK) || 2500, modelOverride: _m });
+    } catch (e7) {
+      try { toast('生成框架失败：' + ((e7 && e7.message) || e7 || '未知错误')); } catch (e8) {}
+      return;
+    }
+    out = String(out || '').trim();
+    if (!out) { try { toast('模型返回空框架，未写入'); } catch (e9) {} return; }
+    if (cpPlanSave(out)) { try { toast('本章设计框架已生成（' + out.length + ' 字），后续讨论将对照它推进'); } catch (e10) {} }
+    try { cpRenderPlanPanel(); } catch (e11) {}
+  };
+
+  window.cpPlanClearWrap = function () {
+    if (!cpPlanGet()) { try { toast('本章还没有框架'); } catch (e) {} return; }
+    if (!window.confirm('清除本章设计框架？讨论进度指示会一并归零，正文与指令不受影响。')) return;
+    cpPlanClear();
+    try { cpRenderPlanPanel(); } catch (e2) {}
+  };
+
+  /* ---- 1d. 讨论进度感知 + 收敛/禁问闸门 ----
+     现有 ⑧⑨ 是空口号：提示词写「已拍板的不得再问」，但模型根本不知道哪些已定。
+     这里把已定清单作为实际内容每轮注入，并用纯函数判定何时必须收敛。 */
+  window.CP_STOP_RATE = 0.8;      /* 框架已定率达到即强制收敛 */
+  window.CP_STOP_TURNS = 30;      /* 作者发言轮数达到即强制收敛 */
+  window.CP_ASK_MAXTIMES = 2;     /* 同一主题被问到这个次数即列入禁问 */
+
+  var CP_DECIDE_SIG = /就按|就这么定|定死|定了|拍板|采纳|不要改|照这个|按这个来|确定了|就这么办|听我的|保留/;
+  var CP_ASK_TOPICS = [
+    { k: '开篇', kw: /开篇|开场|开头|第一拍/ },
+    { k: '詹姆斯回来', kw: /詹姆斯[^。]{0,12}(回来|惊喜|回来聊天)/ },
+    { k: '克劳奇', kw: /克劳奇/ },
+    { k: '菲比', kw: /菲比/ },
+    { k: '羽毛', kw: /羽毛/ },
+    { k: '时间线', kw: /时间线|两三天|几天内|过了几天/ },
+    { k: '结尾', kw: /结尾|收尾|最后一拍|三件套/ }
+  ];
+
+  /* 已定事项清单：扫全量讨论（不是最近 N 条），命中拍板语的句子全部收 */
+  function cpDecidedList(log, limit) {
+    limit = limit || 12;
+    if (!Array.isArray(log)) { try { log = cpLogScoped(); } catch (e) { log = []; } }
+    var out = [], seen = {};
+    for (var i = 0; i < log.length; i++) {
+      var m = log[i]; if (!m) continue;
+      var sents = [];
+      try { sents = cpNarrSplitSents(String(m.text || '')); } catch (e2) { sents = String(m.text || '').split(/[。！？\n]/); }
+      for (var j = 0; j < sents.length; j++) {
+        var s = String(sents[j] || '').trim();
+        if (s.length < 6 || s.length > 100) continue;
+        if (!CP_DECIDE_SIG.test(s)) continue;
+        var key = s.slice(0, 24);
+        if (seen[key]) continue;
+        seen[key] = 1;
+        out.push(s);
+      }
+    }
+    return out.slice(-limit);
+  }
+  /* 同一主题被参谋问过几次（只统计参谋侧的疑问句） */
+  function cpAskedTopics(log) {
+    var cnt = {};
+    if (!Array.isArray(log)) return cnt;
+    for (var i = 0; i < log.length; i++) {
+      var m = log[i]; if (!m || m.role === 'me') continue;
+      var t = String(m.text || '');
+      if (!/[？?]/.test(t) && !/要不要|是否|你怎么看|需要我|请你确认|你倾向/.test(t)) continue;
+      for (var j = 0; j < CP_ASK_TOPICS.length; j++) {
+        if (CP_ASK_TOPICS[j].kw.test(t)) cnt[CP_ASK_TOPICS[j].k] = (cnt[CP_ASK_TOPICS[j].k] || 0) + 1;
+      }
+    }
+    return cnt;
+  }
+  function cpNoAskList(log) {
+    var cnt = cpAskedTopics(log), mx = Number(window.CP_ASK_MAXTIMES) || 2, out = [];
+    Object.keys(cnt).forEach(function (k) { if (cnt[k] >= mx) out.push(k + '（已问 ' + cnt[k] + ' 次）'); });
+    return out;
+  }
+  /* 讨论进度：框架条目数 / 已定数 / 是否该收敛 */
+  function cpProgressState(log) {
+    if (!Array.isArray(log)) { try { log = cpLogScoped(); } catch (e) { log = []; } }
+    var plan = cpPlanGet(), total = 0;
+    if (plan) {
+      var mm = plan.match(/[·•]\s*\S/g);
+      total = mm ? mm.length : 0;
+      if (!total) total = plan.split(/\n/).filter(function (x) { return String(x).trim().length > 6; }).length;
+    }
+    var decided = cpDecidedList(log, 99).length, myTurns = 0;
+    log.forEach(function (m) { if (m && m.role === 'me') myTurns++; });
+    var rate = total ? Math.min(1, decided / total) : 0;
+    var stopRate = Number(window.CP_STOP_RATE); if (!isFinite(stopRate)) stopRate = 0.8;
+    var stopTurns = Number(window.CP_STOP_TURNS) || 30;
+    return {
+      hasPlan: !!plan, total: total, decided: decided, myTurns: myTurns, rate: rate,
+      stopAsking: (total > 0 && rate >= stopRate) || myTurns >= stopTurns
+    };
+  }
+  function cpProgressText() {
+    var p = cpProgressState(null);
+    if (!p.hasPlan) return '未生成框架 · 已讨论 ' + p.myTurns + ' 轮';
+    return '框架 ' + p.total + ' 条 · 已定 ' + p.decided + '（' + Math.round(p.rate * 100) + '%）· 讨论 ' + p.myTurns + ' 轮'
+      + (p.stopAsking ? ' · 已达收敛线' : '');
+  }
+
+  /* ---- 1e. 拍板即沉淀：讨论中拍板当场写入，不依赖最后回捞原文 ---- */
+  function cpDecisionsKey() { return 'cpDec:' + cpBookId() + ':' + cpChapterTag(); }
+  function cpDecisionsGet() {
+    try {
+      var v = get1(cpDecisionsKey());
+      if (v && Array.isArray(v.items)) return v.items;
+      var raw = localStorage.getItem(cpDecisionsKey());
+      if (raw) { var o = JSON.parse(raw); if (o && Array.isArray(o.items)) return o.items; }
+    } catch (e) {}
+    return [];
+  }
+  function cpDecisionsAppend(log) {
+    var items = cpDecisionsGet(), have = {}, added = 0;
+    items.forEach(function (x) { have[String(x).slice(0, 24)] = 1; });
+    cpDecidedList(log, 99).forEach(function (s) {
+      if (have[s.slice(0, 24)]) return;
+      items.push(s); have[s.slice(0, 24)] = 1; added++;
+    });
+    if (added) {
+      var cap = Number(window.CP_DEC_MAX) || 200;
+      if (items.length > cap) items = items.slice(-cap);
+      try { put(cpDecisionsKey(), { items: items, at: Date.now() }); }
+      catch (e) { try { localStorage.setItem(cpDecisionsKey(), JSON.stringify({ items: items, at: Date.now() })); } catch (e2) {} }
+    }
+    return added;
+  }
+  function cpDecisionsText(limit) {
+    limit = limit || 30;
+    var items = cpDecisionsGet();
+    if (!items.length) return '';
+    return items.slice(-limit).map(function (s) { return '· ' + s; }).join('\n');
+  }
+
+  /* ---- 挂出（与 v173 的教训一致：不挂 window 的调用全是死代码） ---- */
+  window.cpAssembleContext = cpAssembleContext;
+  window.cpAssembleLegacy = cpAssembleLegacy;
+  window.cpSegSplit = cpSegSplit;
+  window.cpKeyScore = cpKeyScore;
+  window.cpCtxHist = cpCtxHist;
+  window.cpVaultLoad = cpVaultLoad;
+  window.cpVaultGet = cpVaultGet;
+  window.cpVaultPersist = cpVaultPersist;
+  window.cpForeshadowMerge = cpForeshadowMerge;
+  window.cpForeshadowOpen = cpForeshadowOpen;
+  window.cpForeshadowRecycle = cpForeshadowRecycle;
+  window.cpForeshadowText = cpForeshadowText;
+  window.cpPlanGet = cpPlanGet;
+  window.cpPlanClear = cpPlanClear;
+  window.cpProgressState = cpProgressState;
+  window.cpProgressText = cpProgressText;
+  window.cpDecidedList = cpDecidedList;
+  window.cpAskedTopics = cpAskedTopics;
+  window.cpNoAskList = cpNoAskList;
+  window.cpDecisionsAppend = cpDecisionsAppend;
+  window.cpDecisionsGet = cpDecisionsGet;
+  window.cpDecisionsText = cpDecisionsText;
+
   function cpHybridSys() {
     return [
       '你是一位长篇小说的「剧情定稿编辑」，不是写手，也不是聊天对象。',
@@ -1692,19 +2178,13 @@
     try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e) {}
     var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
     var log = cpLogScoped();
-    var turnMax = Number(window.CP_FINAL_TURNS) || 40;
     var inMax = Number(window.CP_HYBRID_INCHARS) || 24000;
-    var src = log.slice(-turnMax);
-    /* 从后往前取，尽量多带：先保证最新的完整留下，超预算再丢最旧的 */
-    var used = 0, picked = [];
-    for (var k = src.length - 1; k >= 0; k--) {
-      var t = String((src[k] && src[k].text) || '');
-      if (picked.length && used + t.length > inMax) break;
-      picked.unshift(src[k]); used += t.length;
-    }
-    var hist = picked.map(function (m) {
-      return (m.role === 'me' ? '我' : '参谋') + '：' + String(m.text || '');
-    }).join('\n');
+    /* v176 P0：这里此前是旧的两步丢最旧（log.slice(-turnMax) + 从后往前超预算 break），
+       而作者点的「生成定稿指令」走的就是这条链路——v175 只改了 counselFinalizeBrief，
+       本出口漏修，中段讨论（克劳奇人设/羽毛绑定/菲比衔接）照样被整段吞掉。
+       现与 counselFinalizeBrief 共用 cpAssembleContext（三段式：前30%/中45%/后25%）。 */
+    var _asm = cpAssembleContext(log, inMax);
+    var hist = cpCtxHist(_asm.items);
     var s = '下面是作者与剧情参谋这一轮讨论的完整记录（按时间顺序，原文未删节；「我：」开头的是作者本人的话，优先级最高）：\n\n' + (hist || '（无）') + '\n\n';
     var adopted = [], vetoed = [];
     try { adopted = adoptGet() || []; } catch (e1) {}
@@ -1713,6 +2193,23 @@
       + (adopted.length ? adopted.map(function (t) { return '· ' + t; }).join('\n') : '（无）') + '\n\n';
     s += '下面是作者已经否决的走向——这些一律进第五段并标【排除】：\n'
       + (vetoed.length ? vetoed.map(function (t) { return '· ' + t; }).join('\n') : '（无）') + '\n\n';
+    /* v176：长线伏笔账本与已定决策清单直接进收敛输入。
+       这两块是压缩后的结构、字数很少，且不参与讨论原文的容量截断——
+       即便中段原文被挤出，作者拍过板的原话与跨章伏笔仍会到达定稿模型。 */
+    try {
+      if (typeof window.cpForeshadowText === 'function') {
+        var _fs = String(window.cpForeshadowText(20) || '');
+        if (_fs) s += '下面是此前埋下、尚未回收的长线伏笔（跨章有效；本章能推进或回收的请在定稿里点名）：\n' + _fs + '\n\n';
+      }
+    } catch (eFs) {}
+    try {
+      if (typeof window.cpDecisionsText === 'function') {
+        var _dc = String(window.cpDecisionsText(30) || '');
+        if (_dc) s += '下面是作者在讨论中已拍板的原话（一律判【已定】，不得遗漏、不得改写）：\n' + _dc + '\n\n';
+      }
+    } catch (eDc) {}
+    /* 兜底：本轮新埋的伏笔在定稿前再入一次账（counselSend 已做，这里是手动定稿时的补漏） */
+    try { if (typeof window.cpForeshadowMerge === 'function') window.cpForeshadowMerge(log); } catch (eFm) {}
     var ctxText = '';
     try {
       var c = counselCtx();
