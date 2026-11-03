@@ -1,5 +1,5 @@
 /* 莉莉娅的写作岛 · 离线 Service Worker（让网页变成可离线打开的 APP，且自动同步新版本） */
-const CACHE = 'jkd-app-v186';
+const CACHE = 'jkd-app-v187';
 const STATIC = [
   './',
   './index.html',
@@ -14,6 +14,14 @@ const STATIC = [
 ];
 const NAV_TIMEOUT = 4000;
 
+/* v187：页面在检测到新 SW 装好后会发 SKIP_WAITING（见 index.html 的 _attachSWUpdate）。
+   此前本文件没有任何 message 监听，那条消息一直没人接收，纯死代码；
+   install 里虽然已经 skipWaiting()，但显式接住这条消息更稳（某些浏览器会把 SW 的
+   自动 skipWaiting 推迟到下一次导航，接住它就等于页面自己决定何时切换）。 */
+self.addEventListener('message', (e) => {
+  try { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); } catch (err) {}
+});
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE).then((c) => c.addAll(STATIC)).catch(() => {})
@@ -21,11 +29,24 @@ self.addEventListener('install', (e) => {
   );
 });
 
+/* v187：activate 不再无条件删旧缓存。
+   原来的写法是「把不等于 CACHE 的全部删掉」，而 addAll 失败会被上面的 .catch 吞掉——
+   一旦某个文件 404，新缓存就是空的、旧缓存又被删光，结果是离线打不开、弱网白屏。
+   现在先确认新缓存里确实有 index.html（有壳才算装好），没装好就保留旧缓存：
+   宁可慢一个版本，也不能让 APP 变成白屏。 */
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((ks) =>
-      Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.open(CACHE)
+      .then((c) => c.keys())
+      .then((keys) => {
+        const hasShell = keys.some((r) => String((r && r.url) || '').indexOf('index.html') >= 0);
+        if (!hasShell) return;   /* 新缓存没装好：保留旧缓存兜底 */
+        return caches.keys().then((ks) =>
+          Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+        );
+      })
+      .catch(() => {})
+      .then(() => self.clients.claim())
   );
 });
 

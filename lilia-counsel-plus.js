@@ -2662,7 +2662,11 @@
       } else if (_nWarn.length) {
         _nMsg += '；' + _nWarn.length + ' 项提示（' + _nWarn.map(function (x) { return x.code; }).join('/') + '）';
       }
-      toast(_nMsg + '；可点「撤销」撤回');
+      /* v187：完成提示尾部挂「本次跑的是不是旧包」。
+         这些修复全在页面自己的代码里跑（排除项纠正、红线角色约束、禁词剔除），
+         旧包生成出来的指令跟新版完全是两回事——不说明就会被当成「改了没用」。
+         window.appStaleNote 由 index.html 提供，取不到就不显示，不影响任何逻辑。 */
+      toast(_nMsg + '；可点「撤销」撤回' + (window.appStaleNote ? window.appStaleNote() : ''));
     } catch (e) {
       try { toast('混合提炼出错：' + ((e && e.message) || e) + '；已按普通要点写入'); } catch (e8) {}
       try { counselToBrief(); } catch (e9) {}
