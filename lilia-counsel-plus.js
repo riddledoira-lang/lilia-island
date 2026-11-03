@@ -2451,6 +2451,26 @@
           _exclFixed++;
           return s.replace(/\s+$/, '') + '【排除】';
         };
+        /* v186：生活化动作条目的确定性剔除。
+           v183 把禁令里自带的反面例句删掉了，模型却换了个来源——从讨论原文里把旧说法捞回来，
+           再包装成开放区的待定项。实测 v184 指令的开放区第 4 条：「岔开落点用厨房系（该磨牙了），
+           具体措辞落笔时定」——禁词一个不少，只是从「二选一」改成了「落笔时定」。
+           说明光在提示词里禁止不够：只要它还以任何形式出现在指令里，深度续写就会照它写，
+           实测 V176 正文直接收在磨牙上、结尾三件套 0/3。这里在输出层做确定性剔除：
+           命中禁词表且不是排除性引用的条目，整条丢掉，并在完成提示里报出丢了几条、丢了什么。
+           豁免两种：①「九、排除项」里的点名（那是在否定它）；②行内含「排除」二字（说明性引用）。 */
+        var _dailyDrop = 0, _dailyDropLog = [];
+        var _dailyReOut = /栗子|苹果挞|司康|南瓜汁|蜂蜜馅饼|松饼|蛋糕|查图书|借书|还书|磨牙|厨房系|去厨房|泡茶|削苹果/;
+        var _dropDaily = function (line, seg) {
+          var s = String(line || '');
+          if (seg === 'X1') return s;
+          if (s.indexOf('排除') >= 0) return s;
+          var m = s.match(_dailyReOut);
+          if (!m) return s;
+          _dailyDrop++;
+          if (_dailyDropLog.length < 3) _dailyDropLog.push(m[0] + '｜' + s.replace(/【[^】]*】/g, '').replace(/^[·•\-\s]+/, '').slice(0, 28));
+          return null;
+        };
         var _used = 0;
         /* v173 P0：主清单必须有自己的上限。旧逻辑让主清单独占全部 25 条配额——
            实测 V172 主清单正好 25 条、附录 0 条，排除项与开放区被整段砍光，
@@ -2549,22 +2569,32 @@
         _seq.forEach(function (x) { if (_seqOut.indexOf(x) < 0) _seqOut.push(x); });  /* 兜底：未知段不丢条 */
         var _lastF = null, _segCnt = [], _mainN = 0;   /* v180：逐段条数，供完成提示核对「每段名只出一次」 */
         _seqOut.forEach(function (x) {
+          var _item = _dropDaily(x.item, x.f);
+          if (_item === null) return;   /* v186：整条剔除；段名跟着不出现，不留空段 */
           if (x.f !== _lastF) { keptLines.push(_nameOf[x.f]); _lastF = x.f; _segCnt.push(0); }
-          keptLines.push(x.item); _segCnt[_segCnt.length - 1]++; _mainN++;
+          keptLines.push(_item); _segCnt[_segCnt.length - 1]++; _mainN++;
         });
         if (_appx.length) {
           keptLines.push('【降级附录】');
           _appx.forEach(function (g) {
-            if (_aPut[g.f].length) {
-              _appxOut.push(_nameOf[g.f]); _appxCnt.push(_aPut[g.f].length); _appxN += _aPut[g.f].length;
-              _aPut[g.f].forEach(function (x) { _appxOut.push(g.f === 'X1' ? _fixExcl(x) : x); });  /* v184：排除项状态标记规范化 */
+            /* v186：先过滤再决定是否出段名——某一整段被剔空时不能留一个空段名。 */
+            var _arr = [];
+            _aPut[g.f].forEach(function (x) {
+              var y = (g.f === 'X1') ? _fixExcl(x) : x;   /* v184：排除项状态标记规范化 */
+              var z = _dropDaily(y, g.f);
+              if (z !== null) _arr.push(z);
+            });
+            if (_arr.length) {
+              _appxOut.push(_nameOf[g.f]); _appxCnt.push(_arr.length); _appxN += _arr.length;
+              _arr.forEach(function (z) { _appxOut.push(z); });
             }
           });
           _appxOut.forEach(function (x) { keptLines.push(x); });
         }
         /* v182：截断数按「实际丢掉多少条」算，不再用「总产出 − 配额」估算。
-           旧算法在有闲置配额时会少报（v181 报 6、实丢 10），用户看到的数字与真实损失不符。 */
-        cut = Math.max(0, _total - (_mainN + _appxN));
+           旧算法在有闲置配额时会少报（v181 报 6、实丢 10），用户看到的数字与真实损失不符。
+           v186：主动剔除的条不算截断，否则两个数会混在一起，看不出「是被配额砍的还是被禁令剔的」。 */
+        cut = Math.max(0, _total - (_mainN + _appxN) - _dailyDrop);
       }
       if (cut > 0) lines = keptLines;
       var body = lines.join('\n');
@@ -2621,6 +2651,11 @@
       }
       /* v184：排除项状态标记被纠正过就明确报出来——这是「刚排掉的东西会不会被重新写回正文」的事，必须可见。 */
       if (typeof _exclFixed === 'number' && _exclFixed > 0) _segTxt += '；已把 ' + _exclFixed + ' 条排除项的状态标记由【已定】纠正为【排除】';
+      /* v186：剔除了哪几条要报出来并带片段——作者得能自己判断有没有误删、要不要手动补一句。 */
+      if (typeof _dailyDrop === 'number' && _dailyDrop > 0) {
+        var _ddLog = _dailyDropLog || [];
+        _segTxt += '；已剔除 ' + _dailyDrop + ' 条生活化动作条目（' + _ddLog.join('；') + (_dailyDrop > _ddLog.length ? '…' : '') + '）——这类词留在指令里，正文会照它收在日常动作上';
+      }
       var _nMsg = '定稿完成：叙事清单 ' + _usedN + ' 条已写入' + _segTxt + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
       if (_nBlock.length) {
         _nMsg = '定稿已写入，但有 ' + _nBlock.length + ' 项必须补齐（' + _nBlock.map(function (x) { return x.code; }).join('/') + '）。生成正文前会强制要求填具体值——留【未定】的话 AI 不会等你，它会自己发明烤栗子式的填充。';
