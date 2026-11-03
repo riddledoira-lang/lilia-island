@@ -2471,6 +2471,23 @@
           if (_dailyDropLog.length < 3) _dailyDropLog.push(m[0] + '｜' + s.replace(/【[^】]*】/g, '').replace(/^[·•\-\s]+/, '').slice(0, 28));
           return null;
         };
+        /* v189：元指令残留前缀的确定性清洗。
+           v185 把 N5 提示词改成「时间锚要写进动作本体那一句里（如……），严禁单列一条」，
+           模型执行了「写进动作本体」，却把提示词自己的表述抄成了条目标题——
+           实测 v188 指令八、节拍里出现：「· 时间锚写进动作本体那一句里：菲比的脚步声拐过走廊
+           那头那几秒，她抬手把袖口往上一推。」内容是对的，标题是提示词残留。
+           这种前缀进了指令，深度续写会把它当结构名复述。这里在输出层把
+           「· 时间锚（要）（写进|融进|长在|落在）……：」前缀剥掉，只留动作本体。
+           注意：不清洗「· 时间锚：暮色…」这种单列形态——那是体检 A21 要抓的目标，
+           洗了闸门就报不出来了（清洗与体检分工：残留前缀洗掉、单列形态留给 A21 报警）。 */
+        var _metaDrop = 0;
+        var _metaRe = /^([·•\-]\s*)时间锚(?:要)?(?:写进|融进|长在|落在)[^：:]{0,24}[：:]\s*/;
+        var _scrubMeta = function (line) {
+          var s = String(line || '');
+          if (!_metaRe.test(s)) return s;
+          _metaDrop++;
+          return s.replace(_metaRe, '$1');
+        };
         var _used = 0;
         /* v173 P0：主清单必须有自己的上限。旧逻辑让主清单独占全部 25 条配额——
            实测 V172 主清单正好 25 条、附录 0 条，排除项与开放区被整段砍光，
@@ -2571,6 +2588,7 @@
         _seqOut.forEach(function (x) {
           var _item = _dropDaily(x.item, x.f);
           if (_item === null) return;   /* v186：整条剔除；段名跟着不出现，不留空段 */
+          _item = _scrubMeta(_item);    /* v189：剥掉「时间锚写进…：」这类提示词残留前缀 */
           if (x.f !== _lastF) { keptLines.push(_nameOf[x.f]); _lastF = x.f; _segCnt.push(0); }
           keptLines.push(_item); _segCnt[_segCnt.length - 1]++; _mainN++;
         });
@@ -2582,7 +2600,7 @@
             _aPut[g.f].forEach(function (x) {
               var y = (g.f === 'X1') ? _fixExcl(x) : x;   /* v184：排除项状态标记规范化 */
               var z = _dropDaily(y, g.f);
-              if (z !== null) _arr.push(z);
+              if (z !== null) _arr.push(_scrubMeta(z));   /* v189：附录同样剥元指令残留前缀 */
             });
             if (_arr.length) {
               _appxOut.push(_nameOf[g.f]); _appxCnt.push(_arr.length); _appxN += _arr.length;
@@ -2596,7 +2614,14 @@
            v186：主动剔除的条不算截断，否则两个数会混在一起，看不出「是被配额砍的还是被禁令剔的」。 */
         cut = Math.max(0, _total - (_mainN + _appxN) - _dailyDrop);
       }
-      if (cut > 0) lines = keptLines;
+      /* v189 真 bug 修复：旧条件只在「配额砍了条」时才换用过滤后的 keptLines。
+         最近几轮配额充足（cut 恒为 0），走的全是原始未过滤的 lines——
+         v186 的禁词剔除因此从未真正生效（v188 指令里「该磨牙了」出现两次为证）。
+         cut=0 时 keptLines 与全量内容等价（选条逻辑一条没丢），
+         所以只要发生过剔除或清洗，就必须换用 keptLines。 */
+      if (cut > 0
+        || (typeof _dailyDrop === 'number' && _dailyDrop > 0)
+        || (typeof _metaDrop === 'number' && _metaDrop > 0)) lines = keptLines;
       var body = lines.join('\n');
       /* v180：说明文案与实际裁剪规则对齐。旧文案写「先砍开放区与排除项尾部」，
          那是 v172 的按序灌满时代；现在的规则是主清单每段保底 1 条 + 轮询补足、
@@ -2655,6 +2680,10 @@
       if (typeof _dailyDrop === 'number' && _dailyDrop > 0) {
         var _ddLog = _dailyDropLog || [];
         _segTxt += '；已剔除 ' + _dailyDrop + ' 条生活化动作条目（' + _ddLog.join('；') + (_dailyDrop > _ddLog.length ? '…' : '') + '）——这类词留在指令里，正文会照它收在日常动作上';
+      }
+      /* v189：剥掉过提示词残留前缀也要报——作者需要知道指令被改过。 */
+      if (typeof _metaDrop === 'number' && _metaDrop > 0) {
+        _segTxt += '；已剥除 ' + _metaDrop + ' 处「时间锚写进…：」式提示词残留前缀（动作本体保留）';
       }
       var _nMsg = '定稿完成：叙事清单 ' + _usedN + ' 条已写入' + _segTxt + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
       if (_nBlock.length) {
