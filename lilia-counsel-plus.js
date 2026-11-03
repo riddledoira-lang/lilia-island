@@ -1617,6 +1617,24 @@
     return Math.max(4000, t);
   }
   window.cpHYBRIDMaxTok = cpHYBRIDMaxTok;
+
+  /* v179：主清单条数上限按段数动态算，不再写死 17。
+     背景：v173 为「主清单 17 + 附录 8 = 25 条」把 17 写死；v177 把 CP_NARR_MAXLINES
+     抬到 32、并给主清单加了第 8 段（七、生理与感官锚点），但 17 一直没跟着动——
+     实测 V176 与 V177 的主清单都正好卡在 17 条（两版都是 5+7+5、6+8+3 块被削平），
+     块3 的四/五/六/七/八段整段消失。所以「配额上调对主清单无效」的根因就是这里。
+     公式：主清单段数 × 2.5 + 2。当前 8 段（N1-N5、N6、N8、N7）→ 22 条，
+          与提示词里「主清单不超过 22 条」正好对齐（此前提示词写 22、代码只给 17，两处互相矛盾）。
+     window.CP_NARR_MAXMAIN 保留为手动覆盖：>0 时优先用它（并夹到总配额内）。 */
+  function cpNarrMaxMain() {
+    var lines = Number(window.CP_NARR_MAXLINES) || 32;
+    var ov = Number(window.CP_NARR_MAXMAIN) || 0;
+    if (ov > 0) return Math.min(ov, lines);
+    var segs = 8;                                  /* 主清单段数：N1 主轴 / N2 道具 / N3 开场 / N4 视线 / N5 结尾 / N6 红线 / N8 生理 / N7 节拍 */
+    var v = Math.round(segs * 2.5) + 2;            /* 8 × 2.5 + 2 = 22 */
+    return Math.min(v, Math.max(6, lines - 6));    /* 至少给附录留 6 条 */
+  }
+  window.cpNarrMaxMain = cpNarrMaxMain;
   /* v162：混合出口定稿块字符上限。比纯定稿（CP_FINAL_MAXCHARS=2600）更宽，
      用于容纳完整不截断的「细节与设定」段 + 「已排除」段（这两段是备查性质，不抢决策配额）。 */
   window.CP_HYBRID_MAXCHARS = 4000;
@@ -2395,7 +2413,7 @@
            实测 V172 主清单正好 25 条、附录 0 条，排除项与开放区被整段砍光，
            连带砍掉的是核爆线本身（指令里「隐形衣/伊格诺图斯」0 处，而 V171 有 14 处）。
            现在主清单最多 mainCap 条，剩下的配额留给附录。 */
-        var mainCap = Math.min(maxLines, (Number(window.CP_NARR_MAXMAIN) || 17));
+        var mainCap = cpNarrMaxMain();   /* v179：动态（按段数算），不再写死 17 */
         var _idxOf = {}; _main.forEach(function (g) { _idxOf[g.f] = 0; });
         var _seq = [];
         /* 第一遍：六个关键字段各保底 1 条（v177 新增 N8 生理与感官锚点——画面就靠它）。
@@ -2426,10 +2444,30 @@
         if (_appx.length) {
           var _appxOut = [];
           keptLines.push('【降级附录】');
+          /* v179：附录改为「每段先保底 2 条，剩余配额再按序轮询」。
+             旧实现按 X1→X2→X3 顺序灌满，实测 V177 里 X1 拿满 5 条、X2 拿 8 条，
+             排在最末的 X3（十一、微表情替换表）只剩 2 条——新增段永远第一个被牺牲。
+             这与主清单「按序灌满会让前面的字段吃掉全部余额」是同一个缺陷，修法也照抄主清单那套。 */
+          var _aIdx = {}, _aPut = {};
+          _appx.forEach(function (g) { _aIdx[g.f] = 0; _aPut[g.f] = []; });
+          var _AGUAR = 2;
           _appx.forEach(function (g) {
-            var put = [];
-            for (var m = 0; m < g.a.length; m++) { if (_used >= maxLines) break; put.push(g.a[m]); _used++; }
-            if (put.length) { _appxOut.push(_nameOf[g.f]); put.forEach(function (x) { _appxOut.push(x); }); }
+            for (var m0 = 0; m0 < _AGUAR && _aIdx[g.f] < g.a.length; m0++) {
+              if (_used >= maxLines) break;
+              _aPut[g.f].push(g.a[_aIdx[g.f]]); _aIdx[g.f]++; _used++;
+            }
+          });
+          var _aMore = true;
+          while (_used < maxLines && _aMore) {
+            _aMore = false;
+            for (var ai = 0; ai < _appx.length; ai++) {
+              var ag = _appx[ai];
+              if (_used >= maxLines) break;
+              if (_aIdx[ag.f] < ag.a.length) { _aPut[ag.f].push(ag.a[_aIdx[ag.f]]); _aIdx[ag.f]++; _used++; _aMore = true; }
+            }
+          }
+          _appx.forEach(function (g) {
+            if (_aPut[g.f].length) { _appxOut.push(_nameOf[g.f]); _aPut[g.f].forEach(function (x) { _appxOut.push(x); }); }
           });
           _appxOut.forEach(function (x) { keptLines.push(x); });
         }
@@ -3284,7 +3322,7 @@
     var p = cpNarrativeParse(Array.isArray(lines) ? lines.join('\n') : String(lines || ''));
     var cap = Number(maxLines) || 25;
     /* v173 P0：同上——主清单独占配额会把附录挤成 0 条，排除项（防注水填充的护栏）整段消失。 */
-    var mainCap2 = Math.min(cap, (typeof window !== 'undefined' ? (Number(window.CP_NARR_MAXMAIN) || 17) : 17));
+    var mainCap2 = Math.min(cap, cpNarrMaxMain());   /* v179：与内联版同口径（动态，不再写死 17） */
     var order = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N8', 'N7'];
     var head = [], appx = [];
     CP_NARR_SECTIONS.forEach(function (sec) {});
@@ -3321,6 +3359,9 @@
       head.push('· ' + x.item);
     });
     appx.push('【降级附录】');
+    /* 注意：以下三段仍是固定 slice(5/3/5)，与内联出口（counselHybridBrief）v179 的
+       「每段保底 2 条再轮询」不同口径。本函数当前零调用（死代码），故此处不改动，
+       避免在未测试的路径上引入新逻辑；将来若要启用它，须先把这三处改成保底轮询。 */
     if (p.fields.X1.length) {
       appx.push('九、排除项（每条必须带否决理由）');
       p.fields.X1.slice(0, 5).forEach(function (it) { appx.push('· ' + it); });
