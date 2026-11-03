@@ -8165,7 +8165,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v191";
+const APP_VERSION="v192";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8186,6 +8186,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v192","V192 界面拆分：「费用估算」和「混合定稿」从轨迹面板里拆出来，各自独占一个全屏页面。\n· 【问题】旧布局把区间汇总、费用估算、检索索引三行统计全塞在轨迹面板顶部，记录列表被挤到半屏以下；点记录看详情又在条目里内联展开，系统提示/用户提示/返回结果三块各限高 190px、字号 11.5——整块详情不足五分之一屏，字小、内容显示不全、要频繁上下滑。\n· 【拆分后】轨迹面板只留纯列表+搜索；统计行右侧钉两颗 36px 高的入口按钮：「💰 费用估算」开全屏统计页（区间汇总/分模型费用/今日累计/检索索引），「📄 混合定稿」直接打开最近一次定稿记录。点任意一条记录也进全屏详情页。\n· 【详情页】三块改 <details> 手风琴，默认只展开「返回结果」；展开后整页滚、不再限高，正文 14.5px、行高 1.75；复制×3 与「用这条重跑」按钮保留，加高到 38px 好按。\n· 【费用页】只建一次、关闭只是隐藏——区间汇总的起止时间输入不丢。三个统计节点（cpRangeBar/dpCostLine/dpPerfLine）由两个插件创建，挂载点改为优先费用页容器，页面不存在时回退旧位置；已挂在轨迹面板里的，打开费用页时搬过去。\n· 【兼容】trajToggleDet 函数名保留（列表行 onclick 照旧），内部转给详情页；两个插件没加载时轨迹面板照常工作，只是没有统计可搬。\n· 【测试】_test_v192.js：真实源码注入式抽取，DOM 模拟验证——两颗入口按钮存在且可调、费用页 z-index 10002 独占整屏、详情页三块 pre 字号 14.5 无 190px 上限、默认只展开返回结果、三处挂载点「slot 优先/旧位回退」、cpOpenLatestFinalize 优先定稿记录、trajToggleDet 转发。\n· 【未动】指令生成、体检器 A11–A24、禁词剔除、配额、轨迹记录格式与容量、重跑对比、更新链路全部未动。\n回滚：恢复 .pre_v192 三个文件即回到 v191 的内联展开布局。"],
   ["v191","V191 修 A22 两个真 bug（角色名带冒号导致回查恒失败、生理锚点被当出场凭证），新增 A24「红线给不在场的人派活」，并给提示词补上「主轴×节拍对账」与「不在场角色只能写绝不可做」。\n· 【来源】作者提供了第77章 v190 的完整 docx（指令 + 系统提示 + 用户提示 + 返回结果），第一次能同时对照「提示词要求什么 / 模型产出什么 / 检测器判什么」。\n· 【A22 真 bug 一·冒号】红线行是「· 海格：本章必须做到……」，取出的角色名带冒号「海格：」，而回查用的名单里只有「海格」——回查永远失败，于是所有红线角色都被判成没戏。实证：一份薇拉/詹姆斯/克劳奇全在主轴与节拍出现的干净指令，A22 照样报「詹姆斯：、克劳奇：都没戏」。这个 bug 从 v185 装好就存在，意味着 A22 至今所有报警都掺着假阳性。改：剥掉冒号。\n· 【A22 真 bug 二·出场凭证】名单里算了「七、生理与感官锚点」。可那一节恰恰是给半出场的人写感官细节的地方——本轮邦妮只在这里出现（眉头紧锁、翻白眼、把东西一塞就转身），九拍里一场戏都没有，红线却要她「出现并塞东西给薇拉」。但直接把这一节从名单里删掉又过头：蜜獾这类非人角色本来就不「出场演戏」，红线对它写「只给一层心理感应式的回应」是合法的，删了就误报成幽灵。最终按「红线要求的是场景内动作还是心理层回应」分级：含出现/出场/塞给/塞东西/递给/来找/当面/相处/撞见/走近等场景词 → 必须在主轴或节拍里；不含这些词 → 生理锚点出现即算数。\n· 【新增 A24】A22 只查「有没有出现」，查不出「出现了但被设定为不在场」。本轮节拍第二拍写明海格进禁林、不在屋外，红线却要求他「被克劳奇客气地绕进去、对薇拉提起有人在打听禁林旧事」——一个不在场的人被要求做动作，深度续写只能二选一：违反节拍把人拉回来，或违反红线跳过这条。判定：节拍里该角色后 12 字内出现不在场/不在/进禁林/被支开/先走/离开/回屋即判为不在场；此时红线仍写「本章必须做到」就报冲突。只写「绝不可做」合法。\n· 【A24 的窗口校准】最初给 24 字窗口，测试立刻抓到跨角色误判：「薇拉在屋外遇上刚和海格谈完的克劳奇，海格已经回屋」里薇拉与「回屋」相隔 21 字却被算成本人不在场。收到 12 字。\n· 【提示词 ㉑ 强化】旧文案只说「被设定为不在场的角色不得写进来」，解决不了「写进来了但要求他做事」。改为：只能写「绝不可做」，不得写「本章必须做到」；并补「只写在七、生理与感官锚点里不算有戏」。\n· 【提示词新增 ㉖ 主轴与节拍必须对账】主轴写了推进/回收哪几条线，节拍就必须各有至少一拍承接；排除项写「改由某样东西承担这项功能」时，那个替代方案也必须出现在节拍里；主轴要推进的线，其当事人若已被排除项整条排掉出场，两条必须改一条。这三条是确定性检测做不了的部分（线索级落点无法用正则判），只能靠提示词。实测形状：主轴列了三條要推进的旧线，九拍里只有一条有拍子，另两条一次没出现；排除项还把其中一条的当事人出场排掉了。\n· 【㉖ 刻意不写实测原句】v183 的教训是说明自带的例句会被模型原样复述回指令（禁令自我传染），所以只描述形状、不给可抄的专名。测试里有一条专门锁这个：㉖ 正文不得出现蜜獾/沙菲克/邦妮/海格。\n· 【A12 这次报的是真缺陷，不是假阳性】本轮结尾动作是「把袖口往上一推、用指腹按住红印、回放到一半停住岔开去想别的」，不可逆只落在「疑再也压不回去了」这个心理后果上，动作本身可以撤回（松开手就结束）。v189 那版有「推上去之后没有再拉下来」这种写明回不去的表述，这版退化了。所以 A12 保持报警，不放宽。\n· 【测试】_test_v191.js 27/27：A22 冒号修复（干净指令不误报）、生理锚点分级（邦妮报、蜜獾不报）、A24 四种豁免与命中、真机 docx 端到端（A22 抓邦妮、A24 抓海格、四名有戏角色零误报）、提示词四条改动逐条锁死。回归 v179–v190 全绿；v185 的 B18 断言随 ㉑ 语义更新；v190 的 F2 从「warn=0」改为「恰 1 条 warn 且是 A22」——那是冒号 bug 掩盖出来的假象。\n· 【未动】禁词剔除、元指令前缀清洗、检测器 A11/A12/A17/A21、配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、排除项纠正、轨迹容量、更新链路。\n回滚：A22 恢复 _cast 含 N8 且不剥冒号、删掉 A24 整段、㉑ 与 ㉖ 回退到 v190 文案。"],
   ["v190","V190 修体检器的三处假阳性：v189 的指令内容完全达标，体检却报 3 个 block，完成提示变成「必须补齐 3 项」。\n· 【现象】第77章 v189 实测指令：视线三段写成「从 A → 扫到 B → 想起 C → 拼出 D」，结尾是「抬手把袖口往上一推……她没有再拉下来」，时间锚是「暮色压到看台栏杆上那几秒」——内容全部达标。体检却报 A11「推理三段论 0 步」+ A12「没有不可逆动作」+ A12「没有时间锚」，三项都是 block 级，于是完成提示被替换成「定稿已写入，但有 3 项必须补齐……生成正文前会强制要求填具体值」。作者会以为自己写错了，回头去改本来正确的指令。\n· 【根因一·A11】步数只数 ①②③ 与行首数字。v185 之后模型常用箭头链条写三段论（本轮 3 条视线共 9 个「→」），一条完整的推理被判成 0 步。改：箭头链条、第一段/第二段/第三段、· 1./2./3. 四种分段形态都认，取最大值（不累加，避免同一段重复计数虚高）。单个箭头（两步）不够，仍报。\n· 【根因二·A12 不可逆】只认动词白名单（喝下/撕掉/交出/拧开）。本轮动作是「推袖口、露出手链、没有按回去」，确实不可逆，只是不在白名单里——白名单式枚举永远会漏。改：另加一组「显式不可撤回」判据（没有…再拉下来／第一次主动露出／再也没有／不再…／不可逆／等于默许）。「她把手链按回袖子里」这类可撤回动作没有「没有/不再」前缀，仍报。\n· 【根因三·A12 时间锚】只认期限词（明天/下周五）。v185 明确要求「时间锚写进动作本体那一句里」，产出必然是场景时刻（「暮色压到栏杆上那几秒」），于是从 v185 起每章必报。改：期限锚与场景时刻锚（那几秒/暮色/黄昏/散场后/天将亮/钟声…）都认；全无时间落点仍报。\n· 【A17 降为 info】裸章号从 v173 起每章必报 5–6 处，而指令里用章号定位是必要手段（「时间锁在第76章之后」「第76章从阵眼捡的符文石」），根本改不掉；天天报一条改不掉的警告，会让人对所有警告脱敏，连带盖住真正要处理的项。检测保留、改法保留，只是不再算进「需要处理」的提示列表。没有收窄成只认「第N章那晚」——v173 的真实事故输入是「接詹姆斯篇第76章成稿」这种纯定位写法，收窄就再也抓不到它。\n· 【完成提示改三档】block / warn / info 分开：info 挂在末尾，措辞写明「不影响生成」，不再与要处理的项并列。体检报告里 info 用ℹ️，不再跟 warn 共用⚠️。\n· 【未动】禁词剔除、元指令前缀清洗、配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、排除项纠正、A21/A22、轨迹容量、更新链路全部未动；CP_END_IRREV / CP_END_ANCHOR 两个常量本身没改（它们还用于正文评分，动它会连带改变正文验收口径）。\n回滚：把 A12 两条判断改回单正则、A11 步数改回原式、A17 的 level 改回 warn 即恢复 v189 行为。"],
   ["v189","V189 修「禁词剔除从未真正生效」+ 一处提示词残留前缀的自我传染。\n· 【真 bug：v186 的剔除闸装了却没通电】v186 在输出装配层加了生活化禁词（磨牙/厨房系/司康等）的确定性剔除，过滤结果写在 keptLines 里；但最终选用哪份行的条件是「只有配额砍了条（cut>0）才换用过滤后的 keptLines」。最近几轮配额充足、cut 恒为 0，走的全是原始未过滤的行——剔除闸从装好那天起一次都没生效过。实证：v188 指令里「该磨牙了」出现两次（节拍九、核爆结尾动作第 3 条），正是 v186 要剔的那类条目。v186 测试没抓到是因为只测了装配层内部、从没测过 cut=0 时「最终用哪份行」——报全绿前先证覆盖，这次把这条路径补进了测试（C 组）。\n· 【改法】只要发生过剔除（或下一条的清洗），就换用过滤后的行；cut=0 时过滤后的行与全量内容等价（选条逻辑一条没丢），换上无副作用。什么都没发生时维持原行为。\n· 【自我传染的第三种形态】v183 是「禁令自带例句被复述」，v186 是「从讨论原文捞禁词包装成待定项」，这次 v188 实测发现第三种：模型把提示词自己的表述抄成了条目标题——「· 时间锚写进动作本体那一句里：菲比的脚步声拐过走廊那头那几秒，她抬手把袖口往上一推。」内容完全正确（时间锚确实融进了动作句），但标题是提示词残留。这种前缀进了指令，深度续写会把它当结构名复述。\n· 【改法·输出层确定性清洗】条目行首的「时间锚（要）（写进|融进|长在|落在）……：」前缀一律剥掉，只留动作本体；主清单与附录两条输出链都过。剥过几处会写进完成提示。注意分工：「· 时间锚：暮色…」这种单列形态不清洗——那是体检 A21 要抓的报警目标，洗了就报不出来了；清洗管残留前缀、A21 管单列形态。\n· 【未动】禁词表、剔除判定、配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、排除项纠正、轨迹容量、A21/A22、更新链路全部未动。\n回滚：把行选用条件改回「cut > 0」、删掉两处 _scrubMeta 调用即恢复原样（清洗器本身留着不影响）。"],
@@ -17488,7 +17489,23 @@ function showTrajPanel(){
         +".traj-det.on{display:block;}"
         +".traj-sec{margin-bottom:8px;}"
         +".traj-sec-h{font-size:12px;color:var(--sub);margin-bottom:3px;}"
-        +".traj-pre{white-space:pre-wrap;word-break:break-all;background:var(--soft,rgba(127,127,127,.07));border-radius:8px;padding:7px 9px;font-size:11.5px;line-height:1.65;max-height:190px;overflow:auto;font-family:var(--font-mono,monospace);}";
+        +".traj-pre{white-space:pre-wrap;word-break:break-all;background:var(--soft,rgba(127,127,127,.07));border-radius:8px;padding:7px 9px;font-size:11.5px;line-height:1.65;max-height:190px;overflow:auto;font-family:var(--font-mono,monospace);}"
+        /* v192：费用估算与定稿详情拆成独立全屏页。
+           旧布局里费用行+区间汇总+检索索引把记录列表挤到半屏以下，
+           详情又在条目里内联展开、三块 pre 限高 190px、字号 11.5——
+           不到五分之一屏，字小还得来回滑。现在：轨迹面板只留列表，
+           统计进全屏「费用估算」页，点记录进全屏「定稿详情」页。 */
+        +".cp-sheet{position:fixed;inset:0;background:var(--card,#fff);color:var(--ink,#1a1a1a);z-index:10002;display:flex;flex-direction:column;}"
+        +".cp-sheet-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line,rgba(127,127,127,.25));flex:none;}"
+        +".cp-sheet-h b{font-size:16px;font-weight:700;flex:1;min-width:0;}"
+        +".cp-sheet-h>button{padding:6px 12px;min-height:36px;font-size:13px;flex:none;}"
+        +".cp-sheet-b{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:10px 14px;}"
+        +".traj-stat{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}"
+        +".traj-stat .txt{flex:1 1 120px;min-width:0;}"
+        +".traj-stat>button{padding:6px 12px;min-height:36px;font-size:13px;flex:none;white-space:nowrap;font-weight:700;}"
+        +".cp-det details{margin-bottom:10px;border:1px solid var(--line,rgba(127,127,127,.22));border-radius:10px;overflow:hidden;}"
+        +".cp-det summary{padding:10px 12px;font-size:14px;font-weight:700;cursor:pointer;background:var(--soft,rgba(127,127,127,.08));min-height:24px;}"
+        +".cp-det-pre{white-space:pre-wrap;word-break:break-all;padding:10px 12px;font-size:14.5px;line-height:1.75;font-family:var(--font-mono,monospace);}";
       document.head.appendChild(st);
     }
     const box=document.createElement("div"); box.id="trajMask"; box.className="traj-mask";
@@ -17506,7 +17523,12 @@ function showTrajPanel(){
         +'<button type="button" onclick="trajClearAsk()">清空</button>'
         +'<button type="button" onclick="document.getElementById(\'trajMask\').remove()">✕</button>'
       +'</div>'
-      +'<div id="trajStat" style="padding:6px 12px;font-size:12px;color:var(--sub);border-bottom:1px solid var(--line,rgba(127,127,127,.18));flex:none;"></div>'
+      +'<div id="trajStat" style="padding:6px 12px;font-size:12px;color:var(--sub);border-bottom:1px solid var(--line,rgba(127,127,127,.18));flex:none;">'
+        /* v192：两个独立页入口钉在统计行右侧，一眼可见、36px 高好按 */
+        +'<div class="traj-stat"><span class="txt" id="trajStatTxt"></span>'
+        +'<button type="button" onclick="cpOpenCostSheet()" title="区间汇总 / 费用估算 / 检索索引，独占整屏">💰 费用估算</button>'
+        +'<button type="button" onclick="cpOpenLatestFinalize()" title="打开最近一次「混合定稿」的完整提示词与返回结果">📄 混合定稿</button>'
+        +'</div></div>'
       +'<div class="traj-body" id="trajList"></div>'
       +'</div>';
     document.body.appendChild(box);
@@ -17533,8 +17555,8 @@ function trajRender(){
     return ((t.sys||"")+(t.user||"")+(t.out||"")+(t.tag||"")+(t.req||"")+(t.ret||"")+(t.err||"")).toLowerCase().indexOf(q)>=0;
   });
   const bad=trajGet().filter(function(t){ return !t.ok; }).length;
-  const st=document.getElementById("trajStat");
-  if(st) st.innerHTML="共 "+total+" 条"+(bad?("，其中失败 "+bad+" 条"):"")+(q?("，匹配 "+arr.length+" 条"):"")+"　·　点任意一条展开完整 prompt 与返回结果";
+  const st=document.getElementById("trajStatTxt");
+  if(st) st.textContent="共 "+total+" 条"+(bad?("，其中失败 "+bad+" 条"):"")+(q?("，匹配 "+arr.length+" 条"):"")+"　·　点任意一条看完整 prompt 与返回结果";
   if(!arr.length){ list.innerHTML='<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px;">'+(total?"没有匹配的记录":"还没有记录——去写一段或点一次参谋，这里就会有第一条")+'</div>'; return; }
   list.innerHTML=arr.map(function(t){
     const cls=t.ok?"traj-row":"traj-row bad";
@@ -17561,36 +17583,87 @@ function thinkLabel(v){
   if(s==="omit") return "未发送";
   return s||"—";
 }
-function trajToggleDet(id){
-  const el=document.getElementById("trajDet_"+id); if(!el) return;
-  if(el.classList.contains("on")){ el.classList.remove("on"); el.innerHTML=""; return; }
+/* v192：点记录不再在条目里内联挤着展开，而是打开独占整屏的详情页。
+   保留 trajToggleDet 这个名字——列表行 onclick 和旧代码都调它，内部转给详情页。 */
+function trajToggleDet(id){ cpOpenTrajDetail(id); }
+function cpOpenTrajDetail(id){
   const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t) return;
+  let sh=document.getElementById("cpDetSheet"); if(sh) sh.remove();
+  sh=document.createElement("div"); sh.id="cpDetSheet"; sh.className="cp-sheet";
   /* v188：截断说明要区分「模式所致」和「上限不足」。
      v185 把完整模式的单条上限抬到 80000 之后，摘要模式（sys 2000 / user 8000）仍会正常截断——
      这是设计如此，不是缺陷。v187 曾把一条摘要模式下的截断告警误读成「页面跑着旧包」，
      就是因为提示语没说明是哪种模式截的。 */
   const _cutMode=(typeof t.trajFull==='boolean')?(t.trajFull?"完整":"摘要"):(trajFullOn()?"完整":"摘要");
-  const cutNote=((t.sysCut||t.userCut)?('<div style="color:#b8860b;font-size:11.5px;margin-bottom:6px;">⚠ 这条存的是'+_cutMode+'模式的截断版（sys '+trajEsc(t.sysLen)+' 字 / user '+trajEsc(t.userLen)+' 字）。'
-    +(_cutMode==="摘要"?'摘要模式每条例只留 sys 2000 / user 8000 字，是为了能存下 150 条；要看全文请点上方「摘要」切成「完整prompt」。':'完整模式单条上限 sys 12000 / user '+trajEsc(TRAJ_FULL_USER)+' 字，这条超过了它。')
+  const cutNote=((t.sysCut||t.userCut)?('<div style="color:#b8860b;font-size:13px;margin-bottom:6px;">⚠ 这条存的是'+_cutMode+'模式的截断版（sys '+trajEsc(t.sysLen)+' 字 / user '+trajEsc(t.userLen)+' 字）。'
+    +(_cutMode==="摘要"?'摘要模式每条例只留 sys 2000 / user 8000 字，是为了能存下 150 条；要看全文请点轨迹面板上方「摘要」切成「完整prompt」。':'完整模式单条上限 sys 12000 / user '+trajEsc(TRAJ_FULL_USER)+' 字，这条超过了它。')
     +'</div>'):"");
-  const _verNote=(t.ver?'<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">记录版本 '+trajEsc(t.ver)
+  const _verNote=(t.ver?'<div style="font-size:13px;color:var(--sub);margin-bottom:4px;">记录版本 '+trajEsc(t.ver)
     +(String(t.ver)!==String(APP_VERSION)?('（当前页面是 '+trajEsc(APP_VERSION)+'，这条由旧版写出——它的行为和当前代码不一定一致）'):'（与当前页面一致）')+'</div>':"");
-  const sec=function(title,txt){
-    return '<div class="traj-sec"><div class="traj-sec-h">'+title+'</div><div class="traj-pre">'+trajEsc(txt||"（空）")+'</div></div>';
+  /* 三块改 <details> 手风琴：默认只展开「返回结果」（最常看），
+     展开后整页滚、不再限高 190px，字号 14.5px 手机直读。 */
+  const sec=function(title,txt,open){
+    return '<details'+(open?' open':'')+'><summary>'+title+'</summary><div class="cp-det-pre">'+trajEsc(txt||"（空）")+'</div></details>';
   };
-  el.innerHTML=cutNote+_verNote
-    +'<div style="font-size:11.5px;color:var(--sub);margin-bottom:6px;">温度 '+trajEsc(t.temp)+' · max_tokens '+trajEsc(t.mt)+' · 思考 '+trajEsc(thinkLabel(t.think))+' · 输入 '+trajEsc(t.uin)+' tok / 输出 '+trajEsc(t.uout)+' tok</div>'
-    +sec("系统提示", t.sys)
-    +sec("用户提示", t.user)
-    +sec("返回结果", t.out||(t.ok?"（空）":"（本次失败，无返回）"))
-    +(t.err?sec("失败原因", t.err):"")
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
-      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'sys\')">复制系统提示</button>'
-      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'user\')">复制用户提示</button>'
-      +'<button type="button" onclick="event.stopPropagation();trajCopy(\''+t.id+'\',\'out\')">复制返回结果</button>'
-      +'<button type="button" class="primary" onclick="event.stopPropagation();trajReplay(\''+t.id+'\')">🔁 用这条重跑</button>'
-    +'</div>';
-  el.classList.add("on");
+  sh.innerHTML='<div class="cp-sheet-h"><b>📄 '+trajEsc(t.tag||"记录详情")+'</b>'
+    +'<button type="button" onclick="document.getElementById(\'cpDetSheet\').remove()">✕ 关闭</button></div>'
+    +'<div class="cp-sheet-b cp-det">'
+    +cutNote+_verNote
+    +'<div style="font-size:13px;color:var(--sub);margin-bottom:8px;">'+trajEsc(fmtTime(t.ts))+' · '+trajEsc(t.req||"?")+(t.ret&&t.ret!==t.req?("→"+trajEsc(t.ret)):"")+' · 温度 '+trajEsc(t.temp)+' · max_tokens '+trajEsc(t.mt)+' · 思考 '+trajEsc(thinkLabel(t.think))+' · 输入 '+trajEsc(t.uin)+' tok / 输出 '+trajEsc(t.uout)+' tok</div>'
+    +sec("系统提示", t.sys, false)
+    +sec("用户提示", t.user, false)
+    +sec("返回结果", t.out||(t.ok?"（空）":"（本次失败，无返回）"), true)
+    +(t.err?sec("失败原因", t.err, true):"")
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">'
+      +'<button type="button" style="min-height:38px;" onclick="trajCopy(\''+t.id+'\',\'sys\')">复制系统提示</button>'
+      +'<button type="button" style="min-height:38px;" onclick="trajCopy(\''+t.id+'\',\'user\')">复制用户提示</button>'
+      +'<button type="button" style="min-height:38px;" onclick="trajCopy(\''+t.id+'\',\'out\')">复制返回结果</button>'
+      +'<button type="button" class="primary" style="min-height:38px;" onclick="trajReplay(\''+t.id+'\')">🔁 用这条重跑</button>'
+    +'</div></div>';
+  document.body.appendChild(sh);
+}
+/* v192：费用估算页——区间汇总 / 费用估算 / 检索索引三块统计整体搬进来，独占整屏。
+   sheet 只建一次、关闭只是隐藏：里面 cpRangeBar 的起止时间输入不丢。
+   三个统计节点由两个插件各自创建（挂载点优先本页容器，见插件里的 cpCostBarSlot/cpCostCostSlot）；
+   若它们已经挂在轨迹面板里，打开本页时搬过来。 */
+function cpOpenCostSheet(){
+  try{
+    let sh=document.getElementById("cpCostSheet");
+    if(!sh){
+      sh=document.createElement("div");
+      sh.id="cpCostSheet"; sh.className="cp-sheet"; sh.style.display="none";
+      sh.innerHTML='<div class="cp-sheet-h"><b>💰 费用估算</b>'
+        +'<button type="button" onclick="document.getElementById(\'cpCostSheet\').style.display=\'none\'">✕ 关闭</button></div>'
+        +'<div class="cp-sheet-b">'
+        +'<div id="cpCostBarSlot"></div>'
+        +'<div id="cpCostCostSlot"></div>'
+        +'</div>';
+      document.body.appendChild(sh);
+    }
+    sh.style.display="flex";
+    try{
+      const slot1=document.getElementById("cpCostBarSlot");
+      const bar=document.getElementById("cpRangeBar");
+      if(slot1&&bar&&bar.parentNode!==slot1) slot1.appendChild(bar);
+      const slot2=document.getElementById("cpCostCostSlot");
+      ["dpCostLine","dpPerfLine"].forEach(function(nid){
+        const el=document.getElementById(nid);
+        if(slot2&&el&&el.parentNode!==slot2) slot2.appendChild(el);
+      });
+    }catch(e){}
+    try{ if(typeof window.cpEnsureRangeBar==="function") window.cpEnsureRangeBar(); }catch(e){}
+    try{ if(typeof window.dpRenderCost==="function") window.dpRenderCost(); }catch(e){}
+    try{ if(typeof window.dpRenderPerf==="function") window.dpRenderPerf(); }catch(e){}
+  }catch(e){ toastErr("打开费用页失败："+(e&&e.message)); }
+}
+/* v192：「混合定稿」入口——直接打开最近一次定稿记录的详情页；没有定稿记录就退到最新一条 */
+function cpOpenLatestFinalize(){
+  try{
+    const arr=trajGet().slice().reverse();
+    const t=arr.filter(function(x){ return /定稿/.test(String(x.tag||"")); })[0]||arr[0];
+    if(!t){ toast("还没有任何轨迹记录——先跑一次定稿"); return; }
+    cpOpenTrajDetail(t.id);
+  }catch(e){ toastErr("打开定稿详情失败："+(e&&e.message)); }
 }
 function trajCopy(id,which){
   const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t) return;

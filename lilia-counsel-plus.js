@@ -2939,27 +2939,35 @@
    * 模块 J：生成轨迹「时间区间 token 汇总」（疑问 3 的答案）
    * 主程序已记录每条的 uin / uout / ts，这里只做本地汇总，0 token。
    * ============================================================ */
+  /* v192：区间汇总改挂全屏「费用估算」页的容器（#cpCostBarSlot），
+     页面不存在时回退旧位置（轨迹面板列表前）。已存在则不动——
+     它若在费用页里，轨迹面板打开时不再重复出现，面板保持纯列表。 */
+  function cpEnsureRangeBar() {
+    try {
+      if (document.getElementById('cpRangeBar')) return;
+      var bar = document.createElement('div');
+      bar.id = 'cpRangeBar';
+      bar.className = 'cp-range';
+      bar.innerHTML =
+        '<span>区间汇总</span>' +
+        '<input type="datetime-local" id="cpFrom" style="flex:1 1 150px;">' +
+        '<input type="datetime-local" id="cpTo" style="flex:1 1 150px;">' +
+        '<button type="button" onclick="cpRangeSum()">统计</button>' +
+        '<button type="button" onclick="cpRangeToday()">今天</button>' +
+        '<button type="button" onclick="cpRangeCopy()">复制</button>' +
+        '<div id="cpRangeOut" style="flex:1 1 100%;color:var(--sub);"></div>';
+      var slot = document.getElementById('cpCostBarSlot');
+      if (slot) { slot.appendChild(bar); return; }
+      var list = document.getElementById('trajList');
+      if (list && list.parentNode) list.parentNode.insertBefore(bar, list);
+    } catch (e) {}
+  }
+  window.cpEnsureRangeBar = cpEnsureRangeBar;
   var _origShowTrajPanel = (typeof showTrajPanel === 'function') ? showTrajPanel : null;
   if (_origShowTrajPanel) {
     showTrajPanel = function () {
       _origShowTrajPanel();
-      try {
-        var list = document.getElementById('trajList');
-        if (!list) return;
-        if (document.getElementById('cpRangeBar')) return;
-        var bar = document.createElement('div');
-        bar.id = 'cpRangeBar';
-        bar.className = 'cp-range';
-        bar.innerHTML =
-          '<span>区间汇总</span>' +
-          '<input type="datetime-local" id="cpFrom" style="flex:1 1 150px;">' +
-          '<input type="datetime-local" id="cpTo" style="flex:1 1 150px;">' +
-          '<button type="button" onclick="cpRangeSum()">统计</button>' +
-          '<button type="button" onclick="cpRangeToday()">今天</button>' +
-          '<button type="button" onclick="cpRangeCopy()">复制</button>' +
-          '<div id="cpRangeOut" style="flex:1 1 100%;color:var(--sub);"></div>';
-        list.parentNode.insertBefore(bar, list);
-      } catch (e) {}
+      try { cpEnsureRangeBar(); } catch (e) {}
     };
   }
   function cpRangeItems() {

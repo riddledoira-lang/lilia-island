@@ -367,6 +367,9 @@
      那个模块一旦没加载（或将来改动挪了位置），费用行就整行不显示，等于功能缺失。
      这里退到 trajStat（主程序自带），再退到面板本体，保证钱一定有地方显示。 */
   function dpMountPoint() {
+    /* v192：费用/检索索引行优先挂全屏「费用估算」页容器；页不存在时回退旧链 */
+    var slot = document.getElementById('cpCostCostSlot');
+    if (slot) return { node: slot, after: null };
     var anchor = document.getElementById('cpRangeOut');
     if (anchor && anchor.parentNode) return { node: anchor.parentNode, after: anchor };
     var stat = document.getElementById('trajStat');
@@ -418,19 +421,26 @@
     } catch (e) {}
   }
 
+  /* 检索索引性能行：让「有没有变慢」这件事可见，而不是靠感觉。
+     v192 抽成独立函数并导出——全屏费用页打开时也要能主动刷它 */
+  function dpRenderPerf() {
+    try {
+      var perf = dpEnsureLine('dpPerfLine');
+      if (!perf) return;
+      perf.innerHTML = '<div style="padding:4px 12px 8px;color:var(--sub);font-size:11.5px;">⚡ 检索索引：已构建 ' + S.ragBuild +
+        ' 次 / 命中 ' + S.ragHit + ' 次' + (S.ragMs ? (' · 末次耗时 ' + S.ragMs + 'ms') : '') +
+        '　·　参谋上下文命中 ' + S.ctxHit + ' 次</div>';
+    } catch (e2) {}
+  }
+  window.dpRenderCost = dpRenderCost;
+  window.dpRenderPerf = dpRenderPerf;
+
   var _origTraj = (typeof showTrajPanel === 'function') ? showTrajPanel : null;
   if (_origTraj) {
     showTrajPanel = function () {
       _origTraj();
       try { dpRenderCost(); } catch (e) {}
-      /* 检索索引性能行：让「有没有变慢」这件事可见，而不是靠感觉 */
-      try {
-        var perf = dpEnsureLine('dpPerfLine');
-        if (!perf) return;
-        perf.innerHTML = '<div style="padding:4px 12px 8px;color:var(--sub);font-size:11.5px;">⚡ 检索索引：已构建 ' + S.ragBuild +
-          ' 次 / 命中 ' + S.ragHit + ' 次' + (S.ragMs ? (' · 末次耗时 ' + S.ragMs + 'ms') : '') +
-          '　·　参谋上下文命中 ' + S.ctxHit + ' 次</div>';
-      } catch (e2) {}
+      try { dpRenderPerf(); } catch (e2) {}
     };
   }
   /* cpRangeSum 由 lilia-counsel-plus.js 提供；它没加载时这里静默跳过，不影响任何功能 */
