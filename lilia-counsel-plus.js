@@ -1602,7 +1602,21 @@
   window.CP_HYBRID_MODEL = ''; /* 空 = 用 CP_FINAL_MODEL 同款（ai.counselModel || deepseek-flash） */
   window.CP_HYBRID_FORCE = 0;  /* 1=即便无矛盾/归并也强制交 DeepSeek 收敛 */
   window.CP_HYBRID_TEMP = 0.55;
-  window.CP_HYBRID_MAXTOK = 3000;
+  window.CP_HYBRID_MAXTOK = 0;   /* v178：0 = 按配额动态算（见 cpHYBRIDMaxTok）；填具体数值即手动覆盖 */
+  /* v178：输出 token 上限按配额动态推算。
+     根因：写死 3000 时，单份十一段实测约 4122 字符 ≈ 2900 token，正好卡在边界 →
+     每次必然 finish_reason=length → 触发 callAI 的自动续写（while guard<5）→ 模型不遵守
+     「不要重复任何已输出文字」，重新从头输出一整份 → 三份清单被 out += 拼成一份。
+     V177 指令里「一、本章主轴」出现三次、末尾「已按优先级截断 35 条」，就是这么来的。
+     公式：总条目上限 × 每条均长 145 字符 × 0.8 token/字 × 1.8 倍余量 ≈ × 209 token/条；
+          32 条 → 6688 → 取整到千位 = 7000。
+     下限 4000：防止配额被调小后上限过低、再次触发续写。 */
+  function cpHYBRIDMaxTok() {
+    var lines = Number(window.CP_NARR_MAXLINES) || 32;
+    var t = Math.round(lines * 209 / 1000) * 1000;
+    return Math.max(4000, t);
+  }
+  window.cpHYBRIDMaxTok = cpHYBRIDMaxTok;
   /* v162：混合出口定稿块字符上限。比纯定稿（CP_FINAL_MAXCHARS=2600）更宽，
      用于容纳完整不截断的「细节与设定」段 + 「已排除」段（这两段是备查性质，不抢决策配额）。 */
   window.CP_HYBRID_MAXCHARS = 4000;
@@ -2279,7 +2293,7 @@
       var _m = String(window.CP_HYBRID_MODEL || '').trim() || String(window.CP_FINAL_MODEL || '').trim() || ai.counselModel || 'deepseek-flash';
       var _t = Number(window.CP_HYBRID_TEMP);
       if (!isFinite(_t)) _t = 0.55;
-      var _mt = Number(window.CP_HYBRID_MAXTOK) || 3000;
+      var _mt = Number(window.CP_HYBRID_MAXTOK) || cpHYBRIDMaxTok();
       var out = '';
       try {
         out = await callAI({ sys: cpHybridSys(), user: cpHybridUser(), temperature: _t, max_tokens: _mt, modelOverride: _m });
