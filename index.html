@@ -8165,7 +8165,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v187";
+const APP_VERSION="v188";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8186,6 +8186,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v188","V188 修三处观测层问题，其中一处是 v187 自己造成的误判。\n· 【先认一个错】v187 报告里把「轨迹报截断（user 52785 字）」当成「页面还在跑旧包」的证据之一——这是错的。截图里那颗按钮显示的是「摘要」，说明当前是摘要模式：该模式每条例只留 sys 2000 / user 8000 字（为了能存下 150 条），五万多字必然被截，这是设计如此，不是缺陷。真正能证明旧版的只有另外两条（排除项【已定】没被纠正、红线里的邦妮/莉莉/斯内普没被约束）。\n· 【改法一·截断说明分开写】摘要模式截断时明确告诉你是模式所致、上限多少、为什么这么设、怎么切到完整模式；完整模式截断时才说「超过 sys 12000 / user 80000」。以后不会再出现「看到截断就以为版本旧了」这种误读。\n· 【改法二·每条记录记下是谁写的】轨迹里新增两个字段：记录时的版本号、记录时的存盘模式。详情页会显示「记录版本 v183（当前页面是 v188，这条由旧版写出——它的行为和当前代码不一定一致）」；版本一致则显示「与当前页面一致」。老记录没有这两个字段，不显示、不误报。\n· 【改法三·头部不再挤成两行】v187 把版本徽章和一颗「检查更新」按钮并排塞进轨迹面板头部，移动端一行放不下，折成「生成轨迹 v187 检查更新 记录中 / 摘要 清空 ✕」两行。现在合并成一个可点的窄徽章（点它就是检查更新），头部间距从 8px 收到 6px，回到「标题+徽章+记录中+摘要+清空+✕」一行、搜索框独占一行。\n· 【顺带】更新提示条的倒计时从 8 秒放宽到 10 秒，并明说「稿子已自动保存，刷新不会丢内容」——v187 首次自动刷新时没有这句话，容易让人以为要丢稿。\n· 【未动】写作侧全部逻辑一字未动：十一段结构、配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、排除项纠正、禁词剔除、A21/A22、更新检查时机与自动刷新。\n回滚：把轨迹面板头部的徽章换回 span + 独立按钮即恢复 v187 版式；截断说明与版本字段只是多出来的信息，不影响任何生成逻辑。"],
   ["v187","V187 修「改了到不了页面」：v184/v185/v186 三版部署完成后，作者连跑两次生成拿到的仍是 v183 的包。\n· 【证据链】轨迹里 user 52785 字仍在报「截断版」，而那个上限 v185 已抬到 80000；同时排除项错标【已定】没被 v184 的确定性纠正修掉，红线里的邦妮/莉莉/斯内普也没被 v185 的约束挡住——三条独立证据同时指向「页面在跑旧代码」。\n· 【根因不是没检测到】sw.js 一直在比对 APP_VERSION 并把「有新版本」发给页面，但页面只弹一条底部提示，不点「立刻刷新」就一直是旧包。而检查更新的定时器（每 5 分钟）又被「AI 正在跑」和「页面在后台」两条规则挡着——连续生成时基本轮不到它。\n· 【改法一·补三个检查时机】① 切回 App（visibilitychange → 前台）立刻查；② 从「AI 在跑」变成「空闲」的那一秒查——正好是刚拿到结果、最适合换包的窗口；③ 手动「检查更新」按钮（轨迹面板）。\n· 【改法二·提示条升级为自动刷新】原来是「点不点随你」，现在空闲且前台时 8 秒倒计时自动刷，页面上显示剩余秒数；正在跑 AI 或页面在后台就挂起并明说原因（绝不打断生成），跑完立刻刷。点「稍后」则本轮不再自动刷。\n· 【改法三·版本号看得见】轨迹面板标题旁直接显示当前运行版本，旁边一颗「检查更新」：点它先绕过 SW 缓存问线上版本，一致就明确说「已是最新」，不一致才刷——不再需要从 user 字数这类间接证据反推。\n· 【改法四·结果自己会说明】定稿完成的提示尾部会挂一句「当前页面是 v183、线上已是 v187，本次结果不含 v187 的修复」——这类修复全在页面自己的代码里跑，旧包生成出来的指令跟新版是两回事，不说明就会被当成「改了没用」。\n· 【顺带修一个白屏隐患】sw.js 的 activate 原来无条件删除所有旧缓存，而 install 里的 addAll 失败是被 catch 吞掉的——一旦某个静态文件 404，新缓存是空的、旧的又被删光，结果就是离线打不开、弱网白屏。现在先确认新缓存里确实有 index.html 再删旧缓存，没装好就保留旧的：宁可慢一个版本，也不能白屏。\n· 【顺带补一个死消息】页面一直在给新 SW 发 SKIP_WAITING，而 sw.js 根本没有 message 监听，那条消息从来没人接收。现已接住。\n· 【未动】十一段结构、配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、排除项纠正、禁词剔除、轨迹容量、A21/A22 全部未动。\n回滚：把 app-updated 处理里的倒计时段删掉即恢复「只提示不自动刷」；sw.js 的 activate 保护可单独保留（它只防白屏）。"],
   ["v186","V186 修「封杀令换了个来源复活」：v183 删掉了禁令自带的反面例句，模型却从讨论原文里把旧说法捞回来，再包装成开放区的待定项。\n· 【现象】实测 v184 指令「十、开放区」第 4 条：「岔开落点用厨房系（该磨牙了），具体措辞落笔时定」——禁词一个不少，只是从 v182 的「二选一」改成了「落笔时定」。说明光在提示词里禁止不够：只要它还以任何形式出现在指令里，深度续写就会照它写。\n· 【代价有实测】V176 指令把某个日常动作写成「落笔时二选一」，正文就真的收在那个动作上、结尾三件套 0/3。这不是措辞洁癖，是结尾直接垮掉的原因。\n· 【改法·输出层确定性剔除】命中禁词表（栗子/苹果挞/司康/南瓜汁/蜂蜜馅饼/松饼/蛋糕/查图书/借书/还书/磨牙/厨房系/去厨房/泡茶/削苹果）的条目整条丢掉，主清单与附录两条输出链都过这道闸。\n· 【两种豁免】①「九、排除项」里的点名（那是在否定它，不是要用它）；②行内含「排除」二字的说明性引用（如「排除『薇拉查图书』这个旧方案」）。\n· 【不留空段】附录改成「先过滤、再看还剩不剩」——某一整段被剔空时，段名跟着不出现，不会在指令里留一个「十、开放区」下面空无一物的段落。\n· 【两个数分开算】主动剔除的不算进截断数（cut 公式扣掉 _dailyDrop），否则「被配额砍的」和「被禁令剔的」混成一个数，看不出真实损失。\n· 【可见性】完成提示会报「已剔除 N 条生活化动作条目（禁词｜条目片段；…）」，最多带三条片段——你能直接判断有没有误删、要不要手动补一句。\n· 【未动】配额 80/60、选条、段序重排、组头去重、附录保底、续写去重闸门、v184 排除项状态纠正、v185 的轨迹容量与 A21/A22 全部未动。\n回滚：删掉 _dropDaily 的两处调用即恢复原样（禁词表与判定函数留着不影响）。"],
   ["v185","V185 修三处：轨迹存不下完整 prompt（单条上限 40000 撞上实测 52614 字）、核爆结尾动作被单列成「动作带时间锚」、角色红线给不出场的人派活。另新增两条指令体检 A21 / A22。\n· 【现象·轨迹截断】轨迹里出现「⚠ 这条存的是截断版（sys 2978 字 / user 52614 字）」。完整模式单条 user 上限 40000，实测第77章定稿指令已 52614 字，被切掉 12614 字——轨迹存在的唯一理由就是「复现 AI 当时到底收到了什么」，存半份等于这个功能失效。\n· 【改法·抬上限 + 加总量闸】TRAJ_FULL_USER 40000 → 80000。但只抬上限会把总量推到 30×93500≈2.8M 字符（≈5.6MB）直接顶爆 localStorage，所以同时加一道总量预算（完整模式 1.6M 字符 / 摘要模式 1.2M 字符）：从最新一条往前累加，超预算就把更旧的整条丢掉，替代原来那句粗糙的「溢出就砍掉一半」。\n· 【现象·双时间锚】五、核爆结尾动作里，动作本体之外多出一条「动作带时间锚：暮色压到看台栏杆上、球场灯还没亮的那几秒」。根因在提示词自己：原文写「必须是一个不可逆动作（…），带时间锚」，模型就把时间锚当成并列的一项。\n· 【改法·时间锚融进动作句】改为「时间锚要写进动作本体那一句里，严禁单列一条『动作带时间锚：……』」。时间锚一旦与动作并列成两条，深度续写会把它当背景交代，同一章出现两个各说各话的锚。\n· 【现象·红线给不出场的人派活】第六章原本只约束「正负双向」，没约束「谁有资格进来」。实测主轴与节拍的戏份只有薇拉、詹姆斯、克劳奇、菲比，海格被设为不在场；红线却多写了三位全程无戏的角色，还要求她们「在与薇拉相处时承接虚的状态」——正文要么硬塞一场没有位置的戏，要么直接违反红线。\n· 【改法·限定出场角色】㉑ 与定稿提示词同步：只写本章实际出场的角色，以「一、本章主轴」与「八、节拍」里真正有戏的为准；被设定为不在场的角色不得写进来。㉑ 里那个现成的角色反例同时去掉了（禁令自带的例句会被复述当素材，v183 的教训）。\n· 【新增体检 A21】核爆结尾动作把时间锚单列成条 → 警告，并给出改法与后果。\n· 【新增体检 A22】红线段行首的角色名回查主轴 / 节拍 / 生理锚点，查不到 → 警告「红线给不出场的人派活」；行内写明「不在场」的豁免（进禁林、被支开属合法一笔带过）。\n· 【未动】选条、配额（80/60）、段序重排、组头去重、附录保底、续写去重闸门、排除项状态纠正全部未动。\n回滚：TRAJ_FULL_USER=40000 恢复旧上限（会重新出现截断版）；A21 / A22 均为警告级，不影响生成。"],
@@ -9193,6 +9194,12 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
         ts:Date.now(), ms:Date.now()-_t0,
         tag:trajTagLive()||trajInferTag(_sys,_user)||(onToken?"续写":"分析"),
         req:_rm, ret:(_r&&_r.model)||"",
+        /* v188：记下这条是谁写的。排查「改了没生效」时最怕的就是拿旧版写下的记录
+           去判断当前版本的行为——v187 就是这么误判过一次：一条摘要模式下的截断告警
+           被当成了「页面还在跑旧包」的证据，实际摘要模式单条上限本来就只有 8000 字。 */
+        ver:String(APP_VERSION||""),
+        /* 记录当时的存盘模式：模式决定上限，事后切换过就不能再用当前模式去解释旧记录 */
+        trajFull:!!_full,
         sys:_sys.slice(0,_so), sysLen:_sys.length, sysCut:_sys.length>_so,
         user:_user.slice(0,_uo), userLen:_user.length, userCut:_user.length>_uo,
         temp:(typeof temperature==="number"?temperature:null), mt:max_tokens, think:_tm,
@@ -17114,7 +17121,7 @@ if('serviceWorker' in navigator){
           var _cd=document.createElement('span');
           _cd.id='swUpdCd'; _cd.style.cssText='flex:1 1 100%;font-size:12px;color:var(--sub,#888);';
           bar.appendChild(_cd);
-          var _left=8;
+          var _left=10;
           var _tick=setInterval(function(){
             var cur=document.getElementById('swUpdBar');
             if(!cur){ clearInterval(_tick); return; }
@@ -17125,7 +17132,7 @@ if('serviceWorker' in navigator){
             if(busy){ if(_cd)_cd.textContent='AI 正在生成，跑完自动刷新（不会打断）。'; return; }
             _left--;
             if(_left<=0){ clearInterval(_tick); try{ _flushAutoSaveHard(); }catch(eF){} location.reload(); return; }
-            if(_cd)_cd.textContent='将在 '+_left+' 秒后自动刷新（不会打断正在跑的 AI）';
+            if(_cd)_cd.textContent='将在 '+_left+' 秒后自动刷新——稿子已自动保存，刷新不会丢内容';
           },1000);
         }
       }catch(e){}
@@ -17465,7 +17472,7 @@ function showTrajPanel(){
       const st=document.createElement("style"); st.id="cssTraj";
       st.textContent=".traj-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:10px;}"
         +".traj-card{background:var(--card,#fff);color:var(--ink,#1a1a1a);width:min(760px,100%);height:92vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);}"
-        +".traj-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line,rgba(127,127,127,.25));flex:none;flex-wrap:wrap;}"
+        +".traj-h{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line,rgba(127,127,127,.25));flex:none;flex-wrap:wrap;}"
         +".traj-h>button{padding:6px 10px;min-height:34px;font-size:12.5px;white-space:nowrap;}"
         +".traj-q{order:5;flex:1 1 100%;min-height:34px;}"
         +".traj-h b{font-size:15px;font-weight:700;}"
@@ -17485,10 +17492,11 @@ function showTrajPanel(){
     box.innerHTML='<div class="traj-card">'
       +'<div class="traj-h">'
         +'<b>📼 生成轨迹</b>'
-        /* v187：把当前版本号直接摆出来。此前要判断「是不是最新包」只能靠间接证据
-           （比如 user 字数超没超上限），作者和排查者都得反推。 */
-        +'<span id="trajVerBadge" title="当前页面运行的版本" style="flex:none;font-size:11.5px;color:var(--sub,#888);border:1px solid var(--line,rgba(127,127,127,.35));border-radius:10px;padding:1px 7px;">'+String(APP_VERSION||'')+'</span>'
-        +'<button type="button" onclick="appForceUpdate(this)">检查更新</button>'
+        /* v188：版本号改成「点一下即检查更新」的窄徽章。
+           v187 把它和一颗独立的「检查更新」按钮并排塞进头部，移动端一行放不下，
+           挤成「生成轨迹 v187 检查更新 记录中 / 摘要 清空 ✕ / 搜索框」三行。
+           合并成一个元素既省宽度，又保住功能——点徽章就是检查更新。 */
+        +'<button type="button" id="trajVerBadge" onclick="appForceUpdate(this)" title="当前版本 '+String(APP_VERSION||'')+'；点一下检查线上是否有更新" style="flex:none;min-height:24px;padding:1px 8px;font-size:11.5px;line-height:1.5;border-radius:10px;color:var(--sub,#888);background:transparent;border:1px solid var(--line,rgba(127,127,127,.35));cursor:pointer;">'+String(APP_VERSION||'')+'</button>'
         +'<input id="trajQ" class="traj-q" type="search" placeholder="搜 prompt / 模型 / 任务 / 结果…" oninput="trajRender()">'
         +'<button type="button" onclick="trajToggleRec(this)">'+(trajOn()?"记录中":"已关闭")+'</button>'
         +'<button type="button" onclick="trajToggleFull(this)">'+(trajFullOn()?"完整prompt":"摘要")+'</button>'
@@ -17554,11 +17562,20 @@ function trajToggleDet(id){
   const el=document.getElementById("trajDet_"+id); if(!el) return;
   if(el.classList.contains("on")){ el.classList.remove("on"); el.innerHTML=""; return; }
   const t=trajGet().filter(function(x){ return x.id===id; })[0]; if(!t) return;
-  const cutNote=((t.sysCut||t.userCut)?('<div style="color:#b8860b;font-size:11.5px;margin-bottom:6px;">⚠ 这条存的是截断版（sys '+trajEsc(t.sysLen)+' 字 / user '+trajEsc(t.userLen)+' 字）。要全文请开「完整prompt」。</div>'):"");
+  /* v188：截断说明要区分「模式所致」和「上限不足」。
+     v185 把完整模式的单条上限抬到 80000 之后，摘要模式（sys 2000 / user 8000）仍会正常截断——
+     这是设计如此，不是缺陷。v187 曾把一条摘要模式下的截断告警误读成「页面跑着旧包」，
+     就是因为提示语没说明是哪种模式截的。 */
+  const _cutMode=(typeof t.trajFull==='boolean')?(t.trajFull?"完整":"摘要"):(trajFullOn()?"完整":"摘要");
+  const cutNote=((t.sysCut||t.userCut)?('<div style="color:#b8860b;font-size:11.5px;margin-bottom:6px;">⚠ 这条存的是'+_cutMode+'模式的截断版（sys '+trajEsc(t.sysLen)+' 字 / user '+trajEsc(t.userLen)+' 字）。'
+    +(_cutMode==="摘要"?'摘要模式每条例只留 sys 2000 / user 8000 字，是为了能存下 150 条；要看全文请点上方「摘要」切成「完整prompt」。':'完整模式单条上限 sys 12000 / user '+trajEsc(TRAJ_FULL_USER)+' 字，这条超过了它。')
+    +'</div>'):"");
+  const _verNote=(t.ver?'<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">记录版本 '+trajEsc(t.ver)
+    +(String(t.ver)!==String(APP_VERSION)?('（当前页面是 '+trajEsc(APP_VERSION)+'，这条由旧版写出——它的行为和当前代码不一定一致）'):'（与当前页面一致）')+'</div>':"");
   const sec=function(title,txt){
     return '<div class="traj-sec"><div class="traj-sec-h">'+title+'</div><div class="traj-pre">'+trajEsc(txt||"（空）")+'</div></div>';
   };
-  el.innerHTML=cutNote
+  el.innerHTML=cutNote+_verNote
     +'<div style="font-size:11.5px;color:var(--sub);margin-bottom:6px;">温度 '+trajEsc(t.temp)+' · max_tokens '+trajEsc(t.mt)+' · 思考 '+trajEsc(thinkLabel(t.think))+' · 输入 '+trajEsc(t.uin)+' tok / 输出 '+trajEsc(t.uout)+' tok</div>'
     +sec("系统提示", t.sys)
     +sec("用户提示", t.user)
