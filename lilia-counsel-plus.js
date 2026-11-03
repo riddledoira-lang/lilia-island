@@ -2370,7 +2370,13 @@
         for (var pi = 0; pi < _prio.length; pi++) { if (line.indexOf(_prio[pi][0]) === 0) { _f = _prio[pi][1]; break; } }
         if (_f) { _hasNarr = true; _cur = _f; if (!_bk[_f]) _bk[_f] = []; continue; }
         if (_cur && line.indexOf('· ') === 0) { _bk[_cur].push(line); continue; }
-        if (!_cur && line.indexOf('· ') !== 0) _pre.push(line);
+        /* v180：模型输出的第一行往往就是「【叙事主清单】」本身。它既不是段名也不以「· 」开头，
+           旧代码会把它塞进 _pre，而下面又无条件 concat 一个「【叙事主清单】」→ 指令框开头出现两个。
+           这里直接丢掉这两个组头（组头由下面统一生成），只保留模型自己写的说明性文字。 */
+        if (!_cur && line.indexOf('· ') !== 0) {
+          var _l0 = String(line).replace(/^\s+|\s+$/g, '');
+          if (_l0 && _l0 !== '【叙事主清单】' && _l0 !== '【降级附录】') _pre.push(line);
+        }
       }
       var keptLines, cut = 0;
       if (!_hasNarr) {
@@ -2436,13 +2442,25 @@
             if (_idxOf[g2.f] < g2.a.length) { _seq.push({ f: g2.f, item: g2.a[_idxOf[g2.f]] }); _idxOf[g2.f]++; _used++; _more = true; }
           }
         }
-        var _lastF = null;
-        _seq.forEach(function (x) {
-          if (x.f !== _lastF) { keptLines.push(_nameOf[x.f]); _lastF = x.f; }
-          keptLines.push(x.item);
+        /* v180：按段分组输出。选中哪些条一条不改，只改「吐出的顺序」。
+           旧实现直接按 _seq 的轮询顺序吐（保底 6 段 → 轮询第 1 轮 8 段 → 轮询第 2 轮 8 段），
+           而段名只在「段变了」时才补一次 → 每一轮都把 8 个段名重新发一遍，
+           指令框里于是出现「一、本章主轴」×3、「六、角色行动红线」×2、「八、节拍」×2 的假分块。
+           铁律㉕「十一个段名每个只出现一次」长期不生效，根因就在这里——不是模型重复输出
+           （模型返回一向是分好组的：一、本章主轴下面 5 条、二 4 条、三 5 条），
+           而是拼装层把分好的组打散后重发段名。现在改为按固定段序 N1→N2→…→N8 重排后再吐。 */
+        var _seqOut = [], _segOrd = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N8', 'N7'];
+        _segOrd.forEach(function (f) {
+          _seq.forEach(function (x) { if (x.f === f) _seqOut.push(x); });
+        });
+        _seq.forEach(function (x) { if (_seqOut.indexOf(x) < 0) _seqOut.push(x); });  /* 兜底：未知段不丢条 */
+        var _lastF = null, _segCnt = [], _mainN = 0;   /* v180：逐段条数，供完成提示核对「每段名只出一次」 */
+        _seqOut.forEach(function (x) {
+          if (x.f !== _lastF) { keptLines.push(_nameOf[x.f]); _lastF = x.f; _segCnt.push(0); }
+          keptLines.push(x.item); _segCnt[_segCnt.length - 1]++; _mainN++;
         });
         if (_appx.length) {
-          var _appxOut = [];
+          var _appxOut = [], _appxCnt = [], _appxN = 0;   /* v180：逐段条数 */
           keptLines.push('【降级附录】');
           /* v179：附录改为「每段先保底 2 条，剩余配额再按序轮询」。
              旧实现按 X1→X2→X3 顺序灌满，实测 V177 里 X1 拿满 5 条、X2 拿 8 条，
@@ -2467,14 +2485,17 @@
             }
           }
           _appx.forEach(function (g) {
-            if (_aPut[g.f].length) { _appxOut.push(_nameOf[g.f]); _aPut[g.f].forEach(function (x) { _appxOut.push(x); }); }
+            if (_aPut[g.f].length) { _appxOut.push(_nameOf[g.f]); _appxCnt.push(_aPut[g.f].length); _appxN += _aPut[g.f].length; _aPut[g.f].forEach(function (x) { _appxOut.push(x); }); }
           });
           _appxOut.forEach(function (x) { keptLines.push(x); });
         }
       }
       if (cut > 0) lines = keptLines;
       var body = lines.join('\n');
-      if (cut > 0) body += '\n…（已按优先级截断 ' + cut + ' 条：优先保留主清单，先砍开放区与排除项尾部）';
+      /* v180：说明文案与实际裁剪规则对齐。旧文案写「先砍开放区与排除项尾部」，
+         那是 v172 的按序灌满时代；现在的规则是主清单每段保底 1 条 + 轮询补足、
+         附录每段保底 2 条 + 轮询补足，砍的是各段「超出轮询轮次」的尾部条目。 */
+      if (cut > 0) body += '\n…（已按优先级截断 ' + cut + ' 条：主清单八段各保底 1 条、附录三段各保底 2 条后按段轮询补足，砍掉的是轮不到的尾部条目）';
       var maxChars = Number(window.CP_NARR_MAXCHARS) || Number(window.CP_HYBRID_MAXCHARS) || 4000;
       if (body.length > maxChars) body = body.slice(0, maxChars) + '…';
 
@@ -2514,7 +2535,15 @@
       try { _nchk = cpInstrAuditV172(ta.value, {}) || []; } catch (eN) { _nchk = []; }
       var _nBlock = [], _nWarn = [];
       for (var ni = 0; ni < _nchk.length; ni++) { (_nchk[ni].level === 'block' ? _nBlock : _nWarn).push(_nchk[ni]); }
-      var _nMsg = '定稿完成：叙事清单 ' + _used + ' 条已写入（主清单优先保留，先砍附录）' + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
+      /* v180：兜底分支（模型未按段名返回）下 _used/_mainN 从未赋值，旧提示会打印出「undefined 条」。
+         同时把逐段条数写进提示，便于一眼核对「十一个段名各只出现一次、条数分布如何」。 */
+      var _usedN = (typeof _used === 'number' && !isNaN(_used)) ? _used : 0;
+      var _segTxt = '';
+      if (typeof _mainN === 'number' && typeof _segCnt !== 'undefined' && _segCnt.length) {
+        _segTxt = '；主清单 ' + _mainN + ' 条（逐段 ' + _segCnt.join('-') + '）';
+        if (typeof _appxN === 'number' && _appxN > 0) _segTxt += '，附录 ' + _appxN + ' 条（逐段 ' + _appxCnt.join('-') + '）';
+      }
+      var _nMsg = '定稿完成：叙事清单 ' + _usedN + ' 条已写入' + _segTxt + (d ? ('；本地要点 ' + d.kept + ' 条存入备查，不进指令') : '');
       if (_nBlock.length) {
         _nMsg = '定稿已写入，但有 ' + _nBlock.length + ' 项必须补齐（' + _nBlock.map(function (x) { return x.code; }).join('/') + '）。生成正文前会强制要求填具体值——留【未定】的话 AI 不会等你，它会自己发明烤栗子式的填充。';
       } else if (_nWarn.length) {
