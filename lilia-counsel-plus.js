@@ -3316,14 +3316,27 @@
      ——三处都出现了物证，但没有一件落到「最终状态」，属于悬置而非结算。 */
   var CP_END_SETTLE = /搁在|放在|搁回|收进|塞进|揣进|空了|空瓶|瓶底|剩|发烫|烫了一下|转了两圈|转得比|停下来|撕|折好|扣上|拧开|喝完|喝下去|交出去|递到|按在掌心/;
 
+  /* v196：正文评分此前一直没接 v190 给 A12 补的等价形态判据——同一份结尾，
+     指令体检说达标、正文评分说 0/3，于是每章都被逼着重写一遍结尾，重写完还是 0/3
+     （第77章实测：1/3 → 重写 → 0/3 → 再弹窗 → 再重写 → 仍 0/3，每次烧一次调用）。
+     实测三处漏判：
+     ① 物证状态句「珠子凉回去了」「皮肤烫起来」不在结算动词表 → 物证被判成悬置；
+     ② 不可逆只认动词白名单，「推袖口」这类 A12 早就认了的动作，评分器不认；
+     ③ 时间锚「明天一早」命中，但未完成动作写成「我得先去海格那儿看看」，
+        不匹配 CP_END_ACT 的动词表 → 整条 anchor 被判 false。
+     两条新表都刻意保持窄口径：只收「状态已经落定」的写法，
+     不收 V169 那种「又沉下去了 / 翻了个身」的悬置句。 */
+  var CP_END_SETTLE_STATE = /凉回去|凉了|烫起来|热起来|转快了|转慢了|没再(?:动|转)|停在|攥在|贴在/;
+  var CP_END_ACT_PLAN = /我[^。！？]{0,8}(得|要|会|打算|准备)[^。！？]{0,10}(去|找|问|看|说|试|走)/;
+
   function cpScoreEnding(text){
     var t = String(text || '').replace(/\s+/g, '');
     var tail = t.slice(-400);
     if (!tail) return { score: 0, detail: { prop: false, irrev: false, anchor: false }, note: '正文为空' };
     var d = {
-      prop: CP_END_PROP.test(tail) && CP_END_SETTLE.test(tail),   /* 物证给出最终状态（结算位） */
-      irrev: CP_END_IRREV.test(tail),        /* 已发生的不可逆动作 */
-      anchor: CP_END_ANCHOR.test(tail) && CP_END_ACT.test(tail)  /* 未完成动作 + 时间锚 */
+      prop: CP_END_PROP.test(tail) && (CP_END_SETTLE.test(tail) || CP_END_SETTLE_STATE.test(tail)),   /* 物证给出最终状态（结算位） */
+      irrev: CP_END_IRREV.test(tail) || CP_END_IRREV_EXPLICIT.test(tail),   /* 不可逆动作：动词白名单 或 显式不可撤回表述 */
+      anchor: (CP_END_ANCHOR.test(tail) || CP_END_ANCHOR_SCENE.test(tail)) && (CP_END_ACT.test(tail) || CP_END_ACT_PLAN.test(tail))  /* 未完成动作 + 时间锚（期限或场景时刻） */
     };
     var score = (d.prop ? 1 : 0) + (d.irrev ? 1 : 0) + (d.anchor ? 1 : 0);
     return { score: score, detail: d, tail: tail.slice(-120) };
