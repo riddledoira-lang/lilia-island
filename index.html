@@ -2459,8 +2459,8 @@
     <div id="aiResPhantom"></div>
     <div class="seg" style="margin-top:10px;">
       <button class="primary" onclick="aiResCopy()">📋 复制全文</button>
-      <button onclick="aiResInsert()">⬇️ 插入正文末尾</button>
-      <button onclick="aiResReplace()">🔄 替换整个正文</button>
+      <button onclick="aiResInsert()" id="aiResInsertBtn">⬇️ 插入正文末尾</button>
+      <button onclick="aiResReplace()" id="aiResReplaceBtn">🔄 替换整个正文</button>
     </div>
     <div class="mbtn" style="margin-top:10px;">
       <button class="primary" onclick="closeAiResult()">✅ 确认收下（正文已自动保存）</button>
@@ -8197,7 +8197,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v194";
+const APP_VERSION="v195";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8218,6 +8218,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v195","V195 修「只重写结尾」这条链路的三个 P0 工程缺陷——深度续写第77章实测里，结尾段逐字重复两次、且重写后的结尾仍保留睡觉收并自加比喻，根因都不在模型，在这条链路自己的代码里。\n· 【P0-1 双写】旧 cpRewriteEnding 先把「保留段+新结尾」写进正文并自动保存，再弹结果窗说「点『替换』才覆盖」（autoWritten=false）。文案与行为矛盾：用户按文案理解「还没写入」，点「插入正文末尾」→ 同一段结尾逐字进正文两次（实测 A-B 结构整体复制）；同时 autoWritten=false 让「不加入文章」不回滚，撤销也失效。改法三处对齐：写正文前记 _aiBeforeResult 供回滚 → 写入合并稿 → 结果窗 autoWritten=true、文案改成「正文已替换并保存；点『不加入文章』可整体回滚到原结尾」，并隐藏「插入正文末尾」「替换整个正文」两颗按钮（showAiResult 新增第 5 参 noWriteActions，两颗按钮补 id）——结果窗只剩 复制/收下/回滚，每颗都安全。\n· 【P0-2 结尾约束被自己的过滤器扔掉】旧 prompt 写「凡是『结尾该怎么写』的句子一律忽略」——指令里「五、核爆结尾动作（不可逆·献祭级）」整节恰好全是这类句子，被整节滤掉。重写模型从头到尾没看到「不写比喻／只收在推袖口—看见雾转—放下—转身这一串动作上／不写态度句」，于是重写结果照旧以「今晚先回去睡觉。明天还有训练。」收尾，并新加了一句比喻。改法：新增 cpEndingRulesFromBrief() 本地抽取（标题含「结尾」的清单小节原样摘出，收到下一小节或【/===/--- 即停；抽不到整节时退回收集含「结尾」且带【已定】的散行），以「本章指令的结尾硬约束」块注入重写 prompt 并声明与验收标准冲突时以本块为准；同时删掉「一律忽略」那句。\n· 【P0-3 插入无防重】v149 的 stripOverlapPrefix 只接在生成链路，「结果窗手动插入」这条路一直裸奔。现在 aiResInsert 插入前先剥离与正文末尾的重合（口径同 v149）；剥完为空即判定整段已在正文里，不插入、弹「检测到这段内容已在正文末尾，未重复插入」。这是 P0-1 之外的独立第二道防线：就算别的链路再把结果窗用错，也不会写出双份正文。\n· 【未动】定稿指令生成、体检器 A11–A24、禁词剔除、配额 80/60、选条、段序重排、续写去重闸门、轨迹容量、更新链路、参谋链路全部未动；深度续写与接着写两条生成链路的写入行为一字未动（只有「结果窗手动插入」多了防重）。\n· 【测试】_test_v195.js：结尾约束抽取（整节/散行/无匹配三态）、重写后正文=合并稿且 _aiBeforeResult=原稿、结果窗隐藏两颗按钮、aiResInsert 重合拦截与正常插入分流、版本三同步。回归 v185/v190/v191/v192/v193/v194 全绿。\n回滚：恢复 .pre_v195 两个文件即回到 v194 行为。"],
   ["v194","V194 修「AI 提取语言体系」张冠李戴：给配角提取语言体系/思维模式，提出来的却是主角（薇拉）的——作者发现菲比卡里填的是薇拉的说话方式，只能手填纠偏。\n· 【根因一·语料错位】analyzeCharLang 直接喂「每章开头 7000 字」。配角出场少，章节开头几乎全是视角人物的叙述与内心独白，满屏薇拉的声音，模型自然提炼出薇拉的语言体系。而说话人归属其实是可判定的：v109 的本地归纳器 _voiceCorpus 只收「引号前后 32/16 字窗口内出现该角色名」的台词，逐句核对过归属。\n· 【根因二·没有铁律】analyzeCharPsyche（人设提取）在早前版本就加过【铁的纪律】「严禁把薇拉·奎克或其他角色的特质安到【name】头上」——同一个坑在人设链路修过，语言链路一直没修。\n· 【修法】① 语料优先用 _voiceCorpus 的归属台词（每句带章节号与紧邻上下文，≥6 句才走此路，上限 7000 字）；不足 6 句退回旧的章节开取样。② 提示词移植铁的纪律（只许提炼目标人物本人，样本里他人的台词不得作为依据）。③ 落盘的 langSrc 写明「基于 N 句归属台词提取」，和旧「基于 N 章已完稿提取」区分，一眼可查这次走的哪条路。\n· 【影响】只动 analyzeCharLang 一条函数；人设/外貌/本地归纳/批量补全链路、参谋、定稿、体检器全部未动。作者已手填好的菲比卡不受影响（重提取才会覆盖 langSys/thinkMode 两栏）。\n· 【测试】_test_v194.js：捕获式 callAI 桩验证——菲比场景（正文含菲比台词+大量薇拉独白）发出的提示词里含菲比的台词原句、不含薇拉的独白句、含铁的纪律；台词不足 6 句退回章节开取样且铁律仍在；langSrc 按路径写对。回归 v185–v193 全绿。\n回滚：恢复 .pre_v194。"],
   ["v193","V193 修 v192 的三个实测问题：轨迹列表被统计块压成一条缝（44 条只看得到最新一条）、卡片底部最后一行被底部导航栏裁掉、两颗入口按钮换行错位。\n· 【记录「消失」的真相】记录没丢，面板自己写着「共 44 条」。真因是挂载顺序：统计节点由两个插件在 showTrajPanel 里创建，而 v192 只在「打开费用页」时才建 #cpCostBarSlot/#cpCostCostSlot——面板先打开时容器还不存在，插件就按回退路径把区间汇总/检索索引/费用三块插到了列表上方，把 .traj-body 压成几十像素高，只露出第一条（最新那条 V192）。\n· 【修法一·容器先手】把费用页拆成 cpEnsureCostSheetDom()（只建 DOM、隐藏态、开销两个空 div），showTrajPanel 在插完面板后、渲染列表前就调用它。插件创建统计节点时容器已经在了，直接挂进费用页，轨迹面板从第一次打开就是纯列表。\n· 【修法二·清扫兜底】cpSweepStatNodes() 在面板打开后 setTimeout(0) 再跑一遍（两个插件的 wrapper 在 showTrajPanel 返回后才执行），任何加载顺序下统计节点只要落在面板里就搬回费用页。\n· 【修法三·列表保底高度】.traj-body 加 min-height:160px——万一将来又有节点插回面板，列表区也不会被压到看不见。\n· 【底部被裁】原来卡片写死 height:92vh，vh 含动态工具栏，卡片底边被推到屏幕外，最后一行任务名正好被底部导航栏切一半。改：手机上 .traj-mask 底部按「100px + 安全区」留白、align-items:stretch，.traj-card 高度改 auto + max-height:calc(100dvh - 120px - 安全区)，卡片整块落在导航栏之上。桌面端用 @supports 走 min(92vh, 100dvh-124px-安全区)。\n· 【按钮错位】两颗入口按钮从「和统计文字同一行」改为独占一行、各占一半（.traj-stat-btns flex:1），38px 高，不再在 375px 宽度上折成两行错位。\n· 【测试】_test_v193.js：面板打开即建隐藏费用页、插件统计节点挂进 slot 且不在 trajMask 内、清扫函数把误挂节点搬回、.traj-body 保底高度与移动端 dvh 规则存在、按钮行结构。回归 v185/v190/v191/v192 全绿。\n· 【未动】参谋/定稿提示词、体检器 A11–A24、禁词剔除、配额、记录格式与容量、更新链路。\n回滚：恢复 .pre_v193 三个文件即回到 v192 行为。"],
   ["v192","V192 界面拆分：「费用估算」和「混合定稿」从轨迹面板里拆出来，各自独占一个全屏页面。\n· 【问题】旧布局把区间汇总、费用估算、检索索引三行统计全塞在轨迹面板顶部，记录列表被挤到半屏以下；点记录看详情又在条目里内联展开，系统提示/用户提示/返回结果三块各限高 190px、字号 11.5——整块详情不足五分之一屏，字小、内容显示不全、要频繁上下滑。\n· 【拆分后】轨迹面板只留纯列表+搜索；统计行右侧钉两颗 36px 高的入口按钮：「💰 费用估算」开全屏统计页（区间汇总/分模型费用/今日累计/检索索引），「📄 混合定稿」直接打开最近一次定稿记录。点任意一条记录也进全屏详情页。\n· 【详情页】三块改 <details> 手风琴，默认只展开「返回结果」；展开后整页滚、不再限高，正文 14.5px、行高 1.75；复制×3 与「用这条重跑」按钮保留，加高到 38px 好按。\n· 【费用页】只建一次、关闭只是隐藏——区间汇总的起止时间输入不丢。三个统计节点（cpRangeBar/dpCostLine/dpPerfLine）由两个插件创建，挂载点改为优先费用页容器，页面不存在时回退旧位置；已挂在轨迹面板里的，打开费用页时搬过去。\n· 【兼容】trajToggleDet 函数名保留（列表行 onclick 照旧），内部转给详情页；两个插件没加载时轨迹面板照常工作，只是没有统计可搬。\n· 【测试】_test_v192.js：真实源码注入式抽取，DOM 模拟验证——两颗入口按钮存在且可调、费用页 z-index 10002 独占整屏、详情页三块 pre 字号 14.5 无 190px 上限、默认只展开返回结果、三处挂载点「slot 优先/旧位回退」、cpOpenLatestFinalize 优先定稿记录、trajToggleDet 转发。\n· 【未动】指令生成、体检器 A11–A24、禁词剔除、配额、轨迹记录格式与容量、重跑对比、更新链路全部未动。\n回滚：恢复 .pre_v192 三个文件即回到 v191 的内联展开布局。"],
@@ -12466,7 +12467,7 @@ function exportDigestVol(vid){
 let _aiLastResult="";
 let _aiBeforeResult="";   /* 自动写入正文前的 chBody 原值，供「不加入文章」回滚 */
 let _aiResAutoWritten=false;
-function showAiResult(text, label, autoWritten, volId){
+function showAiResult(text, label, autoWritten, volId, opts){
   _aiLastResult=text||"";
   _aiResAutoWritten=!!autoWritten;
   document.getElementById("aiResTitle").textContent="✨ "+(label||"AI 生成结果");
@@ -12476,6 +12477,14 @@ function showAiResult(text, label, autoWritten, volId){
   const _ph=document.getElementById("aiResPhantom");
   if(_ph) _ph.innerHTML=(window.PHANTOM_WARN_CARD?phantomWarnHtml(_aiLastResult, volId):"");
   document.getElementById("aiResMask").classList.add("on");
+  /* v195 P0-1：局部重写类结果（如「只重写结尾」）正文已按合并稿写入。
+     此时「插入正文末尾」会把新结尾再追加一遍（V194 实测：同一段进正文两次）、
+     「替换整个正文」会把整章换成一小段——两颗按钮都按 noWriteActions 隐藏，
+     结果窗只留 复制/收下/回滚 三颗，每颗都安全。 */
+  var _hide=!!(opts&&opts.noWriteActions);
+  var _ib=document.getElementById("aiResInsertBtn"), _rb=document.getElementById("aiResReplaceBtn");
+  if(_ib) _ib.style.display=_hide?"none":"";
+  if(_rb) _rb.style.display=_hide?"none":"";
 }
 /* 「不加入文章」：若正文已被本次生成自动写入，则回滚到写入前；否则仅关闭预览（如整章精修） */
 function aiResDiscard(){
@@ -12530,7 +12539,18 @@ function aiResCopy(){
 function aiResInsert(){
   const ta=document.getElementById("chBody");
   const cur=ta.value||"";
-  ta.value=cur.trim()? (cur.trim()+"\n\n"+_aiLastResult) : _aiLastResult;
+  /* v195 P0-3：插入前先剥离与正文末尾的连续重合。
+     v149 的 stripOverlapPrefix 只接在生成链路上，「结果窗手动插入」这条路一直裸奔——
+     V194 实测事故：结尾重写结果已写入正文，用户按旧弹窗文案点「插入正文末尾」，
+     同一段结尾逐字进了正文两次。现在重合 ≥20 字就剥掉；剥完为空说明整段已在正文里，
+     不插入、直接说明。 */
+  const _ins=(window.GEN_DEDUP!==0)?stripOverlapPrefix(cur, _aiLastResult):_aiLastResult;
+  if(!String(_ins||"").trim()){
+    closeAiResult();
+    toast("检测到这段内容已在正文末尾，未重复插入 ✅");
+    return;
+  }
+  ta.value=cur.trim()? (cur.trim()+"\n\n"+_ins) : _ins;
   afterAiWrite(ta);
   closeAiResult();
   toast("已插入正文末尾 ✅");
@@ -12835,6 +12855,31 @@ function cpEndingReport(text, num){
     return r;
   }catch(e){ return null; }
 }
+/* v195 P0-2 · 从本章指令里抽出「标题含『结尾』的清单小节」原样返回（纯本地，0 token）。
+   小节标题形如「五、核爆结尾动作（不可逆·献祭级）」，条目行以「·」开头；
+   收到下一个小节标题（一、二、…十或数字）或【…】===/--- 分隔行即停。
+   抽不到整节时退回收集「含『结尾』且带【已定】」的散行，保证已拍板的结尾约束
+   至少以散行形态进入重写 prompt；两头都空返回 ""（不注入）。 */
+function cpEndingRulesFromBrief(brief){
+  try{
+    var ls=String(brief||"").split(/\n/), out=[], on=false;
+    for(var i=0;i<ls.length;i++){
+      var l=ls[i].trim();
+      if(/^[一二三四五六七八九十0-9]+、/.test(l)){
+        on=/结尾/.test(l);
+        if(on) out.push(l);
+        continue;
+      }
+      if(!on) continue;
+      if(/^【|^===+|^---+$/.test(l)){ on=false; continue; }
+      if(l) out.push(l);
+    }
+    if(!out.join("").trim()){
+      out=ls.filter(function(x){ return /结尾/.test(x)&&/【已定】/.test(x); }).map(function(x){ return x.trim(); });
+    }
+    return out.join("\n").trim();
+  }catch(e){ return ""; }
+}
 /* v171 · 只重写结尾段（最高性价比的一道补救）。
    做法：只把正文最后 N 段 + 结尾三件套验收标准 + 本章硬事实交给模型，
    其余一字不动。成本约为整章重写的十分之一，而结尾恰是四方比对里差距最大的一项。 */
@@ -12858,7 +12903,13 @@ async function cpRewriteEnding(){
   u+="【已写好的前文（只读，不得改动）】\n"+keep.slice(-8).join("\n\n")+"\n\n";
   u+="【待重写的结尾（替换这一段，其余不动）】\n"+tail+"\n\n";
   if(volSec) u+="【本分卷「"+volName(curVol)+"」专属设定（最高优先级）】\n"+volSec+"\n\n";
-  if(brief) u+="【本章硬事实（只取其中关于人物/时间线/已发生事件的部分；凡是「结尾该怎么写」的句子一律忽略）】\n"+String(brief).slice(0,2000)+"\n\n";
+  if(brief) u+="【本章硬事实（只取其中关于人物/时间线/已发生事件的部分）】\n"+String(brief).slice(0,2000)+"\n\n";
+  /* v195 P0-2：旧版上面那行注明「凡是『结尾该怎么写』的句子一律忽略」——恰好把指令里
+     「五、核爆结尾动作」整节滤掉，重写模型从头到尾看不到结尾红线，于是保留睡觉收、
+     自加油花比喻（V194 深度续写实测逐字坐实）。现在凡标题含「结尾」的清单小节
+     原样注入重写 prompt，与验收标准冲突时以本块为准。 */
+  var _endRules=cpEndingRulesFromBrief(brief);
+  if(_endRules) u+="【本章指令的结尾硬约束（原样照录，逐条必须遵守；与下方验收标准冲突时以本块为准）】\n"+_endRules+"\n\n";
   u+="【结尾验收标准（三条必须同时满足，缺一不可）】\n";
   u+="① 物证结算：本章反复出现的那件东西（瓶子/手链/字条/纸/伤疤等），在结尾必须仍在她手上、身上或眼前，并给出它的最终状态——不要让它凭空消失，也不要只说「它还在」。\n";
   u+="② 不可逆动作：结尾必须有一个已经发生、无法撤回的动作（喝下去、撕掉、交出去、走进去、点破…），而不是「我记着这笔账」「我明白了」这类可以随时反悔的态度。\n";
@@ -12870,10 +12921,15 @@ async function cpRewriteEnding(){
     const out=await callAI({sys:bookMemSys(), user:u, ...creaParams("gen"), max_tokens:1600, modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
     const nt=String(out||"").trim();
     if(!nt){ toast("重写返回为空"); return; }
-    const merged=keep.join("\n\n")+"\n\n"+nt;
-    if(ta){ ta.value=merged; afterAiWrite(ta); }
+    const merged=keep.join("\n\n")+(keep.length?"\n\n":"")+nt;
+    /* v195 P0-1：旧版先写正文、再弹「点『替换』才覆盖」的窗（autoWritten=false）——
+       文案与行为自相矛盾：用户按文案理解「还没写入」，点「插入正文末尾」把新结尾追加进
+       已含新结尾的正文 → 同一段逐字出现两次；且 autoWritten=false 让「不加入文章」
+       不回滚，撤销也失效。现在三处对齐：先记 _aiBeforeResult 供回滚 → 写入合并稿 →
+       结果窗 autoWritten=true、文案如实说明、隐藏「插入/替换」两颗危险按钮。 */
+    if(ta){ _aiBeforeResult=ta.value||""; ta.value=merged; afterAiWrite(ta); }
     let sc=null; try{ sc=window.cpScoreEnding(merged); }catch(e){}
-    showAiResult(nt, "重写后的结尾（点「替换」才覆盖；原稿可在「历史」版本中找回）"+(sc?(" · 结尾三件套 "+sc.score+"/3"):""), false);
+    showAiResult(nt, "重写后的结尾（正文已替换并保存；点「不加入文章」可整体回滚到原结尾）"+(sc?(" · 结尾三件套 "+sc.score+"/3"):""), true, null, {noWriteActions:true});
     toast("结尾已重写"+(sc?("，三件套 "+sc.score+"/3"):""));
   }catch(e){ aiGenFail("重写结尾",e,""); }
 }
