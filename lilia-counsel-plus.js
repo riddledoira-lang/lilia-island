@@ -3326,16 +3326,35 @@
         不匹配 CP_END_ACT 的动词表 → 整条 anchor 被判 false。
      两条新表都刻意保持窄口径：只收「状态已经落定」的写法，
      不收 V169 那种「又沉下去了 / 翻了个身」的悬置句。 */
+  /* v197：第三次同类漏判（v190 补 A12、v196 补三条单点词，仍然漏）——这次不再补单词，
+     改成补「形态族」，因为白名单式枚举永远会漏，而形态族覆盖的是写法而不是具体词。
+     V196 实测：指令第五节写死「她抬手把袖口往上一推、指腹按在腕骨那道浅痕上……
+     她没有把它摘下来」，正文第一句就是「我没把它摘下来」「指腹还压在浅痕上」——
+     逐字照做，评分器却判「物证 false / 不可逆 false」，于是 1/3 → 作者再点重写 → 还是 1/3。
+     两处漏判的形态：
+     ① 物证结算：结算位被写成「动词+方位/持续态」（压在浅痕上 / 贴着皮肤 / 放下来 / 盖住），
+        而旧表全是「搁在/塞进/拧开」这类独立词形；
+     ② 不可逆：「保留式否定」——没把它摘下来、没取下来、没还回去。这类句子在语义上
+        正是「没有撤回」，但旧表只认「没有再拉下来」这一种语序。
+     刻意保留的边界：V169 那三条悬置反例（趴着 / 翻了个身又沉下去 / 没转也没散）
+     仍必须判未结算，所以动词族不收「沉」，状态族不收「没动/没转」。 */
+  var CP_END_SETTLE_FAM = /(按|压|贴|搁|放|收|塞|揣|藏|攥|握|挂|戴|扣|盖|系)(在|着|进|回|上|下|起来|下来|回去|住)/;
+  var CP_END_IRREV_KEEP = /没(?:有)?(?:再|把它|把她|把他|把这条|把链子|把这|把那个)?[^。！？]{0,6}(?:摘|取|解|脱|卸|还)(?:下来|回去|掉)?/;
   var CP_END_SETTLE_STATE = /凉回去|凉了|烫起来|热起来|转快了|转慢了|没再(?:动|转)|停在|攥在|贴在/;
   var CP_END_ACT_PLAN = /我[^。！？]{0,8}(得|要|会|打算|准备)[^。！？]{0,10}(去|找|问|看|说|试|走)/;
 
   function cpScoreEnding(text){
     var t = String(text || '').replace(/\s+/g, '');
-    var tail = t.slice(-400);
+    /* v197：评分窗口 400 → 900 字。
+       400 是按「一个收束段」估的，但「只重写结尾」这条链路一次就换掉 9 段 / 597 字
+       （V196 实测），收束首句「我没把它摘下来」位于重写块第一行、正好被切在窗外——
+       于是作者逐字照指令写的不可逆动作，评分器根本看不到，永远是 1/3。
+       900 字对 3000–3500 字的目标章节约占四分之一，仍属收束区，不会把中段动作拉进来。 */
+    var tail = t.slice(-900);
     if (!tail) return { score: 0, detail: { prop: false, irrev: false, anchor: false }, note: '正文为空' };
     var d = {
-      prop: CP_END_PROP.test(tail) && (CP_END_SETTLE.test(tail) || CP_END_SETTLE_STATE.test(tail)),   /* 物证给出最终状态（结算位） */
-      irrev: CP_END_IRREV.test(tail) || CP_END_IRREV_EXPLICIT.test(tail),   /* 不可逆动作：动词白名单 或 显式不可撤回表述 */
+      prop: CP_END_PROP.test(tail) && (CP_END_SETTLE.test(tail) || CP_END_SETTLE_STATE.test(tail) || CP_END_SETTLE_FAM.test(tail)),   /* 物证给出最终状态（结算位） */
+      irrev: CP_END_IRREV.test(tail) || CP_END_IRREV_EXPLICIT.test(tail) || CP_END_IRREV_KEEP.test(tail),   /* 不可逆动作：动词白名单 / 显式不可撤回 / 保留式否定 */
       anchor: (CP_END_ANCHOR.test(tail) || CP_END_ANCHOR_SCENE.test(tail)) && (CP_END_ACT.test(tail) || CP_END_ACT_PLAN.test(tail))  /* 未完成动作 + 时间锚（期限或场景时刻） */
     };
     var score = (d.prop ? 1 : 0) + (d.irrev ? 1 : 0) + (d.anchor ? 1 : 0);
