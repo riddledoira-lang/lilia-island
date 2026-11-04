@@ -1993,6 +1993,19 @@
     if (v.items && v.items[idx]) { v.items[idx].state = '已回收'; v.items[idx].recycledAt = Date.now(); cpVaultSave(); return true; }
     return false;
   }
+  /* v199：把无卷标记的历史条目批量归入某个分卷。
+     v198 之前入账的伏笔没有 vol 字段，按「全书通用」进入每一卷的注入——
+     在「各卷相互独立」的模型下这不对。手动收口：面板切到目标卷，
+     一键把「全书通用」条目改成该卷。返回改了几条。 */
+  function cpForeshadowClaim(volId) {
+    if (!volId || volId === 'none') return 0;
+    var v = cpVaultGet(), n = 0;
+    (v.items || []).forEach(function (x) {
+      if (x && !x.vol) { x.vol = String(volId); n++; }
+    });
+    if (n) cpVaultSave();
+    return n;
+  }
   function cpForeshadowText(limit, volId) {
     limit = limit || 20;
     var arr = cpForeshadowOpen(volId);
@@ -2197,6 +2210,7 @@
   window.cpForeshadowMerge = cpForeshadowMerge;
   window.cpForeshadowOpen = cpForeshadowOpen;
   window.cpForeshadowRecycle = cpForeshadowRecycle;
+  window.cpForeshadowClaim = cpForeshadowClaim;
   window.cpForeshadowText = cpForeshadowText;
   window.cpPlanGet = cpPlanGet;
   window.cpPlanClear = cpPlanClear;
