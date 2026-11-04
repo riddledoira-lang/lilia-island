@@ -8197,7 +8197,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v197";
+const APP_VERSION="v198";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8218,6 +8218,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v198","V198 修「跨卷/跨章记忆串写」：v167 只把采纳清单与定稿组装按章隔离，另外三条链路一直没跟上——詹姆斯篇的讨论与伏笔会原样进到西里斯篇。\n· 【通道一·参谋发送带全书最近 16 条】counselSend 里是 _counselLog.slice(-16)，不分章不分卷。切到西里斯篇问第一句时，模型看到的是詹姆斯篇最近 16 条（腕骨浅痕 / 袖口 / 药剂），会把它们当本章既成事实。现按「章 → 卷」逐级收窄：本章 ≥2 条只用本章；不足则本章 + 同卷其它章最近 8 条（供衔接）；不同卷一律不进。开关 CP_LOG_PERCHAP=0 回到旧行为。\n· 【通道二·清空参谋记忆从 v167 起失效】数据已按章存进 counselAdopted_ch_<id>，按钮却还在读书级 key counselAdopted —— 点下去只会提示「参谋目前没有记住任何走向」，实际一条也没清。现按当前章取 key：清的是本章记忆，另有二次确认可连带删掉「本章专属指令」里那些【已确定的剧情走向】行；其它章各自分桶、不受影响；v167 之前遗留的书级旧桶一并清掉。\n· 【通道三·长线伏笔账本不分卷】账本 key 只有 bookId（fs:<bookId>），条目也没有卷字段，注入时取最近 15/20 条全量——两篇主角不同、时间线不同，等于让模型拿另一篇的钩子安排本章。现在写入时记下当时的分卷；读取时传卷 → 只给「本卷」+「无卷标记的历史条目（按全书通用处理，不迁移、不丢）」；不传卷 → 全量（面板「全部」视图与老调用方保持原行为）。三处注入点（定稿组装 / 框架生成 / ⑱ 未回收伏笔）全部改传当前卷。伏笔面板新增「只看本卷 / 显示全部卷」切换，每条显示卷归属。\n· 【顺带修两处清理范围】①「清空讨论」原来无条件清空整本书的讨论（别卷几十轮心血静默消失），现在先算本章条数，默认只清本章，全书还有别章时再问一次是否一并清；②「清空全部数据」此前漏清参谋讨论、按章分桶的采纳/否决/决策/框架，以及独立 IDB 库里的长线伏笔账本——清完章节没了、旧钩子还挂着；现全部纳入，确认文案写明范围。\n· 【面板可见性】讨论面板每条加章号标签（第 77 章 / 早期·未标章），非当前章的整条降透明度——同一份日志里哪些属于本章一眼可分，不再平铺混排。\n· 【未动】正文生成链路、cpScoreEnding、定稿指令的组装逻辑、采纳/否决的写入路径、v195/v196/v197 三版修复、卷档案与人物卡的既有口径（人物卡仍按书共用，生成侧靠 volScopedChars 按本卷语料收窄）。\n· 【测试】_test_v198.js 31 项：发送历史三种情形（本章足量 / 本章不足补同卷 / 无章信息回退）、清空记忆端到端（本章清空 + 别章 3 条不动 + 指令行精确删除）、伏笔按卷过滤（本卷可见 / 别卷不可见 / 无卷标记仍可见 / 已回收不出现 / 不传卷全量 / 清空本书账本 / 新条目带卷）。全量回归 v185–v197 同步跑。\n回滚：恢复 .pre_v198 三个文件即回到 v197 行为。"],
   ["v197","V197 修「结尾三件套第三次漏判」：V196 实测指令第五节写死「指腹按在腕骨那道浅痕上……她没有把它摘下来」，返回结果第一句就是「我没把它摘下来。」——逐字照做仍被判 1/3，问题全在评分器，不在文本。\n· 【根因一·白名单枚举永远会漏】这是 v190（A12 补等价判据）、v196（补状态句/等价判据）之后第三次同类漏判，每次补单词、下版换个说法又漏。v190 教训明确：不逐词枚举，改认「形态族」。本次补两族：①CP_END_SETTLE_FAM 物证结算的「动词+方位/持续态」族——「按在浅痕上」「贴着皮肤」「收进袖口」「盖住」这类写法此前一个都认不出（旧表全是独立词形）；②CP_END_IRREV_KEEP 保留式否定族——「没(有)再/把它…摘/取/解/脱/卸/还(下来/回去)」，专接「她没有把它摘下来」这类指令逐字转述的句子。\n· 【根因二·评分窗口过窄】cpScoreEnding 只看正文最后 400 字，而重写块实测 597 字——首句「我没把它摘下来」被切在窗外，两个形态族补完仍 2/3。窗口扩到 900 字，3/3。用 900 不用全长：900 字外的「喝了下去」等旧动作不应计入本次结算（E1 反向验证）。\n· 【实测】V196 真实返回 1/3→3/3；V195 的 326 字结尾仍 2/3（irrev false 是既定口径，不抬高）；V169 悬置反例「趴着/翻了个身又沉下去/没转也没散」全 0；空文本/纯情绪文本 0/3；标准三件套 3/3。\n· 【未动】prop 的 CP_END_SETTLE_STATE 通道、anchor 两通道、重写范围扩张、连环重写指纹护栏、v195 三处 P0、指令生成链路全部未动——本次只动评分器三行。\n· 【测试】_test_v197.js 21 项：静态三同步、V196 真实返回 4 项逐件、悬置反例 5 项不得放过、V195 回归 3 项不得抬高、窗口边界 1 项。全量回归 v185–v196 同步跑。\n回滚：恢复 .pre_v197 三个文件即回到 v196 行为。"],
   ["v196","V196 修三条：结尾三件套误判导致连环重写、重写范围砍不到旧结尾动作、大 prompt 非流式 150 秒上限过紧。三条都有 V195 实测证据（截图 + 完整 docx）。\n· 【A·评分与体检不同族同步】V195 实测：原文 1/3 → 重写 → 0/3 → 再弹窗 → 再重写 → 仍 0/3。根因不是结尾写得差，是 cpScoreEnding 没接 v190 给 A12 补的等价判据——同一份结尾，指令体检说达标、正文评分说 0/3。三处漏判：①物证状态句「珠子凉回去了」「皮肤烫起来」不在结算动词表，物证被判成悬置；②不可逆只认动词白名单，「推袖口」这类 A12 早已认过的动作评分器不认；③时间锚「明天一早」命中但未完成动作写成「我得先去海格那儿看看」，不匹配 CP_END_ACT 的动词表，整条 anchor 判 false。修法：prop 接 CP_END_SETTLE_STATE（只收状态已落定的写法，仍不放过 V169「又沉下去了」这类悬置句）、irrev 接 CP_END_IRREV_EXPLICIT、anchor 接 CP_END_ANCHOR_SCENE 与 CP_END_ACT_PLAN。\n· 【B·重写范围按内容边界扩张】v171 起重写区间写死「最后 6 段」。V195 实测第77章：旧结尾的「抬手把袖口往上一推」落在倒数第 8–10 段，6 段砍不到 → 保留区留着旧结尾动作、新结尾又写一遍，合并后同一动作在正文里出现两次（段 76 与段 80，仅隔一段）。改成从末尾向前扩张：至少 6 段，直到保留区最后一段不再带结尾迹象（袖口/手链/珠子/转身/低头/请柬/明天等）且已覆盖 600 字，上限 1500 字——同一份正文实测扩张到 10 段，「推袖口」只出现一次。\n· 【C·连环重写护栏】评分 <2 时弹出重写确认，此前同一份正文可以反复问、反复花钱。现在用「正文末尾 300 字指纹」记一次已提示：同一份正文只自动弹一次，之后只提示分数、不再自动弹窗；结尾改过后指纹变化，重新评估照常。\n· 【D·大 prompt 非流式上限 150s→240s】轨迹实测一条 sys 23991 字 / user 18758 字的定稿类调用在 161 秒被判超时、返回 0 字整次作废。150s 是给几千字小请求设的数，对两万字级输入过紧；改为 240s（仍是有界等待）。设 0 仍逐字还原为无限等待。\n· 【E·轨迹任务名误标】trajInferTag 的 /时间线/ 规则过宽，任何提到「时间线」字样的大调用都被标成「时间线提取」（实测那几条 3852 字的输出显然不是时间线 JSON）。收窄为 /时间线提取器|提取有明确时间锚点/。\n· 【未动】定稿指令生成、体检器 A11–A24 全部判据、禁词剔除、配额 80/60、选条、段序重排、续写去重闸门、参谋链路、深度续写与接着写的生成/写入行为、v195 的三处 P0 修复。\n· 【测试】_test_v196.js：用 V195 真实返回结果与真实正文回归——0/3 修到 2/3、V169 悬置句仍判未结算、干净结尾仍 3/3、重写范围扩张后「推袖口」只出现一次、指纹护栏只弹一次、轨迹标签双向。回归 v185–v195 全绿。\n回滚：恢复 .pre_v196 三个文件即回到 v195 行为。"],
   ["v195","V195 修「只重写结尾」这条链路的三个 P0 工程缺陷——深度续写第77章实测里，结尾段逐字重复两次、且重写后的结尾仍保留睡觉收并自加比喻，根因都不在模型，在这条链路自己的代码里。\n· 【P0-1 双写】旧 cpRewriteEnding 先把「保留段+新结尾」写进正文并自动保存，再弹结果窗说「点『替换』才覆盖」（autoWritten=false）。文案与行为矛盾：用户按文案理解「还没写入」，点「插入正文末尾」→ 同一段结尾逐字进正文两次（实测 A-B 结构整体复制）；同时 autoWritten=false 让「不加入文章」不回滚，撤销也失效。改法三处对齐：写正文前记 _aiBeforeResult 供回滚 → 写入合并稿 → 结果窗 autoWritten=true、文案改成「正文已替换并保存；点『不加入文章』可整体回滚到原结尾」，并隐藏「插入正文末尾」「替换整个正文」两颗按钮（showAiResult 新增第 5 参 noWriteActions，两颗按钮补 id）——结果窗只剩 复制/收下/回滚，每颗都安全。\n· 【P0-2 结尾约束被自己的过滤器扔掉】旧 prompt 写「凡是『结尾该怎么写』的句子一律忽略」——指令里「五、核爆结尾动作（不可逆·献祭级）」整节恰好全是这类句子，被整节滤掉。重写模型从头到尾没看到「不写比喻／只收在推袖口—看见雾转—放下—转身这一串动作上／不写态度句」，于是重写结果照旧以「今晚先回去睡觉。明天还有训练。」收尾，并新加了一句比喻。改法：新增 cpEndingRulesFromBrief() 本地抽取（标题含「结尾」的清单小节原样摘出，收到下一小节或【/===/--- 即停；抽不到整节时退回收集含「结尾」且带【已定】的散行），以「本章指令的结尾硬约束」块注入重写 prompt 并声明与验收标准冲突时以本块为准；同时删掉「一律忽略」那句。\n· 【P0-3 插入无防重】v149 的 stripOverlapPrefix 只接在生成链路，「结果窗手动插入」这条路一直裸奔。现在 aiResInsert 插入前先剥离与正文末尾的重合（口径同 v149）；剥完为空即判定整段已在正文里，不插入、弹「检测到这段内容已在正文末尾，未重复插入」。这是 P0-1 之外的独立第二道防线：就算别的链路再把结果窗用错，也不会写出双份正文。\n· 【未动】定稿指令生成、体检器 A11–A24、禁词剔除、配额 80/60、选条、段序重排、续写去重闸门、轨迹容量、更新链路、参谋链路全部未动；深度续写与接着写两条生成链路的写入行为一字未动（只有「结果窗手动插入」多了防重）。\n· 【测试】_test_v195.js：结尾约束抽取（整节/散行/无匹配三态）、重写后正文=合并稿且 _aiBeforeResult=原稿、结果窗隐藏两颗按钮、aiResInsert 重合拦截与正常插入分流、版本三同步。回归 v185/v190/v191/v192/v193/v194 全绿。\n回滚：恢复 .pre_v195 两个文件即回到 v194 行为。"],
@@ -15475,7 +15476,7 @@ function docWrite(){
   closeDocMode();
   openImportMenu(chs, null);
 }
-function clearAll(){openModal("确认清空全部数据","将删除【当前书本】所有章节、人物、情节、灵感与设定，且无法恢复。建议先导出备份。此操作需二次确认。",true);}
+function clearAll(){openModal("确认清空全部数据","将删除【当前书本】所有章节、人物、情节、灵感、设定、参谋讨论，以及长线伏笔账本，且无法恢复。其它书本不受影响。建议先导出备份。此操作需二次确认。",true);}
 function clearSample(){
   if(!confirm("清空示例数据？你自己新增的内容会保留。"))return;
   save("chapters",load("chapters",[]).filter(x=>!x.demo));
@@ -15485,7 +15486,25 @@ function clearSample(){
   toast("示例数据已清空，你自己的内容保留。");allRender();
 }
 function openModal(t,x){document.getElementById("mTitle").textContent=t;document.getElementById("mText").textContent=x;document.getElementById("mask").classList.add("on");}
-function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);try{save("trash",[]);}catch(e){}const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据。");allRender();}}
+function closeModal(ok){document.getElementById("mask").classList.remove("on");if(ok){save("chapters",[]);save("chars",[]);save("style",[]);save("meta","");save("plot",[]);save("notes",[]);save("seeded",false);try{save("trash",[]);}catch(e){}
+  /* v198：「清空全部数据」此前漏掉三类持久化内容，清完它们照样在后续生成里生效：
+     ① 参谋讨论（counselLog 是书级字段，不在被清列表里）；
+     ② 按章分桶的采纳/否决、本章决策、设计框架（counselAdopted_ch_* / cpDec:* / cpPlan:*）；
+     ③ 长线伏笔账本（独立 IndexedDB 库 lilia-vault，key = fs:<bookId>）。
+     结果就是「点了清空、章节没了，但参谋还记着旧走向、伏笔账本还挂着旧钩子」。 */
+  try{save("counselLog",[]);}catch(e0){}
+  try{
+    const b=curBook();
+    if(b){
+      Object.keys(b).forEach(function(k){
+        if(/^counsel(Adopted|Veto)/.test(k) || (k.indexOf("cpDec:")===0) || (k.indexOf("cpPlan:")===0)){
+          try{ delete b[k]; }catch(e1){ b[k]=null; }
+        }
+      });
+    }
+  }catch(e2){}
+  try{ if(typeof window.cpVaultClearBook==="function") window.cpVaultClearBook(); }catch(e3){}
+  const b=curBook();if(b){b.aiDigest=null;b.world="";b.settings=[];b.timeline=[];b.metaphors=[];b.volumes=[{id:"none",name:"未分卷"}];rawSave("books",BOOKS);}toast("已清空当前书本全部数据（含参谋讨论与长线伏笔账本）。");allRender();}}
 function openDataPanel(){document.getElementById("dataPanel").classList.add("on");try{renderStorageMeter();}catch(e){}try{renderImportQuick();}catch(e){}try{syncBkNoKeyUI();}catch(e){}try{renderTrash();}catch(e){}try{renderDigestIndex();}catch(e){}try{renderDigestGhost();}catch(e){}}
 function closeDataPanel(){document.getElementById("dataPanel").classList.remove("on");}
 function openMore(){document.getElementById("morePanel").classList.add("on");try{renderTrajBadge();}catch(e){}}
@@ -16556,20 +16575,29 @@ function cpRenderPlanPanel(){
   }
   el.innerHTML=t;
 }
-/* v176：长线伏笔账本面板 */
+/* v176：长线伏笔账本面板
+   v198：显示每条的卷归属，并提供「只看本卷 / 全部」切换——
+   此前面板只有全量，作者看不出哪些钩子属于詹姆斯篇、哪些属于西里斯篇。 */
 function cpShowVault(){
-  var arr=[];
-  try{ arr=(typeof window.cpForeshadowOpen==="function")?(window.cpForeshadowOpen()||[]):[]; }catch(e){}
+  var all=[];
+  try{ all=(typeof window.cpForeshadowOpen==="function")?(window.cpForeshadowOpen()||[]):[]; }catch(e){}
+  var curVol=(document.getElementById("chVol")||{}).value||"none";
+  if(!window._cpVaultAll) window._cpVaultAll=0;
+  var onlyMine=!window._cpVaultAll;
+  var arr=onlyMine?all.filter(function(x){return !x.vol||String(x.vol)===String(curVol);}):all;
   var body;
-  if(!arr.length){
+  if(!all.length){
     body="<div style='padding:14px;opacity:.8;'>还没有长线伏笔记录。<br><br>在参谋讨论里提到「伏笔 / 战后 / 后续几十章 / 到时候回收 / 对应上」这类内容时，会自动收进这里，跨章保留。</div>";
+  }else if(!arr.length){
+    body="<div style='padding:14px;opacity:.8;'>本卷还没有长线伏笔。<br><br>全书另有 "+(all.length)+" 条属于其它分卷或未标卷，点上面的「全部」查看。</div>";
   }else{
     body="<div style='max-height:52vh;overflow:auto;padding:10px 12px;'>"
       +arr.map(function(x,i){
         var ri=(x&&typeof x._i==="number")?x._i:i;
+        var vn=(x&&x.vol)?(function(){try{return volName(x.vol)||x.vol;}catch(e){return x.vol;}})():"全书通用";
         return "<div style='padding:7px 0;border-bottom:1px solid var(--bd,rgba(0,0,0,.12));'>"
           +"<div style='font-size:13px;line-height:1.6;'>"+String((x&&x.text)||"").replace(/</g,"&lt;")+"</div>"
-          +"<div style='font-size:11px;opacity:.65;margin-top:3px;'>来源："+String((x&&x.from)||"-")+"</div>"
+          +"<div style='font-size:11px;opacity:.65;margin-top:3px;'>来源："+String((x&&x.from)||"-")+" · 分卷："+vn+"</div>"
           +"<button type='button' style='font-size:11px;margin-top:5px;' onclick='cpVaultRecycleWrap("+ri+")'>标记已回收</button>"
           +"</div>";
       }).join("")
@@ -16578,11 +16606,21 @@ function cpShowVault(){
   var m=document.createElement("div");
   m.className="modal-mask on";
   m.innerHTML="<div class='modal' style='max-width:680px;'><h3>长线伏笔账本</h3>"
-    +"<div class='meta' style='font-size:11px;opacity:.75;'>存在 IndexedDB 独立库 lilia-vault：跨章保留、不占 localStorage 配额。共 "+arr.length+" 条未回收。</div>"
+    +"<div class='meta' style='font-size:11px;opacity:.75;'>存在 IndexedDB 独立库 lilia-vault：跨章保留、不占 localStorage 配额。全书共 "+all.length+" 条未回收"
+    +(onlyMine?("，当前显示本卷 "+(volName(curVol)||curVol)+" 的 "+arr.length+" 条"):("，当前显示全部 "+arr.length+" 条"))+"。</div>"
+    +"<div class='mbtn' style='margin:8px 0;'><button type='button' onclick='cpVaultToggleAll()'>"+(onlyMine?"显示全部卷":"只看本卷")+"</button></div>"
     +body
     +"<div class='mbtn' style='margin-top:10px;'><button type='button' onclick='this.closest(\".modal-mask\").remove()'>关闭</button></div></div>";
   m.addEventListener("click",function(ev){ if(ev.target===m) m.remove(); });
   document.body.appendChild(m);
+}
+function cpVaultToggleAll(){
+  window._cpVaultAll=window._cpVaultAll?0:1;
+  var masks=document.querySelectorAll(".modal-mask.on");
+  for(var mi=0;mi<masks.length;mi++){
+    if(/长线伏笔账本/.test(masks[mi].textContent||"")){ masks[mi].remove(); break; }
+  }
+  cpShowVault();
 }
 function cpVaultRecycleWrap(i){
   var okRec=false;
@@ -16863,10 +16901,18 @@ function counselRender(){
   if(!_counselLog.length){
     box.innerHTML='<div class="meta">还没有讨论。可以直接问，例如：\n· 西里斯篇第 15 章，如果让薇拉主动道歉，合理吗？\n· 这一章之后有哪三种走向？各自的代价是什么？\n· 我担心第 12 章埋的伏笔没人接，怎么接才不生硬？</div>';
   }else{
+    /* v198：面板一直是「整本书所有章/所有卷的讨论」平铺在一起，作者看不出哪条属于哪一章，
+       也就看不出切卷之后模型到底吃到了什么。给每条加一个章号标签；不属于当前章的整条降透明度，
+       同一份日志里的「本章」与「别章」一眼可分。 */
+    const cid=((document.getElementById("chId")||{}).value||"").trim();
+    const cnum=((document.getElementById("chNum")||{}).value||"").trim();
     box.innerHTML=_counselLog.map(function(m){
       const me=m.role==="me";
-      return '<div style="margin:8px 0;padding:8px 10px;border-radius:10px;background:var(--soft);border:1px solid var(--line);">'+
-        '<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">'+(me?"我":"参谋")+'</div>'+
+      const isMine=((cid&&m.ch===cid)||(cnum&&m.chNum===cnum));
+      const tag=m.chNum?("第 "+m.chNum+" 章"):(m.ch?"其它章":"早期·未标章");
+      const dim=(cid||cnum)?(isMine?"":"opacity:.55;"):"";
+      return '<div style="margin:8px 0;padding:8px 10px;border-radius:10px;background:var(--soft);border:1px solid var(--line);'+dim+'">'+
+        '<div style="font-size:11.5px;color:var(--sub);margin-bottom:4px;">'+(me?"我":"参谋")+' · '+esc(tag)+'</div>'+
         '<div style="white-space:pre-wrap;line-height:1.7;">'+esc(m.text)+'</div>'+
         (me?"":phantomWarnHtml(m.text))+'</div>';
     }).join("");
@@ -16915,6 +16961,34 @@ setTimeout(function(){
   try{ if(typeof window.cpVaultLoad==="function") window.cpVaultLoad(); }catch(e){}
   try{ if(typeof window.cpVaultPersist==="function") window.cpVaultPersist(); }catch(e2){}
 },300);
+/* v198：参谋发送时要带给模型的历史讨论，按「章 → 卷」逐级收窄。
+   此前是 _counselLog.slice(-16)——整本书最近 16 条，不分章不分卷。于是切到西里斯篇
+   发第一条讨论时，模型看到的是詹姆斯篇最近 16 条（腕骨浅痕/袖口/药剂…），
+   它会把这些当成本章既成事实来推理。v167 只把「采纳/否决」与「定稿组装」按章隔离，
+   这条发送链路漏改（同族第三条）。
+   现规则：
+     ① 本章有 ≥2 条 → 只用本章；
+     ② 本章不足 → 本章全部 + 同一分卷其它章最近 8 条（标注章号，供衔接）；
+     ③ 拿不到章/卷信息 → 本章 + 无标记的历史消息（v167 之前产生的），不跨卷。 */
+function _cpHistForSend(){
+  try{
+    if(window.CP_LOG_PERCHAP===0) return _counselLog.slice(-16);
+    const cid=(document.getElementById("chId")||{}).value||"";
+    const cnum=(document.getElementById("chNum")||{}).value||"";
+    if(!cid&&!cnum) return _counselLog.slice(-16);
+    const mine=_counselLog.filter(function(m){ return m&&((cid&&m.ch===cid)||(cnum&&m.chNum===cnum)); });
+    if(mine.length>=2) return mine.slice(-16);
+    const chs=load("chapters",[])||[];
+    const curCh=chs.filter(function(c){ return c&&c.id===cid; })[0];
+    const vol=curCh?String(curCh.vol||"none"):"";
+    if(!vol) return mine;
+    const sameVol={};
+    chs.forEach(function(c){ if(c&&String(c.vol||"none")===vol) sameVol[c.id]=1; });
+    const sib=_counselLog.filter(function(m){ return m&&m.ch&&sameVol[m.ch]; }).slice(-8);
+    const out=mine.concat(sib.filter(function(m){ return mine.indexOf(m)<0; }));
+    return out.length?out:mine;
+  }catch(e){ return _counselLog.slice(-16); }
+}
 async function counselSend(){
   /* v112：重入锁——同一时刻只允许一次在途请求，防连点重复计费 */
   if(_counselBusy){ toast("参谋正在思考，等这一轮回来再发"); return; }
@@ -16952,7 +17026,7 @@ async function counselSend(){
     _counselLog.push({role:"me", text:q, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
     inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
-    const hist=_counselLog.slice(-16).map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
+    const hist=_cpHistForSend().map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
     /* v153：收敛改造总开关。CP_COUNSEL_CONVERGE=0 时只保留 v152 原版的 7 条（⑤ 用回原文，
        ⑧⑨⑩ 一条都不追加），sys 字符串与 v152 逐字相同——可灰度、可单条回滚。 */
     const _conv=(window.CP_COUNSEL_CONVERGE!==0);
@@ -16995,7 +17069,7 @@ async function counselSend(){
     try{ if(typeof window.cpDecidedList==="function") _decided=window.cpDecidedList(_counselLog,10)||[]; }catch(eD){}
     try{ if(typeof window.cpNoAskList==="function") _noAsk=window.cpNoAskList(_counselLog)||[]; }catch(eN){}
     try{ if(typeof window.cpPlanGet==="function") _planTxt=String(window.cpPlanGet()||""); }catch(eP){}
-    try{ if(typeof window.cpForeshadowText==="function") _fsTxt=String(window.cpForeshadowText(15)||""); }catch(eF){}
+    try{ if(typeof window.cpForeshadowText==="function") _fsTxt=String(window.cpForeshadowText(15, (document.getElementById("chVol")||{}).value||"none")||""); }catch(eF){}
     if(_decided.length){
       _sysArr.push("⑮ 下列事项作者已经拍板，属既定事实：①"+_decided.join("；①")
         +"。本轮严禁再次询问、严禁换说法重提、严禁当作待议项、严禁要求作者确认。");
@@ -17101,11 +17175,31 @@ async function counselSend(){
     _release();
   }
 }
+/* v198：清空讨论区分「本章」与「全书」。
+   此前无条件 _counselLog=[]——一次点掉整本书所有分卷、所有章节的讨论，
+   而作者在别卷（詹姆斯篇）积累几十轮的心血会静默消失，且面板上看不出它属于别卷。
+   现在先算本章条数：只清本章是默认动作；全书还有别章讨论时再问一次是否一并清掉。 */
 function counselClear(){
   try{
-    if(!confirm("清空这段讨论记录？（正文一个字都不会动）")) return;
-    _counselLog=[]; counselSave();
-    counselRender();
+    const cid=((document.getElementById("chId")||{}).value||"").trim();
+    const cnum=((document.getElementById("chNum")||{}).value||"").trim();
+    const isMine=function(m){ return m&&((cid&&m.ch===cid)||(cnum&&m.chNum===cnum)); };
+    const mine=_counselLog.filter(isMine).length;
+    const total=_counselLog.length;
+    const others=total-mine;
+    if(!total){ toast("还没有讨论记录"); return; }
+    if(!cid&&!cnum){
+      if(!confirm("清空全部讨论记录（共 "+total+" 条）？\n\n正文一个字都不会动。")) return;
+      _counselLog=[]; counselSave(); counselRender(); toast("讨论已清空");
+      return;
+    }
+    if(!confirm("清空本章的讨论记录（"+mine+" 条）？\n\n其余章节/分卷还有 "+others+" 条，默认保留。\n正文一个字都不会动。")) return;
+    let kept=_counselLog.filter(function(m){ return !isMine(m); });
+    if(others>0){
+      if(confirm("是否连其它章节/分卷的 "+others+" 条讨论一起清掉？\n\n点「确定」= 全书清空；点「取消」= 只清本章，其它保留。")) kept=[];
+    }
+    _counselLog=kept; counselSave(); counselRender();
+    toast(kept.length?("已清空本章的 "+mine+" 条讨论，保留其它 "+kept.length+" 条"):"讨论已全部清空");
   }catch(e){}
 }
 /* v140：清空参谋的长期记忆（已采纳 / 已否决的走向）。
@@ -17115,22 +17209,48 @@ function counselClear(){
    并据此续写」的一类残留脏数据。这里给一个能一次清干净、且不动正文的出口。
    清理范围只有这两份清单本身；「本章专属指令」里已经写进去的文字另行单独确认，
    避免顺手删掉作者自己写的其它指令。 */
+/* v198：采纳/否决的存储 key 解析。
+   v167 起这两份清单按章节 ID 分桶（counselAdopted_ch_<chId>），但本文件里的
+   「清空参谋记忆」一直读的是书级旧 key（counselAdopted）——从 v167 那天起，
+   它对后来的数据**完全读不到**，点下去只会提示「参谋目前没有记住任何走向」。
+   现在按当前章取 key：清的就是本章的记忆；其它章各自分桶、不受影响。
+   书级旧桶（v167 之前的历史残留）一并带上：它们早已不被读取，留着只是脏数据。 */
+function _cpRouteKeys(){
+  const cid=((document.getElementById("chId")||{}).value||"").trim();
+  const per=!!(window.CP_ADOPT_PERCHAP!==0 && cid);
+  return {
+    adopted: per?("counselAdopted_ch_"+cid):"counselAdopted",
+    veto: per?("counselVeto_ch_"+cid):"counselVeto",
+    legacyAdopted: per?"counselAdopted":"",
+    legacyVeto: per?"counselVeto":"",
+    chapScoped: per
+  };
+}
 function counselPurgeMemory(){
   try{
-    const a=_cpReadRoutes("counselAdopted"), v=_cpReadRoutes("counselVeto");
-    if(!a.length&&!v.length){ toast("参谋目前没有记住任何走向"); return; }
-    const msg="参谋现在记着：\n· 已采纳 "+a.length+" 条（点「采纳」时被写进本章指令）\n· 已否决 "+v.length+" 条\n\n"
+    const K=_cpRouteKeys();
+    const a=_cpReadRoutes(K.adopted), v=_cpReadRoutes(K.veto);
+    const la=K.legacyAdopted?_cpReadRoutes(K.legacyAdopted):[];
+    const lv=K.legacyVeto?_cpReadRoutes(K.legacyVeto):[];
+    if(!a.length&&!v.length&&!la.length&&!lv.length){ toast("参谋目前没有记住任何走向"); return; }
+    const scopeTxt=K.chapScoped?"当前这一章":"本书";
+    const msg="参谋现在记着（范围："+scopeTxt+"）：\n"
+      +"· 已采纳 "+(a.length+la.length)+" 条（点「采纳」时被写进本章指令）\n"
+      +"· 已否决 "+(v.length+lv.length)+" 条\n\n"
+      +(K.chapScoped?"其它章节的记忆按章隔离存放，本次不会动到。\n\n":"")
       +"清空后，参谋不再受这些走向约束，也不再重复提它们。\n正文一个字都不会动。\n\n确定清空？";
     if(!confirm(msg)) return;
-    _cpClearRoutes("counselAdopted"); _cpClearRoutes("counselVeto");
+    _cpClearRoutes(K.adopted); _cpClearRoutes(K.veto);
+    if(K.legacyAdopted){ _cpClearRoutes(K.legacyAdopted); _cpClearRoutes(K.legacyVeto); }
     let removed=0;
+    const allA=a.concat(la);
     const ta=document.getElementById("chBrief");
-    if(ta&&a.length){
-      if(confirm("是否同时从「本章专属指令」里删掉这 "+a.length+" 条被采纳的走向？\n\n（只删当时自动写入的「【已确定的剧情走向】…」行，你自己写的其它指令不动）")){
+    if(ta&&allA.length){
+      if(confirm("是否同时从「本章专属指令」里删掉这 "+allA.length+" 条被采纳的走向？\n\n（只删当时自动写入的「【已确定的剧情走向】…」行，你自己写的其它指令不动）")){
         const lines=String(ta.value||"").split(/\r?\n/);
         const kept=lines.filter(function(ln){
           const s=String(ln||"").trim();
-          const hit=s.indexOf("【已确定的剧情走向】")===0 && a.some(function(t){ return s.indexOf(String(t).trim())>=0; });
+          const hit=s.indexOf("【已确定的剧情走向】")===0 && allA.some(function(t){ return s.indexOf(String(t).trim())>=0; });
           if(hit) removed++;
           return !hit;
         });

@@ -1912,11 +1912,40 @@
     } catch (e) {}
   }
 
+  /* v198：清空「当前这本书」的长线伏笔账本（只动本书 key，别的书不受影响）。
+     宿主「清空全部数据」此前只清章节/人物/线索，账本在独立 IDB 库里毫发无伤，
+     于是清完照样把旧钩子注入新内容。 */
+  function cpVaultClearBook() {
+    try {
+      _vaultCache = { items: [] };
+      var key = cpVaultKey();
+      try { localStorage.setItem('cpVault:' + key, JSON.stringify({ items: [] })); } catch (e0) {}
+      if (window.CP_VAULT_ON === 0) return true;
+      try { cpVaultIdbSet(key, { items: [] })['catch'](function () {}); } catch (e1) {}
+      return true;
+    } catch (e) { return false; }
+  }
+
   var CP_FS_SIG = /伏笔|钩子|战后|后续|几十章|回收|对应上|埋下|留口子|长线|下一卷|下一章|到时候|以后再说|早晚要/;
+  /* v198：伏笔账本的隔离粒度。
+     此前 key 只有 bookId（fs:<bookId>），item 也没有卷字段 —— 詹姆斯篇埋的伏笔会
+     原样出现在西里斯篇的 ⑱ 注入里（取最近 15/20 条，不分卷）。两篇主角不同、时间线
+     不同，这就等于让模型拿着另一篇的钩子给你安排本章。
+     现在每写入一条时记下当时所在的分卷（vol），读取时：
+       · 传了 volId → 只返回「本卷」+「无卷标记（历史数据，视为全书通用）」；
+       · 没传 volId → 全量（面板「全部」视图、老调用方保持原行为）。
+     历史条目没有 vol 字段，一律按「全书通用」处理，不做迁移、不丢数据。 */
+  function cpVolId() {
+    try {
+      var v = (document.getElementById('chVol') || {}).value || '';
+      return v || 'none';
+    } catch (e) { return 'none'; }
+  }
   function cpForeshadowScan(log) {
     var out = [];
     if (!Array.isArray(log)) return out;
     var seen = {};
+    var _v = cpVolId();
     for (var i = 0; i < log.length; i++) {
       var m = log[i]; if (!m) continue;
       var sents = [];
@@ -1928,7 +1957,7 @@
         var key = s.slice(0, 30);
         if (seen[key]) continue;
         seen[key] = 1;
-        out.push({ text: s, at: Date.now(), from: (m.role === 'me' ? '作者' : '参谋'), state: '未回收' });
+        out.push({ text: s, at: Date.now(), from: (m.role === 'me' ? '作者' : '参谋'), state: '未回收', vol: _v });
       }
     }
     return out;
@@ -1947,13 +1976,15 @@
     return added;
   }
   /* 返回的是未回收项；每项带 _i（在 items 里的真实下标）——
-     面板上的「标记已回收」按 _i 定位，否则过滤后的下标会错位、回收错条目。 */
-  function cpForeshadowOpen() {
+     面板上的「标记已回收」按 _i 定位，否则过滤后的下标会错位、回收错条目。
+     v198：可传 volId 只看本卷（含无卷标记的历史条目）；不传则全量。 */
+  function cpForeshadowOpen(volId) {
     var v = cpVaultGet(), out = [];
+    var _scope = (volId === undefined || volId === null || volId === '') ? '' : String(volId);
     (v.items || []).forEach(function (x, i) {
-      if (x && x.state !== '已回收') {
-        out.push({ _i: i, text: x.text, at: x.at, from: x.from, state: x.state });
-      }
+      if (!x || x.state === '已回收') return;
+      if (_scope && x.vol && String(x.vol) !== _scope) return;   /* 别卷且已标卷 → 不出现 */
+      out.push({ _i: i, text: x.text, at: x.at, from: x.from, state: x.state, vol: x.vol || '' });
     });
     return out;
   }
@@ -1962,9 +1993,9 @@
     if (v.items && v.items[idx]) { v.items[idx].state = '已回收'; v.items[idx].recycledAt = Date.now(); cpVaultSave(); return true; }
     return false;
   }
-  function cpForeshadowText(limit) {
+  function cpForeshadowText(limit, volId) {
     limit = limit || 20;
-    var arr = cpForeshadowOpen();
+    var arr = cpForeshadowOpen(volId);
     if (!arr.length) return '';
     return arr.slice(-limit).map(function (x) { return '· ' + x.text; }).join('\n');
   }
@@ -2004,7 +2035,7 @@
     ].join('\n');
     var user = '待设计的章节是' + chLabel + '。\n\n';
     user += '下面是当前作品的相关信息：\n' + (ctxText || '（无）') + '\n\n';
-    var fsTxt = cpForeshadowText(20);
+    var fsTxt = cpForeshadowText(20, cpVolId());
     if (fsTxt) user += '下面是此前埋下、尚未回收的长线伏笔（本章能回收或推进的请在框架里点名）：\n' + fsTxt + '\n\n';
     var log = [];
     try { log = cpLogScoped(); } catch (e5) {}
@@ -2162,6 +2193,7 @@
   window.cpVaultLoad = cpVaultLoad;
   window.cpVaultGet = cpVaultGet;
   window.cpVaultPersist = cpVaultPersist;
+  window.cpVaultClearBook = cpVaultClearBook;
   window.cpForeshadowMerge = cpForeshadowMerge;
   window.cpForeshadowOpen = cpForeshadowOpen;
   window.cpForeshadowRecycle = cpForeshadowRecycle;
@@ -2253,7 +2285,7 @@
        即便中段原文被挤出，作者拍过板的原话与跨章伏笔仍会到达定稿模型。 */
     try {
       if (typeof window.cpForeshadowText === 'function') {
-        var _fs = String(window.cpForeshadowText(20) || '');
+        var _fs = String(window.cpForeshadowText(20, cpVolId()) || '');
         if (_fs) s += '下面是此前埋下、尚未回收的长线伏笔（跨章有效；本章能推进或回收的请在定稿里点名）：\n' + _fs + '\n\n';
       }
     } catch (eFs) {}
