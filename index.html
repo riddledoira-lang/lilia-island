@@ -7790,6 +7790,13 @@ function chapterIndexBlock(opts){
     }
 
     volKeys.forEach(function(v){
+      /* v202：传了 opts.vol（参谋链路）时，别卷只给计数、不给章名——
+         此前整本书的章节清单（含别卷每一章标题）都会进参谋上下文，
+         里德尔篇的参谋据此引用詹姆斯篇剧情，是最隐蔽的一条跨卷污染。 */
+      if(opts&&opts.vol && String(v)!==String(opts.vol)){
+        s+="\n· "+volName(v)+"：共 "+byVol[v].length+" 章（别卷，仅给计数，不提供章名与内容）\n";
+        return;
+      }
       const arr=byVol[v].slice().sort(function(a,b){ return Number(a.num)-Number(b.num); });
       const nums=arr.map(function(c){ return Number(c.num)||0; }).filter(function(n){ return n>0; });
       const mn=nums.length?Math.min.apply(null,nums):0;
@@ -8199,7 +8206,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v201";
+const APP_VERSION="v202";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8220,6 +8227,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v202","V202 修「跨卷串线」三条链路 + 网络类失败自动重试（作者实测：里德尔篇的参谋讨论把詹姆斯篇内容带进来，删了詹姆斯篇记忆仍在生效；生成詹姆斯篇章节的定稿指令从里德尔篇内容里提取；混合定稿报 Failed to fetch）。\n· 【链路一·按章号跨卷匹配】参谋讨论收发用的是 m.ch===cid || m.chNum===cnum。分卷独立编号下里德尔篇第 2 章与詹姆斯篇第 2 章章号相同，于是詹姆斯篇第 2 章的讨论被当成「本章历史」喂给里德尔篇——这就是「沙菲克、初步舒畅」这类内容出现在里德尔章节的直接原因。改为：章内匹配只认章节 ID（uid 生成、全库唯一），同卷串接只认卷标签，不再按章号跨卷。\n· 【链路二·匹配不到回退全书】两处作用域函数（宿主 _cpHistForSend 与参谋 cpLogScoped）在「本章没有历史」时分别 return _counselLog.slice(-16) 与 return base——把整本书最近 16 条灌进新卷的第一轮讨论。这是「删了记忆仍生效」的主因：删的是存储，回退读的是全书。改为：匹配不到就是空，任何情况下不回退整本书。\n· 【链路三·无卷标记数据对所有卷可见】伏笔账本 cpForeshadowOpen 的旧条件是「条目有卷且不等」才排除，v198 前产生的无卷条目因此在每个卷都出现；参谋上下文的章节清单 chapterIndexBlock() 把全书每一卷的章名全灌进去。改为：无卷遗留条目只在主卷（章节表第一个有卷归属的卷）可见，别卷一律排除；参谋章节清单只给本卷完整章名，别卷仅给计数。\n· 【顺带·讨论落库加卷标签】两条 _counselLog.push 增加 vol 字段（取 _cpVolContext().vol，章节 vol 优先、下拉兜底），新消息不再依赖反查；旧消息仍按章节表反查归属。\n· 【顺带·清空入口补两级】「清空参谋记忆」此前只清当前章（v167 起按章分桶，等于只清 1/N），讨论记录从未按卷清过。现在清完本章会追问：是否清空本卷全部 N 章记忆、是否清空本卷 N 条讨论——都默认不勾。\n· 【顺带·Failed to fetch 自动重试】旧逻辑对 Failed to fetch/NetworkError/timeout 一律直接抛出（那是为 401/403 写的判定）。手机端切后台、Wi-Fi 与蜂窝切换、大请求上传中断都属瞬断，重试通常就过。现网络类失败最多试 3 次（间隔 1.2s/2.4s），鉴权/限流/余额仍不重试；重试不产生重复计费（无响应=无 token 消耗）。另：上下文超 6 万字时提示「保持页面在前台」。\n· 【未动】v167-v201 的按章分桶键（counselAdopted_ch_*）、v198 的伏笔 vol 字段与「归入本卷」、v199 的线索 owner、v201 的防八股化五律与结尾评分器全部原样保留。\n· 【测试】_test_v202.js：_cpHistForSend 沙箱（同号跨卷不串、无匹配不回退全书、旧无卷消息只在主卷）、cpLogScoped 沙箱同口径、cpForeshadowOpen 无卷条目按主卷封口、chapterIndexBlock 别卷只给计数、_callAIOnceNet 重试后成功/三次后抛出、三同步。回归 v198-v201 全绿。\n回滚：恢复 .pre_v202 三个文件即回到 v201 行为；单链回滚可用 window.CP_LOG_PERCHAP=0（恢复整本书 16 条，仅供对照）。"],
   ["v201","V201 落地「防八股化四律」——作者 2026-11-11 提出 4 条写作想法（动作优先心理跟随／对话承担信息 OS 承担态度／每场景一次括号吐槽／结尾用具体变化收），经 Word 版《詹姆斯篇 1–78 章》全量统计验证后纳入 APP。\n· 【语料定标（Word 版 78 章全量统计，ElementTree 解析 3026 段，78 章连续完整）】①心理标记（我心想/我意识到类）三期稳定 0.21–0.30/千字——心理独白在成熟文风里本就稀缺，只在停顿位出现；②括号吐槽全书仅 9 处、晚期 0 处——作者自己的基线比「每场景一次」更严；③比较式（像/仿佛/跟…似的）黄金期 2.0–2.6/千字，而晚期劣化章两极分化：第 62 章 5.58/千字（动作句几乎每句挂比喻）、第 74 章 0/千字（干瘪）——劣化的签名不是「均匀变密」而是「方差爆炸」（晚期 σ=1.41 vs 中期 σ=0.71）；④结尾总结式占比早期 34%→中期 22%→晚期 5%——作者自己的文风演化就是从总结收走向具体变化收，第 62/70/78 章全部收在具体动作上。\n· 【修法一·生成侧】STYLE_REQ_CORE 新增五律（接着写与深度续写共用）：动作优先心理跟随（心理只在停顿/等待间隙，每场景至多 1–2 句）；对话承担信息 OS 只承担态度（禁止对话后「我心想/我意识到」式复述段）；括号吐槽上限全章 1 处且须有槽点；叙述比喻带每千字 1.5–3 处（低于 1 是干瘪、高于 4 是堆砌——密度稳定比高低更重要）；结尾用具体变化收、禁总结句。\n· 【修法二·精修侧】两处声线补齐块（深度续写自动精修 + 整章精修）各加四条硬性纪律：心理落位（不新增成段心理独白、动作中的心理段改写成动作）；复述式 OS 剔除；括号吐槽上限（不新增、底本超 1 处时保留最锋利一处）；结尾具体收（不把结尾改写成总结句，底本是总结句时改写为具体变化）。\n· 【修法三·评分侧】cpScoreEnding 返回新增 paren（全章括号吐槽计数）与 summary（末 160 字总结式标记，正则 CP_END_SUMMARY）两个字段，不影响三件套得分；cpEndingReport 把两信号接到控制台与 toast（只提示不阻断，与三件套 <2 弹重写解耦）。\n· 【未动】v200 比喻纪律（4 处/章削减线）与吐槽触发条件原样保留（新增的比喻带 1.5–3/千字是生成侧引导，与精修侧削减线不冲突——精修仍只减不加）；人物卡/文风准则的用户数据措辞仍待作者侧修改（「内心吐槽丰富」→触发条件式）。\n· 【测试】_test_v201.js：五律常量断言、两处精修块四纪律断言、cpScoreEnding 沙箱实测（总结式/括号超标/干净文本三样本）、cpEndingReport 接线断言、v200 回归、三同步。\n· 【顺带修正】Word 文件内第 54–57 章区域在旧的正则提取下会显示为 XML 碎片——那是提取器 bug（w:p 边界误判），ElementTree 正规解析证实内容完好；本次提取脚本改用 ElementTree，提取产物存 diag/james_1_78.txt（2197 有效段→3026 段全量），统计产物存 diag/james_stats.json。\n回滚：恢复 .pre_v201 三个文件即回到 v200 行为。"],
   ["v200","V200 修「文风劣化的两个代码级成因」（作者指控：比喻过密塞满动作与情节、吐槽出现在日常行动里、前78章质感丢失）。作者确认劣化出现在两条链路：接着写/深度续写初稿 + 精修产出（声线补齐）。\n· 【成因一·声线补齐是比喻增压泵】v167 起声线补齐块（深度续写自动精修 + 整章精修两处）把「厨房与神奇生物类比喻」写进叙述者声线的常驻组成件——模型每精修一轮就补一轮比喻。而生成链路有「同一比喻母题一章最多 2 次」的限速（STYLE_REQ_CORE），精修链路没有任何比喻限制——一边刹车一边油门，多轮精修后比喻密度单调递增。修法：①叙述者声线定义删去「厨房与神奇生物类比喻」这一项；②两处新增【比喻纪律（硬性）】：禁止新添任何明喻/暗喻，底本已有的比喻只顺势润色不动位置，底本一章明喻超过 4 处时把最弱的削减到 4 处以内——声线补齐不是加料工序，预算以底本为准，超密反减。\n· 【成因二·吐槽被写成密度而非触发条件】人物卡 traits 写「内心吐槽丰富」、文风准则写「吐槽一针见血」、v177 ⑭ 模板把「转而去吐槽别的事」指定为忍耐的标准出口——三处都在告诉模型「吐槽要多」，模型据此把吐槽平均撒进日常动作。修法：①STYLE_REQ_CORE 新增【吐槽触发条件】：只在荒诞、不合理、有明确槽点处出现，日常行动、状态正常、无槽可吐的场景一律不吐槽——毒舌是反应不是背景音（同时覆盖接着写与深度续写，因两条链路共用此常量）；②⑭ 的忍耐出口改为「用一个具体动作转移，仅当当下情境有明确槽点时才可转而吐槽该槽点（不得吐槽无关事务、不得为吐槽制造槽点）」；③声线补齐块同样注入该触发条件。\n· 【未动】比喻母题限制（2 次/章）仍在生成链路生效；薇拉比喻体系词库（v47 起不注入 prompt）；13 条绝对写作禁忌；M3 时代/口吻黑名单；人物卡与文风准则的用户数据（「内心吐槽丰富」等措辞在作者实际书数据里，需作者在人物卡/文风准则中同步改为触发条件式表述——待 Word 全文诊断后给出具体改法）。\n· 【测试】_test_v200.js：两处声线补齐块均无比喻增压表述、均有比喻纪律与吐槽触发条件；STYLE_REQ_CORE 含触发条件；⑭ 不再无条件吐槽；三同步。全量回归 v185–v199 同步跑。\n· 【待续】作者将提供 Word 版前 78 章全文：届时完成三维度最佳章节横向对比、70 章后情节弱化归因（v167 已有一次同类实证：正文平淡源于当轮定稿指令弱而非代码回退）、比喻八股化特征清单，并据数据定标比喻预算数字（当前 4 处/章为保守值）。\n回滚：恢复 .pre_v200 三个文件即回到 v199 行为。"],
   ["v199","V199 收口「各卷线索相互独立」的最后三条尾巴（作者确认分卷模型：各卷伏笔/线索/讨论/参谋记忆独立，仅共用人设；v198 已断三条主通道，本轮补齐残留）。\n· 【尾巴一·大纲规划带别卷线索】oppContext 选卷时把其它卷线索以「【其它卷线索（次要背景）】」注入——詹姆斯篇的大纲规划能吃到西里斯篇的线索，与「相互独立」直接冲突。现在选卷只给本卷线索（本卷无线索时明示「暂无本卷线索」），全书视图保持全量。\n· 【尾巴二·参谋存的线索无主】counselToPlot 的 owner 永远写空串 → 这类线索哪卷都不认领，在选卷视图全落「其它卷」。现在存入时自动记当前分卷：本卷认领、别卷隔离。\n· 【尾巴三·历史伏笔未标卷】v198 之前入账的伏笔没有 vol 字段，按「全书通用」进每一卷注入。伏笔面板新增「把 N 条全书通用条目归入本卷」按钮：切到目标卷一键收口（cpForeshadowClaim，只改无卷标记的条目，已标卷的不动）。\n· 【顺带·前文排序关键词按卷】plotKw 此前全量取未完成线索词做相关度排序——不注入内容，但别卷线索词会稀释本卷正文的召回权重。改用 volScopedPlots(scopeVol) 按卷取（与 v132 的伏笔关键词同族修法）。\n· 【人设共用现状（作者问的第二件事）】人物卡按书一份、无重复粘贴：生成侧 RAG 建索引与 volScopedChars 按本卷语料收窄、声线卡走「本章点名 ∪ 主角 ∪ 本卷相关」保底（v106），新卷开篇时主角与指令点名人物仍会注入；参谋侧取全量前 20（主角优先）——需在提问或指令红线里点名本卷登场范围。\n· 【未动】v198 三处通道、cpScoreEnding、定稿组装、采纳/否决写入、卷档案与全书总档案口径（全书总档案仍跨卷注入，那是「人设/立场」级事实，与线索/伏笔的卷隔离不冲突）。\n· 【测试】_test_v199.js：线索存入带卷、大纲规划不再注入别卷线索、归入本卷只改无标记条目、plotKw 按卷。全量回归 v185–v198 同步跑。\n回滚：恢复 .pre_v199 三个文件即回到 v198 行为。"],
@@ -9504,6 +9512,28 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
     return await _callAIInner({sys:sys,user:user,temperature:temperature,max_tokens:max_tokens,onToken:onToken,modelOverride:modelOverride,top_p:top_p,presence_penalty:presence_penalty,frequency_penalty:frequency_penalty});
   } finally { _aiBusyDown(); }
 }
+/* v202 · 网络类失败自动重试。
+   作者实测（v201，手机端）：一次「混合定稿」调用 sys 21981 字 / user 55800 字，
+   返回「网络异常：Failed to fetch」，输入 0 tok / 输出 0 tok——请求根本没到接口。
+   旧行为对 Failed to fetch / NetworkError / timeout 一律直接抛出（理由是「重试无意义」），
+   但那条判定是为 401/403 写的：手机端切后台、Wi-Fi 与蜂窝切换、大请求上传中断
+   都属于「同一次请求瞬断」，重试一次通常就过。现改为：网络类失败最多试 3 次（间隔 1.2s/2.4s），
+   鉴权/限流/余额仍不重试；重试不产生重复计费（没有响应=没有 token 消耗）。 */
+async function _callAIOnceNet(messages, temperature, max_tokens, onToken, modelOverride, extra, tries){
+  const max=tries||3; let last=null;
+  for(let k=0;k<max;k++){
+    try{ return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, undefined, undefined, extra); }
+    catch(e){
+      last=e; const msg=String((e&&e.message)||"");
+      const net=/Failed to fetch|NetworkError|net::|ERR_|Load failed|超时|timeout|abort/i.test(msg);
+      if(!net || k===max-1) throw e;
+      const wait=1200*(k+1);
+      try{ toast("网络中断，"+Math.round(wait/1000)+" 秒后自动重试（第 "+(k+2)+"/"+max+" 次）"); }catch(x){}
+      await new Promise(function(r){ setTimeout(r,wait); });
+    }
+  }
+  throw last;
+}
 async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
   const ai=load("ai",{});
   /* v99：统一守卫。此前只有 aiGen / 体检台自己判空，其余十余个调用点在未配置 AI 时会
@@ -9515,6 +9545,11 @@ async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverri
      放在「未配置 AI」守卫之后、候选模型循环之前——只拦一次，不会因为重试/截断续写重复算。
      注意：这里只做中止，不改任何已有的报价确认弹窗行为。 */
   try{ aiCostGuard((sys||"").length+(user||"").length, mt, modelOverride||(onToken?(ai.genModel||ai.model):ai.model)||"deepseek-flash", onToken?"正文生成/续写":"分析/规划"); }catch(e){ throw e; }
+  /* v202：超大上下文提示。手机端 7 万字以上的请求最容易在上传阶段被系统掐断，
+     提前告知「保持前台」，比失败后让作者猜原因有用。 */
+  try{ const _tot=String(sys||"").length+String(user||"").length;
+    if(_tot>60000) toast("本次上下文 "+_tot+" 字（较大）：请保持页面在前台，切后台可能被系统中断");
+  }catch(e0){}
   const messages=[{role:"system",content:sys},{role:"user",content:user}];
   /* v81：采样参数打包下发；未显式传入则不附加，保持旧接口兼容 */
   const extra=(top_p!==undefined||presence_penalty!==undefined||frequency_penalty!==undefined)
@@ -9535,7 +9570,7 @@ async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverri
     const m=cands[ci];
     let r;
     try{
-      r=await _callAIOnce(messages, temperature, mt, onToken, m, undefined, undefined, extra);
+      r=await _callAIOnceNet(messages, temperature, mt, onToken, m, extra);
     }catch(e){
       lastErr=e;
       const msg=String((e&&e.message)||"");
@@ -9553,7 +9588,7 @@ async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverri
       /* 注意：用累计输出作为 assistant 回卷，让模型接着最后的位置继续 */
       const contMsgs=messages.concat([{role:"assistant",content:out},{role:"user",content:"（系统指令）上次输出因长度限制被截断。请从上次中断的位置继续输出剩余内容，不要重复任何已输出文字，不要添加任何解释或标记。"}]);
       try{
-        r=await _callAIOnce(contMsgs, temperature, mt, onToken, m, undefined, undefined, extra);
+        r=await _callAIOnceNet(contMsgs, temperature, mt, onToken, m, extra);
         /* v178：续写去重。模型重写整份而非接续时，丢弃该片段并停止续写，
            保住第一份完整内容，而不是把多份拼成一份（见 cpIsRestartChunk 上方注释）。 */
         if(cpIsRestartChunk(out, r.content)){
@@ -16914,7 +16949,8 @@ function counselCtx(){
   let s="";
   /* v115：参谋同样要给「真实章号清单」——它此前看不到章节全表，被问到「第几章怎么接」时
      只能凭上下文外推，这是「凭空冒出第 76 章内容分析」的直接来源之一。 */
-  const _ci=chapterIndexBlock();
+  /* v202：只把本卷章节清单给参谋，别卷仅计数 */
+  const _ci=chapterIndexBlock({vol:vol});
   if(_ci) s+=_ci+"\n";
   s+="【本分卷】"+volName(vol)+"\n";
   const pov=getVolPov(vol); if(pov) s+="【本卷人称铁律】"+pov+"\n";
@@ -17034,33 +17070,64 @@ setTimeout(function(){
   try{ if(typeof window.cpVaultLoad==="function") window.cpVaultLoad(); }catch(e){}
   try{ if(typeof window.cpVaultPersist==="function") window.cpVaultPersist(); }catch(e2){}
 },300);
-/* v198：参谋发送时要带给模型的历史讨论，按「章 → 卷」逐级收窄。
+/* v202 · 卷上下文解析（参谋所有读写共用的唯一入口）。
+   为什么要有：v198/v199 已经按「章 → 卷」收窄过一次，但三条链路仍在按章号匹配
+   （m.chNum === cnum）——分卷独立编号下，里德尔篇第 2 章与詹姆斯篇第 2 章章号相同，
+   于是詹姆斯篇第 2 章的讨论被当成「本章历史」喂给里德尔篇；更严重的是匹配不到时
+   回退 _counselLog.slice(-16)（整本书最近 16 条），等于把另一卷的讨论全灌进去。
+   现在统一为：
+     ① 章内匹配只认 ch === 本章 chId（章节 ID 由 uid() 生成，全库唯一，绝不按章号）；
+     ② 同卷串接只认卷标签 vol 相等（旧消息无 vol 时按章节表反查章节的卷，仍查不到一律排除）；
+     ③ 任何情况下都不回退整本书。
+   主卷（mainVol）= 章节表里第一个有 vol 的章节所属卷：v198 之前产生的无卷标记数据
+   都属于那个时代，只在主卷内继续可见，不跨到别的卷。 */
+function _cpVolContext(){
+  try{
+    const cid=((document.getElementById("chId")||{}).value||"").trim();
+    const cnum=((document.getElementById("chNum")||{}).value||"").trim();
+    const chs=(load("chapters",[])||[]);
+    const volOf={};
+    chs.forEach(function(c){ if(c&&c.id) volOf[c.id]=String(c.vol||"none"); });
+    const cur=chs.filter(function(c){ return c&&c.id===cid; })[0];
+    const sel=(document.getElementById("chVol")||{}).value||"";
+    const vol=String((cur&&cur.vol)||(sel&&sel!=="none"?sel:"")||"none");
+    /* 主卷：第一个有卷归属的章节（章节表按建章顺序），没有则 none */
+    let mainVol="none";
+    for(let i=0;i<chs.length;i++){ const v=String((chs[i]&&chs[i].vol)||""); if(v&&v!=="none"){ mainVol=v; break; } }
+    return {cid:cid, cnum:cnum, vol:vol, volOf:volOf, mainVol:mainVol,
+      msgVol:function(m){ if(!m) return "";
+        if(m.vol) return String(m.vol);
+        if(m.ch&&volOf[m.ch]) return volOf[m.ch];
+        return ""; }};
+  }catch(e){ return {cid:"",cnum:"",vol:"none",volOf:{},mainVol:"none",msgVol:function(){return "";}}; }
+}
+/* v202 · 参谋发送时要带给模型的历史讨论，按「本章 → 本卷」逐级收窄。
    此前是 _counselLog.slice(-16)——整本书最近 16 条，不分章不分卷。于是切到西里斯篇
    发第一条讨论时，模型看到的是詹姆斯篇最近 16 条（腕骨浅痕/袖口/药剂…），
    它会把这些当成本章既成事实来推理。v167 只把「采纳/否决」与「定稿组装」按章隔离，
-   这条发送链路漏改（同族第三条）。
+   这条发送链路漏改（同族第三条）；v198 收窄过一次，但留下「按章号跨卷匹配」与
+   「匹配不到回退全书」两个后门，v202 一并封死。
    现规则：
-     ① 本章有 ≥2 条 → 只用本章；
-     ② 本章不足 → 本章全部 + 同一分卷其它章最近 8 条（标注章号，供衔接）；
-     ③ 拿不到章/卷信息 → 本章 + 无标记的历史消息（v167 之前产生的），不跨卷。 */
+     ① 本章有 ≥2 条 → 只用本章（按 chId，不按章号）；
+     ② 本章不足 → 本章全部 + 同一分卷其它章最近 8 条（按卷标签，标注章号，供衔接）；
+     ③ 章/卷信息缺失 → 本章 + 主卷内无卷标记的历史消息，绝不跨卷、绝不回退全书。 */
 function _cpHistForSend(){
   try{
     if(window.CP_LOG_PERCHAP===0) return _counselLog.slice(-16);
-    const cid=(document.getElementById("chId")||{}).value||"";
-    const cnum=(document.getElementById("chNum")||{}).value||"";
-    if(!cid&&!cnum) return _counselLog.slice(-16);
-    const mine=_counselLog.filter(function(m){ return m&&((cid&&m.ch===cid)||(cnum&&m.chNum===cnum)); });
+    const V=_cpVolContext();
+    if(!V.cid&&!V.cnum) return [];
+    const mine=_counselLog.filter(function(m){ return m&&V.cid&&m.ch===V.cid; });
     if(mine.length>=2) return mine.slice(-16);
-    const chs=load("chapters",[])||[];
-    const curCh=chs.filter(function(c){ return c&&c.id===cid; })[0];
-    const vol=curCh?String(curCh.vol||"none"):"";
-    if(!vol) return mine;
-    const sameVol={};
-    chs.forEach(function(c){ if(c&&String(c.vol||"none")===vol) sameVol[c.id]=1; });
-    const sib=_counselLog.filter(function(m){ return m&&m.ch&&sameVol[m.ch]; }).slice(-8);
-    const out=mine.concat(sib.filter(function(m){ return mine.indexOf(m)<0; }));
-    return out.length?out:mine;
-  }catch(e){ return _counselLog.slice(-16); }
+    const sib=_counselLog.filter(function(m){
+      if(!m||m.ch===V.cid) return false;
+      if(m.ch&&!V.volOf[m.ch]) return false;        /* 章已被删、卷归属无法判定：弃用 */
+      const mv=V.msgVol(m);
+      if(mv) return mv===V.vol;                     /* 有卷：必须同卷 */
+      return V.vol===V.mainVol;                     /* 无章无卷（v198 前遗留）：只在主卷可见 */
+    }).slice(-8);
+    const out=mine.concat(sib);
+    return out;                                      /* 空就是空——不再回退整本书 */
+  }catch(e){ return []; }
 }
 async function counselSend(){
   /* v112：重入锁——同一时刻只允许一次在途请求，防连点重复计费 */
@@ -17096,7 +17163,7 @@ async function counselSend(){
       if(!okGo){ _release(); return; }
       _counselConfirmed=true;
     }
-    _counselLog.push({role:"me", text:q, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
+    _counselLog.push({role:"me", text:q, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||"", vol:(function(){try{return _cpVolContext().vol}catch(e){return ""}})()});
     inp.value=""; counselRender(); counselClearErr();
     const ctx=counselCtx();
     const hist=_cpHistForSend().map(function(m){ return (m.role==="me"?"我":"参谋")+"："+m.text; }).join("\n");
@@ -17227,7 +17294,7 @@ async function counselSend(){
         ["到「AI 生成设置」把「分析模型」换成 deepseek-flash","把「思考模式」设为 disabled"]);
       return;
     }
-    _counselLog.push({role:"ai", text:out, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||""});
+    _counselLog.push({role:"ai", text:out, at:Date.now(), ch:(document.getElementById("chId")||{}).value||"", chNum:(document.getElementById("chNum")||{}).value||"", vol:(function(){try{return _cpVolContext().vol}catch(e){return ""}})()});
     counselSave();
     counselRender();
     try{ cpCapacity(); }catch(eC){}
@@ -17330,6 +17397,27 @@ function counselPurgeMemory(){
         ta.value=kept.join("\n").replace(/\n{3,}/g,"\n\n");
       }
     }
+    /* v202：本卷清空。作者反馈「我把詹姆斯篇的记忆全删了，里德尔篇还在用」——
+       根因是采纳/否决 v167 起按章分桶，只清当前章等于只清了 1/N；讨论记录又是书级数组，
+       从未按卷清过。这里把两个层级都补上，默认不勾（用户按需确认）。 */
+    try{
+      const V=_cpVolContext();
+      const chs=(load("chapters",[])||[]).filter(function(c){ return c&&String(c.vol||"none")===V.vol; });
+      if(chs.length>1){
+        if(confirm("是否把本卷「"+volName(V.vol)+"」全部 "+chs.length+" 章的参谋记忆一起清空？\n\n（各章分桶存放，只清当前章会留下其它章的记忆，它们仍会作为同卷历史被带入）")){
+          chs.forEach(function(c){ _cpClearRoutes("counselAdopted_ch_"+c.id); _cpClearRoutes("counselVeto_ch_"+c.id); });
+          toast("本卷 "+chs.length+" 章的参谋记忆已清空");
+        }
+      }
+      const vm=_counselLog.filter(function(m){ return V.msgVol(m)===V.vol; });
+      if(vm.length){
+        if(confirm("是否清空本卷的 "+vm.length+" 条参谋讨论？\n\n（讨论记录是发消息时带给模型的历史，不清的话新一轮参谋仍会看到它们）")){
+          _counselLog=_counselLog.filter(function(m){ return V.msgVol(m)!==V.vol; });
+          counselSave(); counselRender();
+          toast("本卷讨论已清空 "+vm.length+" 条");
+        }
+      }
+    }catch(eV){}
     toast("参谋记忆已清空"+(removed?("，并删掉指令中的 "+removed+" 条走向"):""));
   }catch(e){ toastErr("清空失败："+(e&&e.message)); }
 }

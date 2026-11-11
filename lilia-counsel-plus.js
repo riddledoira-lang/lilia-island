@@ -300,19 +300,39 @@
   function cpVetoKey() { var c = cpChId(); return (window.CP_ADOPT_PERCHAP !== 0 && window.CP_ROLLBACK_V143 !== 1 && c) ? ('counselVeto_ch_' + c) : 'counselVeto'; }
   /* 讨论记录按章过滤：带章标记的消息只在本章可见；无标记的（v167 之前产生的）
      保留可见，避免一次性清空作者的历史讨论。 */
+  /* v202：讨论历史按「章 → 卷」严格收窄，任何情况下不回退整本书。
+     旧实现两个后门：①(m.ch===c)||(m.chNum===n)——分卷独立编号下章号会重复，
+     里德尔篇第 2 章会匹配到詹姆斯篇第 2 章；②匹配不到时 return base（整本书日志），
+     于是新卷第一条讨论就吃进别的卷全部内容。v202 一并封死。 */
+  function cpMainVol() {
+    try {
+      var chs = (typeof load === 'function') ? (load('chapters', []) || []) : [];
+      for (var i = 0; i < chs.length; i++) {
+        var v = String((chs[i] && chs[i].vol) || '');
+        if (v && v !== 'none') return v;
+      }
+    } catch (e) {}
+    return 'none';
+  }
   function cpLogScoped() {
     var base = (typeof _counselLog !== 'undefined' && Array.isArray(_counselLog)) ? _counselLog : [];
     if (window.CP_LOG_PERCHAP === 0 || window.CP_ROLLBACK_V143 === 1) return base;
     var c = cpChId(), n = cpChNum();
-    if (!c && !n) return base;
-    var f = base.filter(function (m) {
-      if (!m) return false;
-      if (!m.ch && !m.chNum) return true;
-      return (c && m.ch === c) || (n && m.chNum === n);
+    if (!c && !n) return [];
+    var chs = []; try { chs = (typeof load === 'function') ? (load('chapters', []) || []) : []; } catch (e) { chs = []; }
+    var volOf = {}, cur = null;
+    chs.forEach(function (x) { if (x && x.id) { volOf[x.id] = String(x.vol || 'none'); if (x.id === c) cur = x; } });
+    var vol = cur ? String(cur.vol || 'none') : '';
+    var mine = base.filter(function (m) { return m && c && m.ch === c; });
+    var sib = base.filter(function (m) {
+      if (!m || m.ch === c) return false;
+      if (m.ch && !volOf[m.ch]) return false;   /* 章已删、卷归属无法判定：弃用 */
+      var mv = m.vol ? String(m.vol) : (m.ch ? (volOf[m.ch] || '') : '');
+      if (mv) return !!vol && mv === vol;        /* 有卷：必须同卷 */
+      return !!vol && vol === cpMainVol();       /* 无章无卷（遗留）：只在主卷可见 */
     });
-    return f.length ? f : base;
+    return mine.concat(sib.slice(-8));
   }
-
   function vetoGet() { var o = get1(cpVetoKey()); return (o && Array.isArray(o.items)) ? o.items : []; }
   function vetoSave(items) {
     items = items.slice(-CFG.vetoMax);
@@ -1984,6 +2004,9 @@
     (v.items || []).forEach(function (x, i) {
       if (!x || x.state === '已回收') return;
       if (_scope && x.vol && String(x.vol) !== _scope) return;   /* 别卷且已标卷 → 不出现 */
+      /* v202：无卷标记的 v198 前遗留条目原本对所有卷可见——里德尔篇会读到詹姆斯篇的伏笔。
+         现只在主卷（章节表第一个有卷归属的卷）可见，别卷一律排除；要归卷可用「归入本卷」。 */
+      if (_scope && !x.vol && String(_scope) !== cpMainVol()) return;
       out.push({ _i: i, text: x.text, at: x.at, from: x.from, state: x.state, vol: x.vol || '' });
     });
     return out;
