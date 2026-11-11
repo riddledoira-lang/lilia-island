@@ -3389,6 +3389,12 @@
   var CP_END_SETTLE_STATE = /凉回去|凉了|烫起来|热起来|转快了|转慢了|没再(?:动|转)|停在|攥在|贴在/;
   var CP_END_ACT_PLAN = /我[^。！？]{0,8}(得|要|会|打算|准备)[^。！？]{0,10}(去|找|问|看|说|试|走)/;
 
+  /* v201：防八股化负向信号——末段总结式标记。
+     78 章语料实测：作者自己的结尾演化是 早期 34% 总结式 → 晚期 5%（62/70/78 章全部
+     收在具体动作或物证上）。「我意识到/我明白/这一刻」出现在收束区且收尾句本身是
+     总结而非动作时，按作者成熟风格应改写为具体变化。仅作提示信号，不影响三件套得分。 */
+  var CP_END_SUMMARY = /我意识到|我明白[了]?|这一[刻天]|从今[以往后]|意味着|终于明白|心里清楚/;
+
   function cpScoreEnding(text){
     var t = String(text || '').replace(/\s+/g, '');
     /* v197：评分窗口 400 → 900 字。
@@ -3404,7 +3410,11 @@
       anchor: (CP_END_ANCHOR.test(tail) || CP_END_ANCHOR_SCENE.test(tail)) && (CP_END_ACT.test(tail) || CP_END_ACT_PLAN.test(tail))  /* 未完成动作 + 时间锚（期限或场景时刻） */
     };
     var score = (d.prop ? 1 : 0) + (d.irrev ? 1 : 0) + (d.anchor ? 1 : 0);
-    return { score: score, detail: d, tail: tail.slice(-120) };
+    /* v201：括号吐槽计数（全章）+ 末 160 字总结式标记（提示信号，不进三件套得分）。
+       语料基线：括号吐槽全书 9 处/78 章；总结式结尾晚期仅 5%。 */
+    var paren = (t.match(/（[^）]{1,60}）/g) || []).length;
+    var summary = CP_END_SUMMARY.test(tail.slice(-160));
+    return { score: score, detail: d, tail: tail.slice(-120), paren: paren, summary: summary };
   }
   window.cpScoreEnding = cpScoreEnding;
 
