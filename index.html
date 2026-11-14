@@ -8206,7 +8206,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v206";
+const APP_VERSION="v207";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8227,6 +8227,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v207","P4 讨论深度闸门 + P5 重 roll 差异化。\n· 【P4 讨论深度闸门】「生成定稿指令」入口新增闸门：scoped 讨论 ≥4 条 且 ≥1200 字 且已锁定结论 ≥1 条，三者缺一即弹「讨论还浅」。两个出口：「💬 自动追问 3 问」把元请求贴进参谋输入框并发送（AI 的追问进入讨论流，作者逐条回答后再出指令）；「仍然出指令」作者明示负责、继续收敛。取消则回讨论不出指令。弹窗本身出错不拦路（按仍然出指令处理）。回滚：控制台 CP_DEPTH_GATE=0。\n· 【P5 重 roll 差异化】轨迹详情「用这条重跑」对正文类记录（上一版输出 ≥400 字）自动注入结构指纹——首句/末句/场景信号数/首场景地点由本地纯函数 cpStructFingerprint 提取（零 token），连同差异化要求一起拼进 user：开场接口/场景顺序/信息释放顺序至少换两处、比喻喻源换域。治「同 prompt 同温度重跑收束到同一个最安全结构」。定稿/参谋类短输出不注入。回滚：控制台 CP_REROLL_DIFF=0。\n回滚：恢复 .pre_v207 三个文件。"],
   ["v206","P2 增量预算 + P6 上下文瘦身。\n· 【P2 场景预算改增量预算】场景数口径三处同源更新（_styleReq ⑩／STYLE_REQ_CORE 尾句／节拍卡场景预算铁律）：普通章 2–4 场景、独白/危机章 1–2；每场景必须交付 ≥1 个不可省略的改变（新信息/关系变化/物理状态变化/新在场者），无改变删并；场景间必须有过桥句不得瞬移。铁律新增 ⑤ 增量条款。\n· 【P2 择优函数改增量优先】自动灵感择优 _beatScore 旧版只看节拍数区间，8 节拍注水方案能赢 4 节拍全增量方案——与铁律⑤正好相反。新口径：主键=增量覆盖率（本地增量信号词表，零 token），次键=4–6 合规区间，末键=增量节拍数，同分取节拍更少（宁深勿广）。手动挑选路径不受影响。\n· 【P6 上下文瘦身】CP_HYBRID_INCHARS 24000→16000；CP_FINAL_CTXCHARS 8000→5000（块序重排保证人物卡在前段，5000 足够盖住，v166 的 4000 字切掉人物卡教训不会复发）；cpHybridSys 实测 3585 字（P3 瘦身后），已远低于 12000 字目标，无需再合并铁律。\n· 【P6 前文详读】collectPrior 最近章 3→2 章全文（承接点在上一章结尾）；更早章不再整段灌正文（旧版 ≤12000 字/章），一律降级为 300 字摘要（优先用作者写的一句话梗概），书越长上下文不再线性膨胀，预算让给指令与人物卡。两处【前文详读】提示文案同步。\n回滚：恢复 .pre_v206 三个文件。"],
   ["v205","P3 定稿模板瘦身：十一段 → 九段，把「模型每轮必读的最强约束位」从重复段名里解放出来。\n· 【段结构】「四、视线牵引链（推理三段论）」并入「一、本章主轴（含视线牵引链）」；「十一、微表情替换表」并入「五、角色行动红线（含微表情替换）」。新九段：一主轴(含视线牵引链)/二核心物理道具/三开场接口/四核爆结尾动作/五角色行动红线(含微表情替换)/六生理与感官锚点/七节拍 + 附录八排除项/九开放区。\n· 【铁律同步】⑤⑨⑪⑬⑭⑯⑰⑲㉑㉓㉕㉖㉗ 全部改指新段号；⑪ 道具纪律收紧为「核心 1 件、辅助 ≤2 件、只写最反常那一项、必须绑定改变状态的动作、禁食物类主道具」；⑬ 明确伏笔/时间线进「七、节拍」、人设进「五、角色行动红线」、生理锚点全章只写 1 处且含触发条件；⑲ 关键字段留白禁令从五项收窄为四项（视线牵引链不再是独立必检段）。\n· 【解析兼容】字段码 N1-N8/X1-X2 不变；旧十一段指令仍能正确落桶——「视线牵引链/推理三段论」入 N4 桶（渲染时并入主轴段，段头按名称去重不再重复冒出），「微表情替换表」入 N6；缺口硬阻断从 N1-N5 五项收窄为 N1/N2/N3/N5 四项，不再对 N4 误报。\n· 【消费点同步】counselHybridBrief 内联拼装、cpNarrativeReorder、cpNarrativeSpec、审计 A16/A18 文案、深度续写 _fn 前置清单六处全部对齐新段名。\n回滚：恢复 .pre_v205 三个文件。"],
   ["v204","P1 章级体检器落地（治「削减未执行」：prompt 里的比喻纪律只是请求，本地没有兜底）。\n· 【cpChapterAudit】本地零 token 体检（lilia-counsel-plus.js）：明喻 >4 处（剥离引语、剔除好像/像往常；作者手写第77章基线=1 处）／跨段 6 字重复（与 diag/_ch77_metrics.js 同算法，作者基线=0）／最长段 >90 字（基线 82）／「第X章」元叙述入正文／出场角色 <4（本卷人物白名单，未配人物卡则跳过）；场景切换信号只报数不定罪。\n· 【自动定向削减】深度续写精修落盘前：明喻超标时把超标句原句列出，让模型只删改这几句、其余一字不动；削减后复检，最多 2 轮；长度差 >35% 判脱轨拒收；仍超标则把超标句清单交作者（toast+控制台），不再自动烧第三轮。\n· 【三处挂载】① 深度续写精修落盘前（体检+自动削减）；② 整章精修返回后（只报告不自动改——该链路是非破坏性预览，作者握着替换闸门）；③ 体检台新增「📏 章节体检」手动按钮（报告开新窗，含重复明细与比喻句明细）。\n· 【精修失败不再静默】自动精修返回空或异常时，明示「⚠️ 精修未执行，首稿已保留」并提供「改用整章精修重试」入口（非破坏性预览）。\n· 【验收基线】diag/ch77_hand.txt（自写 2370 字）必须 0 违规；diag/ch77_v201.txt 必须报 simile/dupe/meta（实测报 4 类：明喻 18、跨段重复 8、最长段 128、元叙述）。\n回滚：恢复 .pre_v204 三个文件；体检器只读不写，CP 系列无开关依赖。"],
@@ -18237,7 +18238,20 @@ async function trajReplay(id){
   trajTag(t.tag||"重跑");
   try{
     toast("重跑中…");
-    const out=await callAI({sys:t.sys, user:t.user, temperature:(typeof t.temp==="number"?t.temp:0.8), max_tokens:t.mt||8000, modelOverride:t.req});
+    /* v207 P5：重 roll 差异化。重跑最大的风险不是写得差，是写得跟上一版几乎一样——
+       同 prompt 同温度下模型会收束到同一个「最安全」的结构。
+       这里把上一版（t.out）的结构指纹（首句/末句/场景数/首场景地点，本地纯函数零 token）
+       连同差异化要求一起拼进 user：开场接口/场景顺序/信息释放顺序至少换两处、比喻喻源换域。
+       只对正文类记录生效（上一版输出 ≥400 字）；定稿/参谋类短输出不注入。
+       回滚：控制台 CP_REROLL_DIFF=0。 */
+    let _fpBlock="";
+    try{
+      if(window.CP_REROLL_DIFF!==0 && t.out && String(t.out).length>=400 && typeof window.cpStructFingerprint==="function"){
+        const fp=window.cpStructFingerprint(t.out);
+        if(fp) _fpBlock="\n\n【差异化要求·重跑专用】上一版结构指纹：首句「"+fp.first+"」；末句「"+fp.last+"」；场景信号 "+fp.scenes+" 处；首场景地点「"+(fp.firstLoc||"未识别")+"」。本次重跑必须与上一版拉开结构距离：开场接口、场景顺序、信息释放顺序至少换两处；比喻喻源换到不同域（上一版用哪类喻源，这次必须换一类）。剧情事实与已定指令不变。";
+      }
+    }catch(eFp){}
+    const out=await callAI({sys:t.sys, user:String(t.user||"")+_fpBlock, temperature:(typeof t.temp==="number"?t.temp:0.8), max_tokens:t.mt||8000, modelOverride:t.req});
     let old=document.getElementById("trajRpMask"); if(old) old.remove();
     const box=document.createElement("div"); box.id="trajRpMask";
     box.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10001;display:flex;align-items:center;justify-content:center;padding:10px;";

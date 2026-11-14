@@ -2354,6 +2354,40 @@
     return s;
   }
 
+  /* v207 P4：讨论深度闸门弹窗。返回 Promise<'ask'|'force'|null>。
+     ask=自动追问 3 问（贴进参谋输入框并发送）；force=仍然出指令；null=取消。 */
+  function cpDepthGateDialog(st) {
+    return new Promise(function (resolve) {
+      var old = null;
+      try { old = document.getElementById('cpDepthMask'); } catch (e0) {}
+      if (old && old.remove) old.remove();
+      var mask = document.createElement('div');
+      mask.id = 'cpDepthMask';
+      mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      mask.innerHTML = '<div style="background:var(--bg,#fff);color:var(--fg,#222);border-radius:12px;max-width:520px;width:100%;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.2);">'
+        + '<div style="font-weight:700;font-size:15px;margin-bottom:8px;">讨论还浅，直接出指令容易留白</div>'
+        + '<div style="font-size:13px;line-height:1.7;margin-bottom:6px;">当前讨论：' + st.turns + ' 条 / ' + st.chars + ' 字 / 已锁定结论 ' + st.decided + ' 条。<br>出一份能用的定稿指令，至少需要：讨论 ≥4 条、≥1200 字、≥1 条已锁定结论。</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:14px;">讨论太浅时，关键字段只能靠 AI 现编——指令里的留白会让深度续写注水。</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        + '<button type="button" class="primary" data-act="ask" style="min-height:38px;">💬 自动追问 3 问</button>'
+        + '<button type="button" data-act="force" style="min-height:38px;">仍然出指令</button>'
+        + '<button type="button" data-act="cancel" style="min-height:38px;">取消</button>'
+        + '</div></div>';
+      document.body.appendChild(mask);
+      var btns = mask.querySelectorAll('button');
+      for (var bi = 0; bi < btns.length; bi++) {
+        (function (b) {
+          b.onclick = function () {
+            var a = b.getAttribute('data-act');
+            if (mask.remove) mask.remove();
+            resolve(a === 'ask' ? 'ask' : a === 'force' ? 'force' : null);
+          };
+        })(btns[bi]);
+      }
+    });
+  }
+  window.cpDepthGateDialog = cpDepthGateDialog;
+
   window.counselHybridBrief = async function () {
     try {
       /* 降级 0：开关关闭 → 转调原逻辑（纯本地） */
@@ -2394,6 +2428,33 @@
           if (cpWriteLegacy(String(last.text || '').slice(0, CFG.briefCap))) toast('未配置 AI 且本轮没提炼出要点，已按原样写入讨论原文（未收敛）');
         }
         return;
+      }
+
+      /* v207 P4：讨论深度闸门。浅讨论直接收敛 = 关键字段靠 AI 现编 = 指令留白、深度续写注水。
+         门槛：scoped 讨论 ≥4 条 且 ≥1200 字 且已锁定结论 ≥1 条。
+         不足时给两个出口：自动追问 3 问（回讨论区继续聊）／仍然出指令（作者明示负责）。
+         回滚：控制台 CP_DEPTH_GATE=0。 */
+      if (window.CP_DEPTH_GATE !== 0) {
+        var _dgChars = 0;
+        _scLog.forEach(function (m) { _dgChars += String((m && m.text) || '').length; });
+        var _dgDecided = 0;
+        try { _dgDecided = cpDecidedList(_scLog, 99).length; } catch (eDg) {}
+        if (!(_scLog.length >= 4 && _dgChars >= 1200 && _dgDecided >= 1)) {
+          var _dgChoice = null;
+          try { _dgChoice = await cpDepthGateDialog({ turns: _scLog.length, chars: _dgChars, decided: _dgDecided }); }
+          catch (eDg2) { _dgChoice = 'force'; }   /* 弹窗本身出错不拦路 */
+          if (_dgChoice === 'ask') {
+            try {
+              var _dgIn = document.getElementById('counselInput');
+              if (_dgIn) _dgIn.value = '请向我提出 3 个本章动笔前必须定下来的关键问题（围绕：本章主轴里那件不可撤回的事／核心物理道具的异常点／核爆结尾动作与代价），逐条列出，等我逐条回答。';
+              if (typeof window.counselSend === 'function') await window.counselSend();
+            } catch (eAsk) {}
+            toast('追问已发出——回答完这几问后再来点「生成定稿指令」');
+            return;
+          }
+          if (_dgChoice !== 'force') return;   /* 取消：回讨论，不出指令 */
+          /* force：作者明示仍然出指令，继续走收敛 */
+        }
       }
 
       /* ③ DeepSeek 收敛（单次，吃讨论原文 + 采纳/否决清单 + 作品上下文） */
@@ -3554,6 +3615,26 @@
       return a;
     } catch (e) { return null; }
   };
+
+  /* v207 P5：重 roll 结构指纹。本地纯函数，零 token。
+     从上一版正文抽出四个结构特征（首句/末句/场景信号数/首场景地点），
+     供「用这条重跑」注入差异化要求——重跑最大的风险不是写得差，是写得跟上一版几乎一样。 */
+  var CP_FP_LOC = /礼堂|休息室|走廊|看台|球场|图书馆|教室|寝室|海格的小屋|医疗翼|禁林|厨房|塔楼|楼梯|猫头鹰棚屋|温室|魁地奇/;
+  function cpStructFingerprint(text) {
+    var t = String(text || '').trim();
+    if (!t) return null;
+    var headZone = t.slice(0, 120);
+    var m1 = headZone.search(/[。！？…!?]/);
+    var firstSent = (m1 >= 0 ? headZone.slice(0, m1 + 1) : headZone.slice(0, 60)).trim();
+    var tailZone = t.slice(-160);
+    var segs = tailZone.split(/[。！？…!?]/).filter(function (s) { return s.trim(); });
+    var lastSent = (segs.length ? segs[segs.length - 1].trim() : tailZone.trim()).slice(-60);
+    if (lastSent && !/[。！？…!?…]$/.test(lastSent)) lastSent += '…';
+    var scenes = (t.match(CP_AUDIT_SCENE) || []).length;
+    var locM = t.match(CP_FP_LOC);
+    return { first: firstSent, last: lastSent, scenes: scenes, firstLoc: locM ? locM[0] : '' };
+  }
+  window.cpStructFingerprint = cpStructFingerprint;
 
   /* ② 指令侧：A6 结尾写死检测 / A7 排除连带检测 / A8 条数上限 */
   function cpInstrAuditV171(text, opt){
