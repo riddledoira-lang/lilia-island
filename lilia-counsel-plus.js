@@ -3441,6 +3441,111 @@
   }
   window.cpScoreEnding = cpScoreEnding;
 
+  /* ============================================================
+   * v204 P1 · 章级体检器 cpChapterAudit(text, opt) —— 本地零 token
+   *
+   * 治「削减未执行」：v200/v201 把比喻纪律、括号吐槽上限写进了 prompt，
+   * 但 prompt 只是请求，模型不照做没有任何本地兜底。本函数把作者语料定标
+   * （diag/ch77_hand.txt 基线）落成硬性检测，返回违规清单：
+   *   simile  明喻 >4 处（像/仿佛/似的/宛如/好比/如同；剥离引语内子句、剔除 好像/像往常）
+   *   dupe    跨段 6 字重复（算法同 diag/_ch77_metrics.js，作者手写基线=0）
+   *   longpara 最长段 >90 字（作者基线 max=82）
+   *   meta    「第X章」元叙述入正文（红线，基线=0）
+   *   fewchars 出场角色 <4（白名单 opt.charNames，缺省读 load("chars")；白名单为空则跳过）
+   *   scene   场景切换信号计数（纯信息项，不进违规清单——无可靠阈值，报数不定罪）
+   * opt: { charNames:[...], simileMax:n, paraMax:n }
+   * ============================================================ */
+  var CP_AUDIT_SIMILE = /仿佛|似的|宛如|好比|如同/g;
+  var CP_AUDIT_META = /第[0-9一二三四五六七八九十百零]+章/;
+  var CP_AUDIT_SCENE = /第二天|天刚亮|清晨|一早|中午|午后|下午|傍晚|暮色|入夜|夜深|深夜|课间|下课后|礼堂|休息室|走廊|看台|球场|图书馆|教室|寝室|海格的小屋|医疗翼/g;
+
+  function cpChapterAudit(text, opt) {
+    opt = opt || {};
+    var t = String(text || '');
+    var paras = t.split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    var out = { ok: true, violations: [], stats: {}, similes: { count: 0, sentences: [] }, dupes: [], chars: { count: 0, hit: [] } };
+    if (!paras.length) { out.ok = false; out.violations.push({ code: 'empty', text: '正文为空' }); return out; }
+
+    var simileMax = Number(opt.simileMax) > 0 ? Number(opt.simileMax) : 4;
+    var paraMax = Number(opt.paraMax) > 0 ? Number(opt.paraMax) : 90;
+
+    /* ① 明喻：剥离引语（对话内比喻是角色说话，不算叙述堆砌），剔除 好像/像往常 这两个非比喻惯用 */
+    var noQuote = t.replace(/“[^”]*”/g, '');
+    var noEx = noQuote.replace(/好像/g, '').replace(/像往常/g, '');
+    var simCnt = (noEx.match(CP_AUDIT_SIMILE) || []).length + (noEx.match(/像/g) || []).length;
+    out.similes.count = simCnt;
+    if (simCnt > simileMax) {
+      var SIM_T = /仿佛|似的|宛如|好比|如同|像/;   /* 非全局：避免 /g 的 lastIndex 状态污染 */
+      var sents = noQuote.split(/[。！？…\n]/);
+      for (var si = 0; si < sents.length; si++) {
+        var s2 = sents[si].replace(/好像/g, '').replace(/像往常/g, '');
+        if (SIM_T.test(s2)) { var st = sents[si].trim(); if (st) out.similes.sentences.push(st); }
+      }
+      out.violations.push({ code: 'simile', text: '明喻 ' + simCnt + ' 处（上限 ' + simileMax + '；语料基线：作者手写第77章仅 1 处）' });
+    }
+
+    /* ② 跨段 6 字重复（与 diag/_ch77_metrics.js 的 dupNgrams 同算法） */
+    var map = {};
+    for (var pi = 0; pi < paras.length; pi++) {
+      var p = paras[pi], seen = {};
+      for (var j = 0; j + 6 <= p.length; j++) {
+        var ng = p.slice(j, j + 6);
+        if (/[，。！“”？、…—\s：；]/.test(ng)) continue;
+        if (seen[ng]) continue; seen[ng] = 1;
+        (map[ng] = map[ng] || []).push(pi);
+      }
+    }
+    var dupKeys = Object.keys(map).filter(function (k) { return map[k].length > 1; });
+    dupKeys.sort(function (a, b) { return map[b].length - map[a].length; });
+    out.dupes = dupKeys.slice(0, 8).map(function (k) { return { s: k, paras: map[k] }; });
+    if (dupKeys.length) out.violations.push({ code: 'dupe', text: '跨段 6 字重复 ' + dupKeys.length + ' 处（如「' + dupKeys[0] + '」；作者手写基线=0）' });
+
+    /* ③ 最长段 */
+    var lens = paras.map(function (p) { return p.replace(/\s/g, '').length; });
+    var maxLen = 0;
+    for (var li = 0; li < lens.length; li++) if (lens[li] > maxLen) maxLen = lens[li];
+    out.stats.maxParaLen = maxLen;
+    if (maxLen > paraMax) out.violations.push({ code: 'longpara', text: '最长段 ' + maxLen + ' 字（上限 ' + paraMax + '；作者基线最长 82）' });
+
+    /* ④ 元叙述 */
+    if (CP_AUDIT_META.test(t)) out.violations.push({ code: 'meta', text: '正文含「第X章」元叙述（红线：章节编号不得入正文）' });
+
+    /* ⑤ 出场角色（白名单为空则跳过——没配人物卡的书不定罪） */
+    var names = [];
+    if (opt.charNames && opt.charNames.length) names = opt.charNames.slice();
+    else { try { (load('chars', []) || []).forEach(function (c) { var n = String((c && c.name) || '').trim(); if (n.length >= 2) names.push(n); }); } catch (e) {} }
+    if (names.length) {
+      var hit = names.filter(function (n) { return t.indexOf(n) >= 0; });
+      out.chars = { count: hit.length, hit: hit };
+      if (hit.length < 4) out.violations.push({ code: 'fewchars', text: '出场角色仅 ' + hit.length + ' 人（' + hit.join('、') + '；下限 4 人，作者基线 13 人）' });
+    }
+
+    /* ⑥ 场景切换信号（信息项） */
+    out.stats.sceneSignals = (t.match(CP_AUDIT_SCENE) || []).length;
+    out.stats.paras = paras.length;
+    out.stats.chars = t.replace(/\s/g, '').length;
+    if (out.violations.length) out.ok = false;
+    return out;
+  }
+  window.cpChapterAudit = cpChapterAudit;
+
+  /* 体检报告格式化 + 提示（console 全文 + toast 摘要）。返回 audit 供调用方继续使用。 */
+  window.cpChapterAuditReport = function (text, num, opt) {
+    try {
+      var a = cpChapterAudit(text, opt);
+      if (!a) return null;
+      var head = '[章节体检] 第' + (num || '?') + '章 ' + a.stats.chars + ' 字 / ' + a.stats.paras + ' 段 / 明喻 ' + a.similes.count + ' 处 / 跨段重复 ' + a.dupes.length + ' 处 / 最长段 ' + a.stats.maxParaLen + ' 字 / 出场 ' + a.chars.count + ' 人 / 场景信号 ' + a.stats.sceneSignals + ' 处';
+      if (a.violations.length) {
+        var detail = a.violations.map(function (v) { return '· ' + v.text; }).join('\n');
+        console.warn(head + '\n' + detail);
+        try { toast('⚠️ 章节体检：' + a.violations.length + ' 项超标（' + a.violations.map(function (v) { return v.code; }).join('/') + '），详情见控制台'); } catch (e) {}
+      } else {
+        console.warn(head + ' ✅ 全部达标');
+      }
+      return a;
+    } catch (e) { return null; }
+  };
+
   /* ② 指令侧：A6 结尾写死检测 / A7 排除连带检测 / A8 条数上限 */
   function cpInstrAuditV171(text, opt){
     opt = opt || {};

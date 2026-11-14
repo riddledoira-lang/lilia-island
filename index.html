@@ -8206,7 +8206,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v203";
+const APP_VERSION="v204";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8227,6 +8227,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v204","P1 章级体检器落地（治「削减未执行」：prompt 里的比喻纪律只是请求，本地没有兜底）。\n· 【cpChapterAudit】本地零 token 体检（lilia-counsel-plus.js）：明喻 >4 处（剥离引语、剔除好像/像往常；作者手写第77章基线=1 处）／跨段 6 字重复（与 diag/_ch77_metrics.js 同算法，作者基线=0）／最长段 >90 字（基线 82）／「第X章」元叙述入正文／出场角色 <4（本卷人物白名单，未配人物卡则跳过）；场景切换信号只报数不定罪。\n· 【自动定向削减】深度续写精修落盘前：明喻超标时把超标句原句列出，让模型只删改这几句、其余一字不动；削减后复检，最多 2 轮；长度差 >35% 判脱轨拒收；仍超标则把超标句清单交作者（toast+控制台），不再自动烧第三轮。\n· 【三处挂载】① 深度续写精修落盘前（体检+自动削减）；② 整章精修返回后（只报告不自动改——该链路是非破坏性预览，作者握着替换闸门）；③ 体检台新增「📏 章节体检」手动按钮（报告开新窗，含重复明细与比喻句明细）。\n· 【精修失败不再静默】自动精修返回空或异常时，明示「⚠️ 精修未执行，首稿已保留」并提供「改用整章精修重试」入口（非破坏性预览）。\n· 【验收基线】diag/ch77_hand.txt（自写 2370 字）必须 0 违规；diag/ch77_v201.txt 必须报 simile/dupe/meta（实测报 4 类：明喻 18、跨段重复 8、最长段 128、元叙述）。\n回滚：恢复 .pre_v204 三个文件；体检器只读不写，CP 系列无开关依赖。"],
   ["v203","V203 P0 落地：五律全链路统一注入（终结「五律未进链路」）。\n· 【根因】STYLE_REQ_CORE 全库唯一消费点是 aiGen（接着写）；深度续写初稿、深度续写自动精修、整章精修、只重写结尾、选中润色/扩写五条正文产出链全部没拼——v201 的 CHANGELOG 写「接着写与深度续写共用」与代码不符，根因是验收只断言了常量存在、没断言消费点（教训已记入 self-improving corrections：常量类需求必须断言消费点）。\n· 【修法】新增唯一注入函数 styleCoreBlock()（含全链路指纹常量 STYLE_FP），五条链路统一改调它；aiGen 保持原有注入。参谋与定稿指令链不产正文，不在注入范围。\n· 【防回退】_test_v203.js 新增消费点断言：抽出 aiGen/aiDeepGen/aiOptimize/cpRewriteEnding/aiEdit 五个函数源码逐一断言含注入调用——以后任何一条链路漏拼，测试直接红。\n· 【刻意保留】_styleReq ③/⑨ 与 STYLE_REQ_CORE 的重叠句未删：CP_STYLE_UNIFY=0 时整块回滚到 v202 提示词，重叠句保证回滚后旧约束仍在。\n· 【未动】场景预算 ⑩（P2 增量预算）、定稿模板瘦身（P3）、章级体检器（P1）、讨论深度闸门（P4）、重roll 差异化（P5）、上下文瘦身（P6）按计划后续推进。\n回滚：恢复 .pre_v203 三个文件；或控制台 CP_STYLE_UNIFY=0 仅摘掉五律块。"],
   ["v202","V202 修「跨卷串线」三条链路 + 网络类失败自动重试（作者实测：里德尔篇的参谋讨论把詹姆斯篇内容带进来，删了詹姆斯篇记忆仍在生效；生成詹姆斯篇章节的定稿指令从里德尔篇内容里提取；混合定稿报 Failed to fetch）。\n· 【链路一·按章号跨卷匹配】参谋讨论收发用的是 m.ch===cid || m.chNum===cnum。分卷独立编号下里德尔篇第 2 章与詹姆斯篇第 2 章章号相同，于是詹姆斯篇第 2 章的讨论被当成「本章历史」喂给里德尔篇——这就是「沙菲克、初步舒畅」这类内容出现在里德尔章节的直接原因。改为：章内匹配只认章节 ID（uid 生成、全库唯一），同卷串接只认卷标签，不再按章号跨卷。\n· 【链路二·匹配不到回退全书】两处作用域函数（宿主 _cpHistForSend 与参谋 cpLogScoped）在「本章没有历史」时分别 return _counselLog.slice(-16) 与 return base——把整本书最近 16 条灌进新卷的第一轮讨论。这是「删了记忆仍生效」的主因：删的是存储，回退读的是全书。改为：匹配不到就是空，任何情况下不回退整本书。\n· 【链路三·无卷标记数据对所有卷可见】伏笔账本 cpForeshadowOpen 的旧条件是「条目有卷且不等」才排除，v198 前产生的无卷条目因此在每个卷都出现；参谋上下文的章节清单 chapterIndexBlock() 把全书每一卷的章名全灌进去。改为：无卷遗留条目只在主卷（章节表第一个有卷归属的卷）可见，别卷一律排除；参谋章节清单只给本卷完整章名，别卷仅给计数。\n· 【顺带·讨论落库加卷标签】两条 _counselLog.push 增加 vol 字段（取 _cpVolContext().vol，章节 vol 优先、下拉兜底），新消息不再依赖反查；旧消息仍按章节表反查归属。\n· 【顺带·清空入口补两级】「清空参谋记忆」此前只清当前章（v167 起按章分桶，等于只清 1/N），讨论记录从未按卷清过。现在清完本章会追问：是否清空本卷全部 N 章记忆、是否清空本卷 N 条讨论——都默认不勾。\n· 【顺带·Failed to fetch 自动重试】旧逻辑对 Failed to fetch/NetworkError/timeout 一律直接抛出（那是为 401/403 写的判定）。手机端切后台、Wi-Fi 与蜂窝切换、大请求上传中断都属瞬断，重试通常就过。现网络类失败最多试 3 次（间隔 1.2s/2.4s），鉴权/限流/余额仍不重试；重试不产生重复计费（无响应=无 token 消耗）。另：上下文超 6 万字时提示「保持页面在前台」。\n· 【未动】v167-v201 的按章分桶键（counselAdopted_ch_*）、v198 的伏笔 vol 字段与「归入本卷」、v199 的线索 owner、v201 的防八股化五律与结尾评分器全部原样保留。\n· 【测试】_test_v202.js：_cpHistForSend 沙箱（同号跨卷不串、无匹配不回退全书、旧无卷消息只在主卷）、cpLogScoped 沙箱同口径、cpForeshadowOpen 无卷条目按主卷封口、chapterIndexBlock 别卷只给计数、_callAIOnceNet 重试后成功/三次后抛出、三同步。回归 v198-v201 全绿。\n回滚：恢复 .pre_v202 三个文件即回到 v201 行为；单链回滚可用 window.CP_LOG_PERCHAP=0（恢复整本书 16 条，仅供对照）。"],
   ["v201","V201 落地「防八股化四律」——作者 2026-11-11 提出 4 条写作想法（动作优先心理跟随／对话承担信息 OS 承担态度／每场景一次括号吐槽／结尾用具体变化收），经 Word 版《詹姆斯篇 1–78 章》全量统计验证后纳入 APP。\n· 【语料定标（Word 版 78 章全量统计，ElementTree 解析 3026 段，78 章连续完整）】①心理标记（我心想/我意识到类）三期稳定 0.21–0.30/千字——心理独白在成熟文风里本就稀缺，只在停顿位出现；②括号吐槽全书仅 9 处、晚期 0 处——作者自己的基线比「每场景一次」更严；③比较式（像/仿佛/跟…似的）黄金期 2.0–2.6/千字，而晚期劣化章两极分化：第 62 章 5.58/千字（动作句几乎每句挂比喻）、第 74 章 0/千字（干瘪）——劣化的签名不是「均匀变密」而是「方差爆炸」（晚期 σ=1.41 vs 中期 σ=0.71）；④结尾总结式占比早期 34%→中期 22%→晚期 5%——作者自己的文风演化就是从总结收走向具体变化收，第 62/70/78 章全部收在具体动作上。\n· 【修法一·生成侧】STYLE_REQ_CORE 新增五律（接着写与深度续写共用）：动作优先心理跟随（心理只在停顿/等待间隙，每场景至多 1–2 句）；对话承担信息 OS 只承担态度（禁止对话后「我心想/我意识到」式复述段）；括号吐槽上限全章 1 处且须有槽点；叙述比喻带每千字 1.5–3 处（低于 1 是干瘪、高于 4 是堆砌——密度稳定比高低更重要）；结尾用具体变化收、禁总结句。\n· 【修法二·精修侧】两处声线补齐块（深度续写自动精修 + 整章精修）各加四条硬性纪律：心理落位（不新增成段心理独白、动作中的心理段改写成动作）；复述式 OS 剔除；括号吐槽上限（不新增、底本超 1 处时保留最锋利一处）；结尾具体收（不把结尾改写成总结句，底本是总结句时改写为具体变化）。\n· 【修法三·评分侧】cpScoreEnding 返回新增 paren（全章括号吐槽计数）与 summary（末 160 字总结式标记，正则 CP_END_SUMMARY）两个字段，不影响三件套得分；cpEndingReport 把两信号接到控制台与 toast（只提示不阻断，与三件套 <2 弹重写解耦）。\n· 【未动】v200 比喻纪律（4 处/章削减线）与吐槽触发条件原样保留（新增的比喻带 1.5–3/千字是生成侧引导，与精修侧削减线不冲突——精修仍只减不加）；人物卡/文风准则的用户数据措辞仍待作者侧修改（「内心吐槽丰富」→触发条件式）。\n· 【测试】_test_v201.js：五律常量断言、两处精修块四纪律断言、cpScoreEnding 沙箱实测（总结式/括号超标/干净文本三样本）、cpEndingReport 接线断言、v200 回归、三同步。\n· 【顺带修正】Word 文件内第 54–57 章区域在旧的正则提取下会显示为 XML 碎片——那是提取器 bug（w:p 边界误判），ElementTree 正规解析证实内容完好；本次提取脚本改用 ElementTree，提取产物存 diag/james_1_78.txt（2197 有效段→3026 段全量），统计产物存 diag/james_stats.json。\n回滚：恢复 .pre_v201 三个文件即回到 v200 行为。"],
@@ -13044,6 +13045,67 @@ async function cpRewriteEnding(){
     toast("结尾已重写"+(sc?("，三件套 "+sc.score+"/3"):""));
   }catch(e){ aiGenFail("重写结尾",e,""); }
 }
+/* v204 P1 · 比喻超标自动定向削减（仅 aiDeepGen 精修链路调用，仅超标才烧调用）。
+   把体检器抓到的比喻句原句列出，让模型只删改这几句、其余一字不动；
+   削减后复检，最多 2 轮；仍超标则把超标句清单交给作者（toast + 控制台），不再自动烧第三轮。 */
+async function cpAutoReduceSimiles(text, num){
+  var cur=String(text||"");
+  for(var round=1; round<=2; round++){
+    var a=null;
+    try{ a=(typeof window.cpChapterAudit==="function")?window.cpChapterAudit(cur,{}):null; }catch(e){}
+    if(!a||!a.similes||a.similes.count<=4) return {text:cur, audit:a, rounds:round-1};
+    var sents=a.similes.sentences.slice(0,12);
+    if(!sents.length) return {text:cur, audit:a, rounds:round-1};
+    var u="下面是一章小说正文。其中"+a.similes.count+"处明喻超标（上限 4 处）。\n"+
+      "【只允许删改这几句（原句照录）】\n"+sents.map(function(s,i){return (i+1)+". "+s;}).join("\n")+"\n\n"+
+      "【要求】① 上述句子中的比喻（像/仿佛/似的/宛如/好比/如同）删除或改写为不含比喻的具体动作/感官描写，优先保留最锋利的一处；② 其余所有文字一字不动，段落数量与顺序不变；③ 只输出完整正文，不要解释、不要标记。\n\n【正文】\n"+cur;
+    try{
+      var ai=load("ai",{});
+      var out=await callAI({sys:bookMemSys(), user:u, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(cur.length*1.2))), modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
+      var nt=String(out||"").trim();
+      /* 防模型借削减之名重写：长度差超 35% 视为脱轨，拒收本轮 */
+      if(!nt||Math.abs(nt.length-cur.length)>cur.length*0.35){ console.warn("[章节体检] 第"+num+"章 削减第"+round+"轮返回脱轨（长度差过大），保持原文"); break; }
+      cur=nt;
+    }catch(e){ console.warn("[章节体检] 削减第"+round+"轮失败(非致命)：",e&&e.message); break; }
+  }
+  var fin=null;
+  try{ fin=(typeof window.cpChapterAudit==="function")?window.cpChapterAudit(cur,{}):null; }catch(e){}
+  if(fin&&fin.similes.count>4){
+    try{ toast("⚠️ 明喻经 2 轮自动削减仍 "+fin.similes.count+" 处，超标句已列到控制台，可手动删改"); }catch(e){}
+    console.warn("[章节体检] 第"+num+"章 削减后仍超标句：\n"+fin.similes.sentences.map(function(s,i){return (i+1)+". "+s;}).join("\n"));
+  }
+  return {text:cur, audit:fin, rounds:2};
+}
+
+/* v204 P1 · 手动「📏 章节体检」：本地零 token，报告开新窗（与指令体检同形态）。 */
+function cpChapterCheck(){
+  try{
+    var ta=document.getElementById("chBody");
+    var t=ta?ta.value:"";
+    if(!String(t||"").trim()){ toast("正文框是空的，没有可体检的内容"); return; }
+    if(typeof window.cpChapterAudit!=="function"){ toast("章节体检模块未加载（刷新页面后重试）"); return; }
+    var nEl=document.getElementById("chNum");
+    var num=(nEl&&nEl.value)||"?";
+    /* 本卷人物白名单（体检器缺省读全部人物卡；这里优先给本卷口径） */
+    var names=[];
+    try{
+      var _v=(typeof resolveWriteVol==="function")?resolveWriteVol({toast:false}):"none";
+      var _cs=(typeof volScopedChars==="function")?volScopedChars(_v,load("chars",[])):load("chars",[]);
+      names=_cs.map(function(c){return String((c&&c.name)||"").trim();}).filter(function(n){return n.length>=2;});
+    }catch(e){}
+    var a=window.cpChapterAudit(t,{charNames:names});
+    var head="章节体检 · 本地计算，零 token\n\n第"+num+"章："+a.stats.chars+" 字 / "+a.stats.paras+" 段 / 明喻 "+a.similes.count+" 处 / 跨段6字重复 "+a.dupes.length+" 处 / 最长段 "+a.stats.maxParaLen+" 字 / 出场 "+a.chars.count+" 人（"+a.chars.hit.join("、")+"）/ 场景切换信号 "+a.stats.sceneSignals+" 处";
+    var bodyTxt=a.violations.length?("\n\n⚠️ 违规 "+a.violations.length+" 项：\n"+a.violations.map(function(v,i){return (i+1)+". "+v.text;}).join("\n")):"\n\n✅ 全部达标（对照作者手写第77章基线）。";
+    if(a.dupes.length) bodyTxt+="\n\n跨段重复明细：\n"+a.dupes.map(function(d){return "· 「"+d.s+"」出现于段 "+d.paras.join("、");}).join("\n");
+    if(a.similes.count>4) bodyTxt+="\n\n比喻句明细（供删改）：\n"+a.similes.sentences.map(function(s,i){return (i+1)+". "+s;}).join("\n");
+    var full=head+bodyTxt;
+    var w=window.open("","_blank");
+    if(!w){ alert(full); return; }
+    w.document.write('<meta name="viewport" content="width=device-width,initial-scale=1"><title>章节体检</title><pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;padding:16px;">'+esc(full)+'</pre>');
+    w.document.close();
+  }catch(e){ toast("章节体检失败："+((e&&e.message)||e)); }
+}
+
 /* v169-E：手动「🔍 指令体检」。本地计算，零 token。
    体检两类问题：① 指令文本自身的槽位缺失 / 排除自伤 / 互斥时间 / 章号越界；
    ② 与源材料（参谋讨论原文，取不到则退到上一章正文）的差集——源材料里有、
@@ -14392,18 +14454,31 @@ async function aiDeepGen(){
       _rUser+="【草稿原文】\n"+_refBody;
       const _refined=await callAI({sys:bookMemSys(), user:_rUser, ...creaParams("polish"), max_tokens:Math.min(12000,Math.max(4000,Math.ceil(_refBody.length*1.3))), modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
       if(_refined&&_refined.trim()){
+        /* v204 P1：落盘前章级体检——比喻超标自动定向削减（最多 2 轮，仅超标才烧调用），
+           其余违规（跨段重复/长段/元叙述/出场过少）出报告交作者。治「削减未执行」。 */
+        let _fin=_refined.trim();
+        try{
+          const _a0=(typeof window.cpChapterAudit==="function")?window.cpChapterAudit(_fin,{}):null;
+          if(_a0&&_a0.similes.count>4){
+            const _red=await cpAutoReduceSimiles(_fin, num);
+            if(_red&&_red.text) _fin=_red.text;
+          }
+          if(typeof window.cpChapterAuditReport==="function") window.cpChapterAuditReport(_fin, num, {});
+        }catch(e){ console.warn("[章节体检] 非致命：",e&&e.message); }
         const _ta2=document.getElementById("chBody");
         _aiBeforeResult=_ta2.value||"";
-        _ta2.value=_refined.trim();
+        _ta2.value=_fin;
         afterAiWrite(_ta2);
-        finalOut=_refined.trim();
-        showAiResult(_refined.trim(), "AI 深度续写结果（第"+num+"章 · 已自动精修）", true);
-        try{ cpEndingReport(_refined.trim(), num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
+        finalOut=_fin;
+        showAiResult(_fin, "AI 深度续写结果（第"+num+"章 · 已自动精修）", true);
+        try{ cpEndingReport(_fin, num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
         toast("✅ 第"+num+"章已生成并自动精修完成（原始首稿已存入历史版本，可回滚）");
       } else {
-        toast("首稿已生成，自动精修返回空，保留原始首稿");
+        /* v204 P1：精修失败不再静默——明示「精修未执行」并给重试入口 */
+        if(confirm("⚠️ 精修未执行，首稿已保留在正文框。\n\n点「确定」改用「整章精修」重试一次（非破坏性预览，点替换才覆盖）；点「取消」保留首稿。")){ try{ aiOptimize(); }catch(e){} }
+        else toast("已保留首稿（精修未执行）");
       }
-    }catch(e){ if(e&&e.message==="__M2_SKIPPED__"){ toast("✅ 第"+num+"章已生成（首稿即终稿）"); } else { console.warn("自动精修失败(非致命,保留首稿):",e.message); toast("首稿已生成；自动精修跳过："+e.message); } }
+    }catch(e){ if(e&&e.message==="__M2_SKIPPED__"){ toast("✅ 第"+num+"章已生成（首稿即终稿）"); } else { console.warn("自动精修失败(非致命,保留首稿):",e.message); if(confirm("⚠️ 精修未执行（"+String(e.message||"").split("\n")[0]+"），首稿已保留。\n\n点「确定」改用「整章精修」重试一次；点「取消」保留首稿。")){ try{ aiOptimize(); }catch(e2){} } else toast("已保留首稿（精修未执行）"); } }
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(finalOut, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){
@@ -14500,6 +14575,9 @@ async function aiOptimize(){
     const optMax=Math.min(12000, Math.max(4000, Math.ceil(body.length*1.3)));
     const out=await callAI({sys:bookMemSys(), user:userMsg, ...creaParams("polish"), max_tokens:optMax, modelOverride:(ai.genModel||ai.model||"deepseek-flash")});
     if(!out.trim()) throw new Error("精修返回为空");
+    /* v204 P1：整章精修返回后出体检报告（只报告不自动改——本链路是非破坏性预览，
+       作者本来就握着「替换/不替换」的闸门，无需再烧一轮削减调用） */
+    try{ if(typeof window.cpChapterAuditReport==="function") window.cpChapterAuditReport(out.trim(), num, {}); }catch(e){ console.warn("[章节体检] 非致命：",e&&e.message); }
     /* 非破坏性：先预览，用户点「替换」才覆盖原稿（原稿自动入历史版本，可回滚） */
     try{ await autoGenEmotionalArcs(out.trim()); }catch(e){ console.warn('情感线生成:', e); }
     showAiResult(out.trim(), "AI 整章精修结果（点「替换」才覆盖原稿，原稿可在「历史」版本中找回）", false);
@@ -18262,6 +18340,7 @@ window.addEventListener('load',function(){
       <button onclick="qsClose()">关闭</button>
       <button onclick="qsToBrief()" title="把体检结论写进「本章专属指令」，下次生成自动规避同样问题">写入本章指令</button>
       <button onclick="cpInstrCheck()" title="本地扫描本章专属指令：缺物证槽位 / 排除条款自相矛盾 / 互斥时间 / 章号越界，以及与参谋讨论的物证差集。零 token">🔍 指令体检</button>
+      <button onclick="cpChapterCheck()" title="本地扫描正文：明喻超标 / 跨段6字重复 / 最长段 / 元叙述 / 出场角色过少。对照作者手写第77章基线，零 token">📏 章节体检</button>
       <button onclick="cpRewriteEnding()" title="只重写正文最后几段，强制满足结尾三件套（物证结算 / 不可逆动作 / 未完成动作+时间锚）。成本约为整章重写的十分之一">✎ 只重写结尾</button>
       <button class="primary" id="qsRunBtn" onclick="qsRun()">重新扫描</button>
     </div>
