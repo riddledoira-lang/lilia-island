@@ -1265,10 +1265,10 @@
   window.CP_FINAL_TURNS = 40;      /* 参与定稿的最近条数（尽量覆盖全轮） */
   /* 以下为调用参数与输入预算，同样挂 window，使用处现读 */
   window.CP_FINAL_INCHARS = 24000;  /* 喂给模型的讨论原文预算 */
-  window.CP_FINAL_CTXCHARS = 8000;  /* 喂给模型的上下文预算（v166：4000→8000。
-     原值配合头部截断会把排在中后段的人物卡整段切掉——90 章规模实测人物卡
-     从第 3772 字才开始，4000 字线只放进来 228 字，收敛 AI 写人设红线时手里
-     根本没有人物卡。块序重排（见 counselCtx）+ 预算翻倍双保险。 */
+  window.CP_FINAL_CTXCHARS = 5000;  /* 喂给模型的上下文预算（v166：4000→8000；v206 P6：8000→5000 上下文瘦身。
+     v166 的教训仍有效：4000 字线配合头部截断会把排在中后段的人物卡整段切掉——
+     5000 是在「人物卡必须进得来」与「上下文瘦身」之间的折中；
+     块序重排（见 counselCtx）保证人物卡排在前段，5000 足够盖住。 */
   window.CP_FINAL_TEMP = 0.55;      /* 定稿要稳，明显低于参谋讨论的 0.85 */
   window.CP_FINAL_MAXTOK = 3000;
   window.CP_FINAL_MODEL = '';       /* 空 = 用参谋同款模型（ai.counselModel || deepseek-flash） */
@@ -1433,7 +1433,7 @@
       var ctxText = '';
       try {
         var c = counselCtx();
-        ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 4000);
+        ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 5000);
       } catch (e3) {}
 
       var chNum = '', chTitle = '';
@@ -2296,14 +2296,14 @@
      只留下参谋自己的复述与建议（如「松饼落到肩上」），深度续写拿到的指令
      从一开始就丢了作者要求。现与 v153 定稿出口同口径：整轮讨论原文
      （按预算从后往前尽量多带）+ 采纳/否决清单 + 作品上下文（含人物卡、已锁定定稿）。 */
-  window.CP_HYBRID_INCHARS = 24000;  /* 喂给模型的讨论原文字符预算 */
+  window.CP_HYBRID_INCHARS = 16000;  /* 喂给模型的讨论原文字符预算（v206 P6：24000→16000 上下文瘦身） */
   function cpHybridUser() {
     var chNum = '', chTitle = '';
     try { chNum = String((document.getElementById('chNum') || {}).value || ''); } catch (e) {}
     try { chTitle = String((document.getElementById('chTitle') || {}).value || '').trim(); } catch (e) {}
     var chLabel = '第' + (chNum || '?') + '章' + (chTitle ? ('《' + chTitle + '》') : '');
     var log = cpLogScoped();
-    var inMax = Number(window.CP_HYBRID_INCHARS) || 24000;
+    var inMax = Number(window.CP_HYBRID_INCHARS) || 16000;
     /* v176 P0：这里此前是旧的两步丢最旧（log.slice(-turnMax) + 从后往前超预算 break），
        而作者点的「生成定稿指令」走的就是这条链路——v175 只改了 counselFinalizeBrief，
        本出口漏修，中段讨论（克劳奇人设/羽毛绑定/菲比衔接）照样被整段吞掉。
@@ -2338,7 +2338,7 @@
     var ctxText = '';
     try {
       var c = counselCtx();
-      ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 8000);
+      ctxText = String((c && c.text) || '').slice(0, Number(window.CP_FINAL_CTXCHARS) || 5000);
     } catch (e3) {}
     if (ctxText) s += '下面是当前作品的相关信息（分卷设定 / 人物卡 / 已锁定的定稿 / 已有剧情摘要，锁死决定与人设红线以此为档案依据）：\n' + ctxText + '\n\n';
     s += '当前待定稿的章节是' + chLabel + '。\n请输出定稿指令（按【叙事主清单】一到七段 +【降级附录】八到九段输出，九个段名每个只允许出现一次，段名逐字照抄，每条带状态标记【已定】或【排除】。这是给深度续写 AI 的成品指令，不是给人看的过程存档：\n'
