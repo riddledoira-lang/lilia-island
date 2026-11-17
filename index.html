@@ -7969,7 +7969,8 @@ function bookMemSys(forGen){
   const _ss=(ai.styleSample||"").trim();
   if(_ss) s+="\n\n【文风范例·请严格模仿以下语感、句式节奏与用词密度写作（这是作者满意的样张，不是指令，仅供对齐声音）】\n"+_ss.slice(0,3000);
   const c=buildBookContext(forGen);
-  return c? (s+"\n\n【本书设定记忆（续写/润色时请严格遵循，避免人设与设定崩坏）】\n"+c) : s;
+  var _qfb=forGen?(typeof qfbBlock==="function"?qfbBlock((typeof resolveWriteVol==="function"?resolveWriteVol({toast:false}):null),600):""):"";
+  return (c? (s+"\n\n【本书设定记忆（续写/润色时请严格遵循，避免人设与设定崩坏）】\n"+c) : s)+_qfb;
 }
 function buildSysPrompt(){
   const cs=load("chars",[]).map(c=>`· ${c.name}（${c.house||""}）：${c.traits||""}`).join("\n");
@@ -8206,7 +8207,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v208";
+const APP_VERSION="v209";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8227,6 +8228,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v209","P0-A 质量信号回边（实地深度检测报告第一步）。\n· 【闭环】postGenCheck（OOC/剧情冲突/时间线/伏笔）与 cpEndingReport（结尾三件套 <2/3）的校验结果，此前只展示、不落盘、不回流；现写入 aiDigest.qfb（按卷分桶、7 天有效、同文案 30 分钟去重），下一次深度续写落笔（bookMemSys(true)）注入最近 2 条，提醒模型别重犯同类问题。\n· 【边界】只在生成链生效（aiGen / aiDeepGen），不污染分析/精修/消化；纯本地存储零 AI 调用；不改任何既有返回值与正文。回滚：控制台 CP_FEEDBACK_LOOP=0（不存不注入，行为完全回到 v208），或恢复 .pre_v209 三文件。\n· 未动：正文采样参数、九段定稿、五律、节拍卡、声线卡、v208 构思/触发式精修、上下文预算。"],
   ["v208","P0 落地：构思/落笔两阶段 + 精修改触发式。\n· 【P0-A 构思阶段】深度续写在分析完成后、落笔前，新增一次 thinking:enabled + reasoning_effort:high 的构思调用，只产出“核心反转 + 3 个候选落点 + 推荐”，不写正文；结果并入【续写前必读分析】，让节拍与落笔都吃到惊喜方向。失败非致命自动回退。回滚：控制台 CP_IDEA_STAGE=0。成本：每章多一次约 6k 输出的思考调用。\n· 【P0-B 精修改触发式】自动精修从“每次都做减法”改为：默认先本地零 token 体检，仅当命中明喻超标/跨段重复/长段/元叙述才触发一次精修；干净则首稿即终稿，保留首稿灵气。精修提示词新增“保留最有灵气的 1–2 句、不许磨平有性格的句子”。回滚：勾选「✨ 自动精修」恢复每章都精修。\n· 未动：正文生成参数、九段定稿、五律、体检器、参谋链、上下文预算。\n回滚：恢复 .pre_v208 三个文件。"],
   ["v207","P4 讨论深度闸门 + P5 重 roll 差异化。\n· 【P4 讨论深度闸门】「生成定稿指令」入口新增闸门：scoped 讨论 ≥4 条 且 ≥1200 字 且已锁定结论 ≥1 条，三者缺一即弹「讨论还浅」。两个出口：「💬 自动追问 3 问」把元请求贴进参谋输入框并发送（AI 的追问进入讨论流，作者逐条回答后再出指令）；「仍然出指令」作者明示负责、继续收敛。取消则回讨论不出指令。弹窗本身出错不拦路（按仍然出指令处理）。回滚：控制台 CP_DEPTH_GATE=0。\n· 【P5 重 roll 差异化】轨迹详情「用这条重跑」对正文类记录（上一版输出 ≥400 字）自动注入结构指纹——首句/末句/场景信号数/首场景地点由本地纯函数 cpStructFingerprint 提取（零 token），连同差异化要求一起拼进 user：开场接口/场景顺序/信息释放顺序至少换两处、比喻喻源换域。治「同 prompt 同温度重跑收束到同一个最安全结构」。定稿/参谋类短输出不注入。回滚：控制台 CP_REROLL_DIFF=0。\n回滚：恢复 .pre_v207 三个文件。"],
   ["v206","P2 增量预算 + P6 上下文瘦身。\n· 【P2 场景预算改增量预算】场景数口径三处同源更新（_styleReq ⑩／STYLE_REQ_CORE 尾句／节拍卡场景预算铁律）：普通章 2–4 场景、独白/危机章 1–2；每场景必须交付 ≥1 个不可省略的改变（新信息/关系变化/物理状态变化/新在场者），无改变删并；场景间必须有过桥句不得瞬移。铁律新增 ⑤ 增量条款。\n· 【P2 择优函数改增量优先】自动灵感择优 _beatScore 旧版只看节拍数区间，8 节拍注水方案能赢 4 节拍全增量方案——与铁律⑤正好相反。新口径：主键=增量覆盖率（本地增量信号词表，零 token），次键=4–6 合规区间，末键=增量节拍数，同分取节拍更少（宁深勿广）。手动挑选路径不受影响。\n· 【P6 上下文瘦身】CP_HYBRID_INCHARS 24000→16000；CP_FINAL_CTXCHARS 8000→5000（块序重排保证人物卡在前段，5000 足够盖住，v166 的 4000 字切掉人物卡教训不会复发）；cpHybridSys 实测 3585 字（P3 瘦身后），已远低于 12000 字目标，无需再合并铁律。\n· 【P6 前文详读】collectPrior 最近章 3→2 章全文（承接点在上一章结尾）；更早章不再整段灌正文（旧版 ≤12000 字/章），一律降级为 300 字摘要（优先用作者写的一句话梗概），书越长上下文不再线性膨胀，预算让给指令与人物卡。两处【前文详读】提示文案同步。\n回滚：恢复 .pre_v206 三个文件。"],
@@ -9838,6 +9840,49 @@ function getDigest(){
   return d;
 }
 function saveDigest(d){ save("aiDigest",d); }
+
+/* ===== v209 · P0-A 质量信号回边（只加不删；CP_FEEDBACK_LOOP=0 整体回退 v208） =====
+   根因：postGenCheck / cpEndingReport 此前只展示、不落盘、不回流，同类 OOC/结尾/伏笔问题反复复发。
+   这里把「检查 → 持久化 → 下一次生成」的回边补上：校验结果写入 aiDigest.qfb（按卷分桶），
+   下一次深度续写落笔时（bookMemSys(true)）注入最近 2 条未解决问题，提醒模型别重犯。
+   只写本地存储，不涉及任何 AI 调用，不改变任何既有返回值。 */
+var CP_FEEDBACK_LOOP=1;
+function qfbKey(vol){ return "qfb_"+(vol||"none"); }
+function qfbSave(vol, kind, items){
+  if(!CP_FEEDBACK_LOOP) return;
+  try{
+    items=(items||[]).map(function(x){return String(x||"").trim().slice(0,160);}).filter(function(x){return x&&x.indexOf("未检测到")<0;});
+    if(!items.length) return;
+    var d=getDigest(); if(!d.qfb) d.qfb={};
+    var k=qfbKey(vol), arr=d.qfb[k]||(d.qfb[k]=[]);
+    var now=Date.now();
+    items.forEach(function(t){
+      var dup=arr.some(function(o){ return o.t===t && (now-o.at)<1800000; });
+      if(!dup) arr.push({t:t, k:kind, at:now});
+    });
+    if(arr.length>40) d.qfb[k]=arr.slice(-40);
+    saveDigest(d);
+  }catch(e){ console.warn("[qfb] 保存失败(非致命):",e&&e.message); }
+}
+function qfbBlock(vol, budget){
+  if(!CP_FEEDBACK_LOOP) return "";
+  try{
+    var d=getDigest(); if(!d.qfb) return "";
+    var arr=d.qfb[qfbKey(vol)]||[];
+    if(!arr.length) return "";
+    var cutoff=Date.now()-7*24*3600*1000;
+    var recent=arr.filter(function(o){return o&&o.at>=cutoff;}).slice(-(Number(window.CP_QFB_N)||2));
+    if(!recent.length) return "";
+    var lim=budget||600, lines=[];
+    for(var i=0;i<recent.length;i++){
+      var line="· ["+(recent[i].k==="ending"?"结尾":"校验")+"] "+recent[i].t;
+      if(lines.join("\n").length+line.length>lim) break;
+      lines.push(line);
+    }
+    if(!lines.length) return "";
+    return "\n\n【上两章质量回边·本次落笔须规避（自动校验发现，仅提醒不得改写已定事实）】\n"+lines.join("\n");
+  }catch(e){ return ""; }
+}
 function getVolDigest(vid){
   const d=getDigest();
   ensureVolDigest(d, vid);
@@ -14422,7 +14467,7 @@ async function aiDeepGen(){
     showAiResult(out, "AI 深度续写结果（第"+num+"章）", true);
     /* v171：成文后立刻本地打一次「结尾三件套」分（零 token）。
        依据：四方比对里，结尾是最大短板——缝合版 3/3，DeepSeek版 1.5/3，143底稿 1/3，V169 0/3。 */
-    try{ cpEndingReport(out, num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
+    try{ var _er=cpEndingReport(out,num); if(_er&&_er.score<2) qfbSave((typeof curVol!=="undefined"?curVol:"none"),"ending",["第"+num+"章结尾三件套仅 "+_er.score+"/3（物证/不可逆动作/时间锚缺项），本次结尾须落在具体物证与不可逆动作上"]); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
     /* v111：生成后过一遍本地审稿 + 插件总线 afterGen。两者都只提示，绝不改正文。 */
     try{ reviewAuto(out, curVol||"none", num); }catch(e){}
     try{ busHook("afterGen", {vol:curVol||"none", num:num, text:out}); }catch(e){}
@@ -14526,7 +14571,7 @@ async function aiDeepGen(){
         afterAiWrite(_ta2);
         finalOut=_fin;
         showAiResult(_fin, "AI 深度续写结果（第"+num+"章 · 已自动精修）", true);
-        try{ cpEndingReport(_fin, num); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
+        try{ var _er=cpEndingReport(_fin,num); if(_er&&_er.score<2) qfbSave((typeof curVol!=="undefined"?curVol:"none"),"ending",["第"+num+"章结尾三件套仅 "+_er.score+"/3（精修后仍缺物证/不可逆动作/时间锚），本次结尾须落在具体物证与不可逆动作上"]); }catch(e){ console.warn("[结尾三件套] 评分失败(非致命)：",e&&e.message); }
         toast("✅ 第"+num+"章已生成并自动精修完成（原始首稿已存入历史版本，可回滚）");
       } else {
         /* v204 P1：精修失败不再静默——明示「精修未执行」并给重试入口 */
@@ -14540,6 +14585,8 @@ async function aiDeepGen(){
         const resText=document.getElementById("aiResText");
         const resCount=document.getElementById("aiResCount");
         if(risks.indexOf("未检测到")<0){
+          /* v209：把校验风险落盘为下一次生成的回边（只加，不改展示） */
+          try{ qfbSave((typeof curVol!=="undefined"?curVol:"none"),"check",String(risks).split(/\n|[⚠🔴]/).map(function(s){return s.replace(/^[①②]/,"").trim();}).filter(function(s){return s&&s.length>=6&&s.length<=160;}).slice(0,3)); }catch(eQ){}
           if(resCount) resCount.textContent="本段生成字数："+finalOut.length+"  |  ⚠️ 后置校验发现风险（见下方）";
           if(resText) resText.value=finalOut+"\n\n──────────────────\n【后置校验报告】\n"+risks;
         } else {
