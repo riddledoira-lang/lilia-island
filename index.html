@@ -1611,7 +1611,7 @@
             <label><input type="radio" name="deepWriteMode" value="all">续写全书完整剧情</label>
             <label title="默认复用上次深度分析结果（含人物关系/情感线），更快更省；勾选后强制重新分析"><input type="checkbox" id="deepReAnalyze"> 重新分析</label>
             <label title="双智能体模式：开启后写作Agent剥离其它上下文，仅依据节拍卡（灵感推演方案/即时3套骨架）推进，强制约束不跑偏"><input type="checkbox" id="writeFromBeatOnly"> 🧠 写作仅依据节拍卡</label>
-            <label title="生成后自动跑一次整章精修（做减法）。关闭则首稿即终稿，每章少一次约 2.3 万字输入 + 4k 输出的调用，约省 35% 费用；需要打磨时再手动点「整章精修」"><input type="checkbox" id="m2AutoPolish" checked> ✨ 自动精修</label>
+            <label title="v208：默认关闭。开启=每次生成都自动再跑一次整章精修（做减法），可能删掉首稿最鲜活的句子；默认（不勾）=先本地体检，仅发现明显问题时才精修一次，更利于保留灵气"><input type="checkbox" id="m2AutoPolish"> ✨ 自动精修</label>
             <label title="v106：没有挂载灵感方案且距上次自动推演已过 10 章时，深度续写自动生成 3 套节拍骨架并择优采用（不弹窗、不打断）。想自己挑方案就关掉它，改走「🎲 一键灵感推演」或即时 3 套骨架交互"><input type="checkbox" id="inspireAuto"> 🎲 自动灵感（每 10 章）</label>
           </div>
           <div class="dg-mode-sel" style="margin-top:6px;">
@@ -8206,7 +8206,7 @@ function digestFromCtx(btn){
 }
 
 /* ===== v85 数据与工具 ===== */
-const APP_VERSION="v207";
+const APP_VERSION="v208";
 /* v170 · 定向回滚开关：剧情参谋恢复至 V143 状态。
    1 = 参谋走 V143 行为（对话窗口 8 条 / 系统提示词只保留 V143 的 7 条铁律 / 指令出口回到
         counselToBrief「取最后一条 AI 回复前 1200 字」/ 取消章节作用域隔离与自动采纳）；
@@ -8227,6 +8227,7 @@ const IMPORT_QUICK_LINKS=[
   {t:"西里斯篇 消化档案 14 章", u:"https://riddledoira-lang.github.io/lilia-island/import/sirius14_digest.json", k:"digest"}
 ];
 const APP_CHANGELOG=[
+  ["v208","P0 落地：构思/落笔两阶段 + 精修改触发式。\n· 【P0-A 构思阶段】深度续写在分析完成后、落笔前，新增一次 thinking:enabled + reasoning_effort:high 的构思调用，只产出“核心反转 + 3 个候选落点 + 推荐”，不写正文；结果并入【续写前必读分析】，让节拍与落笔都吃到惊喜方向。失败非致命自动回退。回滚：控制台 CP_IDEA_STAGE=0。成本：每章多一次约 6k 输出的思考调用。\n· 【P0-B 精修改触发式】自动精修从“每次都做减法”改为：默认先本地零 token 体检，仅当命中明喻超标/跨段重复/长段/元叙述才触发一次精修；干净则首稿即终稿，保留首稿灵气。精修提示词新增“保留最有灵气的 1–2 句、不许磨平有性格的句子”。回滚：勾选「✨ 自动精修」恢复每章都精修。\n· 未动：正文生成参数、九段定稿、五律、体检器、参谋链、上下文预算。\n回滚：恢复 .pre_v208 三个文件。"],
   ["v207","P4 讨论深度闸门 + P5 重 roll 差异化。\n· 【P4 讨论深度闸门】「生成定稿指令」入口新增闸门：scoped 讨论 ≥4 条 且 ≥1200 字 且已锁定结论 ≥1 条，三者缺一即弹「讨论还浅」。两个出口：「💬 自动追问 3 问」把元请求贴进参谋输入框并发送（AI 的追问进入讨论流，作者逐条回答后再出指令）；「仍然出指令」作者明示负责、继续收敛。取消则回讨论不出指令。弹窗本身出错不拦路（按仍然出指令处理）。回滚：控制台 CP_DEPTH_GATE=0。\n· 【P5 重 roll 差异化】轨迹详情「用这条重跑」对正文类记录（上一版输出 ≥400 字）自动注入结构指纹——首句/末句/场景信号数/首场景地点由本地纯函数 cpStructFingerprint 提取（零 token），连同差异化要求一起拼进 user：开场接口/场景顺序/信息释放顺序至少换两处、比喻喻源换域。治「同 prompt 同温度重跑收束到同一个最安全结构」。定稿/参谋类短输出不注入。回滚：控制台 CP_REROLL_DIFF=0。\n回滚：恢复 .pre_v207 三个文件。"],
   ["v206","P2 增量预算 + P6 上下文瘦身。\n· 【P2 场景预算改增量预算】场景数口径三处同源更新（_styleReq ⑩／STYLE_REQ_CORE 尾句／节拍卡场景预算铁律）：普通章 2–4 场景、独白/危机章 1–2；每场景必须交付 ≥1 个不可省略的改变（新信息/关系变化/物理状态变化/新在场者），无改变删并；场景间必须有过桥句不得瞬移。铁律新增 ⑤ 增量条款。\n· 【P2 择优函数改增量优先】自动灵感择优 _beatScore 旧版只看节拍数区间，8 节拍注水方案能赢 4 节拍全增量方案——与铁律⑤正好相反。新口径：主键=增量覆盖率（本地增量信号词表，零 token），次键=4–6 合规区间，末键=增量节拍数，同分取节拍更少（宁深勿广）。手动挑选路径不受影响。\n· 【P6 上下文瘦身】CP_HYBRID_INCHARS 24000→16000；CP_FINAL_CTXCHARS 8000→5000（块序重排保证人物卡在前段，5000 足够盖住，v166 的 4000 字切掉人物卡教训不会复发）；cpHybridSys 实测 3585 字（P3 瘦身后），已远低于 12000 字目标，无需再合并铁律。\n· 【P6 前文详读】collectPrior 最近章 3→2 章全文（承接点在上一章结尾）；更早章不再整段灌正文（旧版 ≤12000 字/章），一律降级为 300 字摘要（优先用作者写的一句话梗概），书越长上下文不再线性膨胀，预算让给指令与人物卡。两处【前文详读】提示文案同步。\n回滚：恢复 .pre_v206 三个文件。"],
   ["v205","P3 定稿模板瘦身：十一段 → 九段，把「模型每轮必读的最强约束位」从重复段名里解放出来。\n· 【段结构】「四、视线牵引链（推理三段论）」并入「一、本章主轴（含视线牵引链）」；「十一、微表情替换表」并入「五、角色行动红线（含微表情替换）」。新九段：一主轴(含视线牵引链)/二核心物理道具/三开场接口/四核爆结尾动作/五角色行动红线(含微表情替换)/六生理与感官锚点/七节拍 + 附录八排除项/九开放区。\n· 【铁律同步】⑤⑨⑪⑬⑭⑯⑰⑲㉑㉓㉕㉖㉗ 全部改指新段号；⑪ 道具纪律收紧为「核心 1 件、辅助 ≤2 件、只写最反常那一项、必须绑定改变状态的动作、禁食物类主道具」；⑬ 明确伏笔/时间线进「七、节拍」、人设进「五、角色行动红线」、生理锚点全章只写 1 处且含触发条件；⑲ 关键字段留白禁令从五项收窄为四项（视线牵引链不再是独立必检段）。\n· 【解析兼容】字段码 N1-N8/X1-X2 不变；旧十一段指令仍能正确落桶——「视线牵引链/推理三段论」入 N4 桶（渲染时并入主轴段，段头按名称去重不再重复冒出），「微表情替换表」入 N6；缺口硬阻断从 N1-N5 五项收窄为 N1/N2/N3/N5 四项，不再对 N4 误报。\n· 【消费点同步】counselHybridBrief 内联拼装、cpNarrativeReorder、cpNarrativeSpec、审计 A16/A18 文案、深度续写 _fn 前置清单六处全部对齐新段名。\n回滚：恢复 .pre_v205 三个文件。"],
@@ -9244,14 +9245,14 @@ function trajSave(a){
 }
 function trajClear(){ try{ rawSave("aiTraj",[]); }catch(e){} }
 /* 包装层：只负责记录，真正干活的是 _callAIOnceRaw */
-async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
-  if(!trajOn()) return await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink);
+async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink, thinkOverride){
+  if(!trajOn()) return await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink,thinkOverride);
   const _t0=Date.now();
   const _sys=String((messages[0]&&messages[0].content)||"");
   const _user=String((messages[messages.length-1]&&messages[messages.length-1].content)||"");
   const _ai0=load("ai",{});
   const _rm=modelOverride || (onToken ? (_ai0.genModel||_ai0.model||"deepseek-flash") : (_ai0.model||"deepseek-flash"));
-  let _tm=_ai0.thinkMode;
+  let _tm=(thinkOverride==="enabled"||thinkOverride==="disabled"||thinkOverride==="omit")?thinkOverride:_ai0.thinkMode;
   if(_tm!=="disabled"&&_tm!=="enabled"&&_tm!=="omit"){
     const _hay=((_ai0.base||"")+" "+(_ai0.model||"")+" "+(_ai0.genModel||"")).toLowerCase();
     _tm=/deepseek/.test(_hay)?"disabled":"omit";
@@ -9260,7 +9261,7 @@ async function _callAIOnce(messages, temperature, max_tokens, onToken, modelOver
   const _full=trajFullOn();
   let _r=null,_e=null;
   try{
-    _r=await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink);
+    _r=await _callAIOnceRaw(messages,temperature,max_tokens,onToken,modelOverride,timeout,_noCache,extra,_noThink,thinkOverride);
     return _r;
   }catch(err){ _e=String((err&&err.message)||err); throw err; }
   finally{
@@ -9335,7 +9336,7 @@ function _aiBodyDeadline(p, ms, ctrl, onFire){
            function(e){ if(settled) return; settled=true; clearTimeout(t); rej(e); });
   });
 }
-async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink){
+async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, _noThink, thinkOverride){
   const ai=load("ai",{});
   const url=ai.base.replace(/\/+$/,'')+"/chat/completions";
   /* 生成调用(onToken)走「续写模型」(默认 deepseek-flash，快)；消化/分析等无 onToken 走 ai.model(可 v4-pro)；modelOverride 优先 */
@@ -9365,13 +9366,13 @@ async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelO
      V4 系（含 Flash）默认 enabled，此时 temperature 会被静默忽略，必须显式 disabled 才生效。
      未显式设置时按厂商自动判断：DeepSeek 默认帮用户关掉，其它厂商默认不发（避免 400）。 */
   if(!_noThink){
-    let tm=ai.thinkMode;
+    let tm=(thinkOverride==="enabled"||thinkOverride==="disabled"||thinkOverride==="omit")?thinkOverride:ai.thinkMode;
     if(tm!=="disabled" && tm!=="enabled" && tm!=="omit"){
       const hay=((ai.base||"")+" "+(ai.model||"")+" "+(ai.genModel||"")).toLowerCase();
       tm = /deepseek/.test(hay) ? "disabled" : "omit";
     }
     if(tm==="disabled") body.thinking={type:"disabled"};
-    else if(tm==="enabled") body.thinking={type:"enabled"};
+    else if(tm==="enabled"){ body.thinking={type:"enabled"}; if(thinkOverride==="enabled" && body.thinking) body.reasoning_effort="high"; }
   }
   const ms = timeout || (onToken?180000:120000);
   const ctrl=new AbortController();
@@ -9392,17 +9393,17 @@ async function _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelO
     /* v73：HTTP 400 且本次带了 cache_control → 多半是该接口不支持前缀缓存，自动去标重试一次（文字不变，仅丢失折扣，质量零影响） */
     if(resp.status===400 && !_noCache){
       console.warn("[callAI] 接口返回 400，疑似不支持 cache_control，自动去除后重试一次");
-      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra, _noThink);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, true, extra, _noThink, thinkOverride);
     }
     /* v81：仍是 400 且带了采样参数 → 该接口不认 top_p/penalty，去参重试一次（温度与文字不变，仅放弃采样微调） */
     if(resp.status===400 && extra){
       console.warn("[callAI] 接口返回 400，疑似不支持 top_p/penalty 采样参数，自动去除后重试一次");
-      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null, _noThink);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, null, _noThink, thinkOverride);
     }
     /* v120：400 且本次下发了 thinking → 该接口不认这个字段，去掉后重试一次（文字不变） */
     if(resp.status===400 && body.thinking && !_noThink){
       console.warn("[callAI] 接口返回 400，疑似不支持 thinking 参数，自动去除后重试一次");
-      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, true);
+      return await _callAIOnceRaw(messages, temperature, max_tokens, onToken, modelOverride, timeout, _noCache, extra, true, thinkOverride);
     }
     throw new Error("HTTP "+resp.status+" "+t.slice(0,300));
   }
@@ -9525,10 +9526,10 @@ function _aiBusyDown(){
     try{ window.dispatchEvent(new Event("aiIdle")); }catch(e){}
   }
 }
-async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
+async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty,thinkOverride}){
   _aiBusyUp(onToken?"正文生成/续写":"分析/规划");
   try{
-    return await _callAIInner({sys:sys,user:user,temperature:temperature,max_tokens:max_tokens,onToken:onToken,modelOverride:modelOverride,top_p:top_p,presence_penalty:presence_penalty,frequency_penalty:frequency_penalty});
+    return await _callAIInner({sys:sys,user:user,temperature:temperature,max_tokens:max_tokens,onToken:onToken,modelOverride:modelOverride,top_p:top_p,presence_penalty:presence_penalty,frequency_penalty:frequency_penalty,thinkOverride:thinkOverride});
   } finally { _aiBusyDown(); }
 }
 /* v202 · 网络类失败自动重试。
@@ -9538,10 +9539,10 @@ async function callAI({sys,user,temperature,max_tokens,onToken,modelOverride,top
    但那条判定是为 401/403 写的：手机端切后台、Wi-Fi 与蜂窝切换、大请求上传中断
    都属于「同一次请求瞬断」，重试一次通常就过。现改为：网络类失败最多试 3 次（间隔 1.2s/2.4s），
    鉴权/限流/余额仍不重试；重试不产生重复计费（没有响应=没有 token 消耗）。 */
-async function _callAIOnceNet(messages, temperature, max_tokens, onToken, modelOverride, extra, tries){
+async function _callAIOnceNet(messages, temperature, max_tokens, onToken, modelOverride, extra, tries, thinkOverride){
   const max=tries||3; let last=null;
   for(let k=0;k<max;k++){
-    try{ return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, undefined, undefined, extra); }
+    try{ return await _callAIOnce(messages, temperature, max_tokens, onToken, modelOverride, undefined, undefined, extra, undefined, thinkOverride); }
     catch(e){
       last=e; const msg=String((e&&e.message)||"");
       const net=/Failed to fetch|NetworkError|net::|ERR_|Load failed|超时|timeout|abort/i.test(msg);
@@ -9553,7 +9554,7 @@ async function _callAIOnceNet(messages, temperature, max_tokens, onToken, modelO
   }
   throw last;
 }
-async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty}){
+async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverride,top_p,presence_penalty,frequency_penalty,thinkOverride}){
   const ai=load("ai",{});
   /* v99：统一守卫。此前只有 aiGen / 体检台自己判空，其余十余个调用点在未配置 AI 时会
      去请求一个空地址，报「网络异常，无法连接 AI 接口」——用户看不出是没配置还是坏了。
@@ -9589,7 +9590,7 @@ async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverri
     const m=cands[ci];
     let r;
     try{
-      r=await _callAIOnceNet(messages, temperature, mt, onToken, m, extra);
+      r=await _callAIOnceNet(messages, temperature, mt, onToken, m, extra, undefined, thinkOverride);
     }catch(e){
       lastErr=e;
       const msg=String((e&&e.message)||"");
@@ -9607,7 +9608,7 @@ async function _callAIInner({sys,user,temperature,max_tokens,onToken,modelOverri
       /* 注意：用累计输出作为 assistant 回卷，让模型接着最后的位置继续 */
       const contMsgs=messages.concat([{role:"assistant",content:out},{role:"user",content:"（系统指令）上次输出因长度限制被截断。请从上次中断的位置继续输出剩余内容，不要重复任何已输出文字，不要添加任何解释或标记。"}]);
       try{
-        r=await _callAIOnceNet(contMsgs, temperature, mt, onToken, m, extra);
+        r=await _callAIOnceNet(contMsgs, temperature, mt, onToken, m, extra, undefined, thinkOverride);
         /* v178：续写去重。模型重写整份而非接续时，丢弃该片段并停止续写，
            保住第一份完整内容，而不是把多份拼成一份（见 cpIsRestartChunk 上方注释）。 */
         if(cpIsRestartChunk(out, r.content)){
@@ -12704,6 +12705,7 @@ const STYLE_REQ_MONOLOGUE="禁止大段内心独白与内心哀悼：情绪必�
    「右手一道烈火灼伤的新疤」「一瓶带血的热药」「拧开瓶盖一口喝干」。
    以下三条同时注入「接着写」与「深度续写」，保证两条链路的画面强度一致。 */
 window.CP_VISCERAL_ON=1;   /* 1=注入日常封杀/微表情替换/物证强绑定三条；0=回到 v176 行为 */
+window.CP_IDEA_STAGE=1;   /* v208 P0-A：构思阶段开关，1=开启；0=回到 v207 无构思路径 */
 const STYLE_REQ_V177="⑬ 【日常动作封杀】除非该动作有明确的道具指向主线（带血的药、手链、羽毛、请柬），否则本章不得出现生活化动作：进食与食物（零嘴、点心、饮品）、查图书、借还书、磨牙、厨房系念头、整理书包、随口寒暄。AI 用日常互动逃避高强度剧情，是注水填充的第一大来源——实测：指令把某个日常动作写成「落笔时二选一」，正文就真的收在那个动作上，结尾三件套 0/3。这类词的用途只是让你判断某条内容是否属于注水，不得以任何形式写进正文（含举例、比喻、玩笑、让读者放松的过渡段）。"
   +"⑭ 【微表情强制替换】严禁直接使用情绪词（心虚/难过/紧张/不安/心疼）。隐瞒→拨弄小拇指／把东西往回收半寸／用鼻子蹭耳廓；危机→咬腮帮内侧／指甲掐掌心／手链发烫；忍耐→把话咽回去／用一个具体动作转移（收拾手边的东西／转身调整呼吸），仅当当下情境有明确槽点时才可转而吐槽该槽点（不得吐槽无关事务，不得为吐槽制造槽点）。"
   +"⑮ 【物证强绑定 + 视线牵引】核心道具必须写全四要素：颜色、气味、触感（冷/烫）、异常点（不属于它的东西／它不该出现的场合）。角色的推理必须写成视线扫过物证的过程（视线从 A 物证 → 扫到 B 细节 → 想起 C 事实 → 拼出 D 结论），严禁写成「她心想／她意识到／她推理出」这类脑内剧场——推理发生在眼球扫过物证的过程里，不发生在脑子里。";
@@ -14231,6 +14233,24 @@ async function aiDeepGen(){
       saveDigest(dCache);
     }
     btn.textContent="规划节拍…";
+    /* v208 P0-A：构思/落笔两阶段。用一次 thinking:enabled 的调用专门产出“意外但必然”的构思，仅出方向不出正文，注入阶段二 prompt。治 _styleReq ⑪“要惊喜又不得偏离已定结构”的死结。回滚：window.CP_IDEA_STAGE=0；失败非致命自动回退。 */
+    let ideaBlock="";
+    if(window.CP_IDEA_STAGE!==0 && ai.base){
+      try{
+        btn.textContent="构思中…";
+        const _ideaSys="你是资深小说策划，只负责“意外但必然”的情节构思，绝不写正文。你的产出要让读者第一眼猜不到、回头看却觉得早有伏笔。";
+        const _ideaUser="【本卷已定设定】\n"+volSecBlock+"\n【续写前分析（人物/关系/伏笔）】\n"+analysis.slice(0,4000)
+          +(brief?("\n\n【本章已定指令（构思须在此框架内制造惊喜，不得改动已定的开头/结尾/人物/道具）】\n"+brief.slice(0,3000)):"")
+          +"\n\n【任务】只输出三部分，每部分简短，绝对不要写正文：\n① 本章核心反转：一个改变局面性质、而非重复已有设定的具体事件（一句话）。\n② 三个候选落点：每个给“读者会以为…其实…”的具体落差，并写明它接住了前文哪条伏笔（引用上面的具体细节）。\n③ 推荐：选一个最能制造“意外但必然”的，一句话说明为何既意外又有伏笔支撑。\n要求：具体到场景与动作；禁止空泛的“要有创意”；禁止现代科技/网络词汇。";
+        const _ideaOut=await callAI({sys:_ideaSys,user:_ideaUser,temperature:1.0,max_tokens:6000,modelOverride:(ai.model||ai.genModel||"deepseek-flash"),thinkOverride:"enabled"});
+        const _idea=String(_ideaOut||"").trim();
+        if(_idea){
+          ideaBlock="\n\n【本章构思落点（策划阶段产出·惊喜方向；须在已定指令框架内落地，不得改写已定开头/结尾/人物/道具；与已定指令冲突时以已定指令为准）】\n"+_idea.slice(0,3000);
+          analysis=analysis+ideaBlock;   /* 并入 analysis：节拍卡规划与阶段二落笔同时吃到 */
+          toast("💡 已完成构思（思考链）：产出本章惊喜方向");
+        }
+      }catch(eIdea){ console.warn("[构思阶段] 非致命，跳过：",eIdea&&eIdea.message); }
+    }
     /* 阶段一点五：节拍卡规划。
        v169-A【消除双骨架】定稿指令的判定必须放在读取挂载卡之前。
        v166 把 _briefLocked 写在了 else 分支里，等于只跳过「新生成的节拍卡」，
@@ -14362,6 +14382,7 @@ async function aiDeepGen(){
       if(_narrForce) _nb+="\n\n【作者裁量】下列字段由作者现场决定，未给出具体值：" + "" + "。该处不得凭空发明新道具、新人物或新设定，只能沿用本章指令与前文中已出现的东西。";
       writeInstr+=_nb+`\n\n【本章专属指令】\n${brief}`;
     }
+    if(ideaBlock) writeInstr="【惊喜构思已附于上方【续写前必读分析】末尾，落笔时请在已定框架内尽量兑现其中的反转与落差，但不得改写任何已定事实】\n"+writeInstr;
     const userMsg=ctx+"\n\n"+writeInstr;
     const _base=body.trim();
     /* v143：正文生成取「续写模型」优先，与采样参数预览、模型候选链、流式参数三处保持一致。
@@ -14407,13 +14428,16 @@ async function aiDeepGen(){
     try{ busHook("afterGen", {vol:curVol||"none", num:num, text:out}); }catch(e){}
     /* v104：自动精修改为可关闭（默认开启，行为不变）。关闭后首稿即终稿。 */
     const _m2El=document.getElementById("m2AutoPolish");
-    const _m2Off=!!(_m2El && !_m2El.checked);
-    toast(_m2Off
-      ? ("已先分析前 "+prior.count+" 章，再生成第"+num+"章（首稿即终稿，自动精修已关闭。深度续写模型："+_genModel+"）")
-      : ("已先分析前 "+prior.count+" 章，再生成第"+num+"章，正在自动精修…（深度续写模型："+_genModel+"）"));
+    const _m2Always=!!(_m2El && _m2El.checked);   /* v208：勾选=每次都精修；默认不勾=按需触发 */
+    /* v208 P0-B：默认不再“每次都做减法精修吃掉灵感”。先本地零 token 体检，仅命中具体问题时触发一次精修；干净则首稿即终稿。回滚：勾选「自动精修」恢复每章都精修。 */
+    let _m2Audit=null; try{ if(typeof window.cpChapterAudit==="function") _m2Audit=window.cpChapterAudit(rawDraft,{}); }catch(eA){}
+    const _m2Issue=!!(_m2Audit && ( (_m2Audit.similes&&_m2Audit.similes.count>4) || ((_m2Audit.violations||[]).length>0) )); const _m2Need=_m2Always || _m2Issue;
+    toast(_m2Need
+      ? ("已先分析前 "+prior.count+" 章，再生成第"+num+"章"+(_m2Always?"，正在自动精修…":"，体检发现可修问题，触发一次针对性精修…")+"（模型："+_genModel+"）")
+      : ("已先分析前 "+prior.count+" 章，再生成第"+num+"章（本地体检通过，首稿即终稿，保留首稿灵气。模型："+_genModel+"）"));
     /* M2 自动精修闭环 · 第2步：首稿生成后自动跑一次整章精修（做减法），默认即精修版水平，原始首稿已入历史可回滚 */
     try{
-      if(_m2Off) throw new Error("__M2_SKIPPED__");
+      if(!_m2Need) throw new Error("__M2_SKIPPED__");
       btn.textContent="自动精修中…";
       const _refBody=rawDraft.trim();
       /* v106：精修也改读「滚动摘要 + 最近块」；修 D-3：原为 _volText.slice(0,4000)，
@@ -14433,7 +14457,8 @@ async function aiDeepGen(){
         "④ 保留草稿中好的段落、意象与金句，做增强而非推倒重写；删去真正的重复与空转，让节奏更紧凑；凡承载情绪层次、人物动机或感官细节的段落，一律压缩而非删除\n"+
         "⑤ 人物年龄/年级/亲属称谓严格符合分卷专属设定与 HP 原著考据；严禁成人化抒情、现代网络用语\n"+
         "⑥ "+povPhrase(curVol)+"\n"+
-        "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n\n";
+        "⑦ 只输出优化后的正文本身，禁止输出任何分析、说明或标记\n"+
+        "⑧ v208·保留灵气：首稿里最有灵气、最出格、最像真人写的 1–2 句（意外的转折、锋利的台词、刁钻的比喻、反常的动作）必须原样保留，不得判为“风格跳脱”而删改；精修只删真正的重复、空转与逻辑硬伤，不许把有性格的句子磨平\n\n";
       _rUser+="【文风一致性】延续前文既定语气与比喻系统；"+povPhrase(curVol)+"。允许本章情绪需要的强度超出前文，但不得无故更换叙述口吻与用词层级。\n";
       /* v153：旧文案「每段至少含一个具体感官细节」与 _styleReq ③「只在情绪转折与关键场景给一处」
          正面冲突，而精修是最后一道工序（结果直接落盘），等于把生成本该克制的细节又堆了回去。
@@ -14508,7 +14533,7 @@ async function aiDeepGen(){
         if(confirm("⚠️ 精修未执行，首稿已保留在正文框。\n\n点「确定」改用「整章精修」重试一次（非破坏性预览，点替换才覆盖）；点「取消」保留首稿。")){ try{ aiOptimize(); }catch(e){} }
         else toast("已保留首稿（精修未执行）");
       }
-    }catch(e){ if(e&&e.message==="__M2_SKIPPED__"){ toast("✅ 第"+num+"章已生成（首稿即终稿）"); } else { console.warn("自动精修失败(非致命,保留首稿):",e.message); if(confirm("⚠️ 精修未执行（"+String(e.message||"").split("\n")[0]+"），首稿已保留。\n\n点「确定」改用「整章精修」重试一次；点「取消」保留首稿。")){ try{ aiOptimize(); }catch(e2){} } else toast("已保留首稿（精修未执行）"); } }
+    }catch(e){ if(e&&e.message==="__M2_SKIPPED__"){ toast("✅ 第"+num+"章已生成（首稿即终稿·本地体检通过）"); } else { console.warn("自动精修失败(非致命,保留首稿):",e.message); if(confirm("⚠️ 精修未执行（"+String(e.message||"").split("\n")[0]+"），首稿已保留。\n\n点「确定」改用「整章精修」重试一次；点「取消」保留首稿。")){ try{ aiOptimize(); }catch(e2){} } else toast("已保留首稿（精修未执行）"); } }
     /* 后置纠偏：生成完成后异步扫描 OOC/冲突风险，结果追加到结果弹窗标题下（异步，不阻塞正文展示） */
       postGenCheck(finalOut, "第"+num+"章《"+title+"》").then(function(risks){
       if(risks){
